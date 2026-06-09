@@ -1,0 +1,592 @@
+import React, { useMemo, useState } from 'react';
+import { gql, useMutation, useQuery } from '@apollo/client';
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Col,
+  Divider,
+  Empty,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Tag,
+  Tooltip as AntTooltip,
+  Typography,
+  message,
+} from 'antd';
+import {
+  CheckSquareOutlined,
+  FileExcelOutlined,
+  FilePdfOutlined,
+  HistoryOutlined,
+} from '@ant-design/icons';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  EXPORT_REPORT_EXCEL,
+  GET_MONTHLY_TRENDS,
+  MonthlySnapshot,
+} from '../../graphql/mgmtAIPrompts';
+
+const { Text, Title } = Typography;
+
+const MGMT_CAVE_STATS_QUERY = gql`
+  query MgmtCaveStats {
+    mgmtCaveStats {
+      ach {
+        total
+        createdLast30d
+        byStatus { status count }
+      }
+      advops {
+        total
+        createdLast30d
+        byStatus  { status count }
+        byPriority { status count }
+      }
+      workbench {
+        total
+        createdLast30d
+        activeCount
+        byStatus  { status count }
+        byRobustness { status count }
+      }
+      rules {
+        total
+        createdLast30d
+        activeCount
+        deprecatedCount
+        withPlaybooksCount
+        standaloneCount
+      }
+    }
+  }
+`;
+
+const STATUS_COLORS: Record<string, string> = {
+  IDEA: '#bfbfbf',
+  RESEARCH: '#1677ff',
+  DEVELOPMENT: '#faad14',
+  APPROVED: '#52c41a',
+  REVIEW: '#722ed1',
+  TESTING: '#13c2c2',
+  DEPLOYED: '#389e0d',
+  TUNING: '#fa8c16',
+  FINISHED: '#52c41a',
+  CRITICAL: '#cf1322',
+  HIGH: '#fa541c',
+  MEDIUM: '#faad14',
+  LOW: '#52c41a',
+};
+
+function statusColor(status: string): string {
+  return STATUS_COLORS[status.toUpperCase()] ?? '#1677ff';
+}
+
+const ROBUSTNESS_LABELS: Record<string, string> = {
+  '0': 'None (0)',
+  '1': 'Ephemeral (1)',
+  '2': 'Tool (2)',
+  '3': 'LOLBin (3)',
+  '4': 'Behavior (4)',
+  '5': 'Invariant (5)',
+};
+
+const ALL_SECTIONS = ['ach', 'advops', 'workbench', 'rules'] as const;
+type SectionKey = typeof ALL_SECTIONS[number];
+
+const SECTION_LABELS: Record<SectionKey, string> = {
+  ach: 'ACH Analyses',
+  advops: 'AdvOps Hunts',
+  workbench: 'Detection Workbenches',
+  rules: 'Detection Rules',
+};
+
+interface StatusCount {
+  status: string;
+  count: number;
+}
+
+interface MgmtCaveStats {
+  ach: {
+    total: number;
+    createdLast30d: number;
+    byStatus: StatusCount[];
+  };
+  advops: {
+    total: number;
+    createdLast30d: number;
+    byStatus: StatusCount[];
+    byPriority: StatusCount[];
+  };
+  workbench: {
+    total: number;
+    createdLast30d: number;
+    activeCount: number;
+    byStatus: StatusCount[];
+    byRobustness: StatusCount[];
+  };
+  rules: {
+    total: number;
+    createdLast30d: number;
+    activeCount: number;
+    deprecatedCount: number;
+    withPlaybooksCount: number;
+    standaloneCount: number;
+  };
+}
+
+function downloadBase64File(fileData: string, filename: string, contentType: string) {
+  const binary = atob(fileData);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: string) => string }) {
+  const chartData = data.map((d) => ({ name: d.status, count: d.count }));
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" />
+        <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+        <Tooltip />
+        <Bar dataKey="count">
+          {chartData.map((entry) => (
+            <Cell key={entry.name} fill={colorFn(entry.name)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Historical Trends Panel
+// ---------------------------------------------------------------------------
+function HistoricalTrendsPanel() {
+  const { data, loading, error } = useQuery<{ monthlyTrends: MonthlySnapshot[] }>(
+    GET_MONTHLY_TRENDS,
+    { variables: { months: 6 } },
+  );
+
+  const snapshots = data?.monthlyTrends ?? [];
+
+  const trendData = useMemo(() =>
+    snapshots.map((snap) => {
+      let stats: Record<string, any> = {};
+      try { stats = typeof snap.stats === 'string' ? JSON.parse(snap.stats) : snap.stats; } catch {}
+      return {
+        label: snap.label,
+        achTotal: stats?.ach?.total ?? 0,
+        advopsTotal: stats?.advops?.total ?? 0,
+        wbTotal: stats?.workbench?.total ?? 0,
+        wbActive: stats?.workbench?.active_count ?? 0,
+        rulesTotal: stats?.rules?.total ?? 0,
+        rulesActive: stats?.rules?.active_count ?? 0,
+      };
+    }),
+  [snapshots]);
+
+  if (loading) return <Spin tip="Loading historical trends..." />;
+  if (error) return <Alert type="error" showIcon message="Failed to load trend data" description={error.message} />;
+  if (trendData.length === 0) {
+    return (
+      <Empty
+        description="No historical snapshots yet. Snapshots are captured automatically each month via the capture_monthly_snapshot management command."
+      />
+    );
+  }
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <Card title="Total Items by Domain (Month-over-Month)" size="small">
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="achTotal" name="ACH" stroke="#722ed1" strokeWidth={2} dot />
+            <Line type="monotone" dataKey="advopsTotal" name="AdvOps" stroke="#fa8c16" strokeWidth={2} dot />
+            <Line type="monotone" dataKey="wbTotal" name="Workbenches" stroke="#1677ff" strokeWidth={2} dot />
+            <Line type="monotone" dataKey="rulesTotal" name="Rules" stroke="#52c41a" strokeWidth={2} dot />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+      <Card title="Active / Deployed (Month-over-Month)" size="small">
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="wbActive" name="Deployed Workbenches" stroke="#389e0d" strokeWidth={2} dot />
+            <Line type="monotone" dataKey="rulesActive" name="Active Rules" stroke="#13c2c2" strokeWidth={2} dot />
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+    </Space>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom Report Builder
+// ---------------------------------------------------------------------------
+function CustomReportBuilder() {
+  const [selectedSections, setSelectedSections] = useState<SectionKey[]>([...ALL_SECTIONS]);
+  const [exportExcel, { loading: exportingExcel }] = useMutation(EXPORT_REPORT_EXCEL);
+
+  const handleToggle = (key: SectionKey, checked: boolean) => {
+    setSelectedSections((prev) =>
+      checked ? [...prev, key] : prev.filter((s) => s !== key),
+    );
+  };
+
+  const handleExportExcel = async () => {
+    if (selectedSections.length === 0) {
+      message.warning('Select at least one section to export.');
+      return;
+    }
+    try {
+      const res = await exportExcel({ variables: { sections: selectedSections } });
+      const payload = res.data?.exportReportExcel;
+      if (!payload?.success || !payload.fileData) {
+        message.error(payload?.message || 'Export failed.');
+        return;
+      }
+      downloadBase64File(payload.fileData, payload.filename, payload.contentType);
+      message.success('Excel report downloaded.');
+    } catch (err: any) {
+      message.error(err?.message || 'Export failed.');
+    }
+  };
+
+  return (
+    <Card
+      size="small"
+      title={<><CheckSquareOutlined /> Custom Report Builder</>}
+      extra={
+        <Space>
+          <AntTooltip title="Export selected sections as Excel (.xlsx)">
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={handleExportExcel}
+              loading={exportingExcel}
+              disabled={selectedSections.length === 0}
+            >
+              Export Excel
+            </Button>
+          </AntTooltip>
+        </Space>
+      }
+    >
+      <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+        Select which sections to include in the exported report.
+      </Text>
+      <Space wrap>
+        {ALL_SECTIONS.map((key) => (
+          <Checkbox
+            key={key}
+            checked={selectedSections.includes(key)}
+            onChange={(e) => handleToggle(key, e.target.checked)}
+          >
+            {SECTION_LABELS[key]}
+          </Checkbox>
+        ))}
+      </Space>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Reporting Tab
+// ---------------------------------------------------------------------------
+export const ReportingTab: React.FC = () => {
+  const { data, loading, error } = useQuery<{ mgmtCaveStats: MgmtCaveStats }>(MGMT_CAVE_STATS_QUERY);
+  const [exportExcel, { loading: exportingExcel }] = useMutation(EXPORT_REPORT_EXCEL);
+  const [activeView, setActiveView] = useState<'current' | 'trends' | 'builder'>('current');
+  const stats = data?.mgmtCaveStats;
+
+  const overviewTrend = useMemo(() => ([
+    { name: 'ACH', total: stats?.ach.total ?? 0, createdLast30d: stats?.ach.createdLast30d ?? 0 },
+    { name: 'AdvOps', total: stats?.advops.total ?? 0, createdLast30d: stats?.advops.createdLast30d ?? 0 },
+    { name: 'Workbench', total: stats?.workbench.total ?? 0, createdLast30d: stats?.workbench.createdLast30d ?? 0 },
+    { name: 'Rules', total: stats?.rules.total ?? 0, createdLast30d: stats?.rules.createdLast30d ?? 0 },
+  ]), [stats]);
+
+  const handleExportAllExcel = async () => {
+    try {
+      const res = await exportExcel({ variables: { sections: null } });
+      const payload = res.data?.exportReportExcel;
+      if (!payload?.success || !payload.fileData) {
+        message.error(payload?.message || 'Export failed.');
+        return;
+      }
+      downloadBase64File(payload.fileData, payload.filename, payload.contentType);
+      message.success('Excel report downloaded.');
+    } catch (err: any) {
+      message.error(err?.message || 'Export failed.');
+    }
+  };
+
+  return (
+    <div style={{ padding: '0 4px' }}>
+      {loading && (
+        <div style={{ marginBottom: 16 }}>
+          <Spin tip="Loading monthly report data..." />
+        </div>
+      )}
+      {error && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Failed to load report data"
+          description={error.message}
+        />
+      )}
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <Space>
+          <Button
+            type={activeView === 'current' ? 'primary' : 'default'}
+            onClick={() => setActiveView('current')}
+          >
+            Current Report
+          </Button>
+          <Button
+            icon={<HistoryOutlined />}
+            type={activeView === 'trends' ? 'primary' : 'default'}
+            onClick={() => setActiveView('trends')}
+          >
+            Historical Trends
+          </Button>
+          <Button
+            icon={<CheckSquareOutlined />}
+            type={activeView === 'builder' ? 'primary' : 'default'}
+            onClick={() => setActiveView('builder')}
+          >
+            Custom Report
+          </Button>
+        </Space>
+        <AntTooltip title="Export full report as Excel (.xlsx)">
+          <Button
+            icon={<FileExcelOutlined />}
+            onClick={handleExportAllExcel}
+            loading={exportingExcel}
+          >
+            Export Excel
+          </Button>
+        </AntTooltip>
+      </div>
+
+      {/* Historical Trends View */}
+      {activeView === 'trends' && (
+        <>
+          <Title level={4} style={{ marginTop: 0 }}>Historical Trends (Month-over-Month)</Title>
+          <HistoricalTrendsPanel />
+        </>
+      )}
+
+      {/* Custom Report Builder View */}
+      {activeView === 'builder' && (
+        <>
+          <Title level={4} style={{ marginTop: 0 }}>Custom Report Builder</Title>
+          <CustomReportBuilder />
+        </>
+      )}
+
+      {/* Current Report View */}
+      {activeView === 'current' && (
+        <>
+          <Title level={4} style={{ marginTop: 0 }}>Cross-Domain Overview</Title>
+          <Card loading={loading} style={{ marginBottom: 24 }} title="Total vs Created (30d)">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={overviewTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="total" name="Total" stroke="#1677ff" strokeWidth={2} />
+                <Line type="monotone" dataKey="createdLast30d" name="Created (30d)" stroke="#52c41a" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+
+          {/* ACH */}
+          <Title level={4} style={{ marginTop: 0 }}>ACH Analyses</Title>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} md={6}>
+              <Card loading={loading}>
+                <Statistic title="Total Analyses" value={stats?.ach.total ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={6}>
+              <Card loading={loading}>
+                <Statistic title="Created (30d)" value={stats?.ach.createdLast30d ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12}>
+              <Card title="By Status" loading={loading}>
+                <StatusBarChart data={stats?.ach.byStatus ?? []} colorFn={statusColor} />
+              </Card>
+            </Col>
+          </Row>
+
+          {/* AdvOps */}
+          <Title level={4} style={{ marginTop: 24 }}>AdvOps Hunts</Title>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} md={6}>
+              <Card loading={loading}>
+                <Statistic title="Total Hunts" value={stats?.advops.total ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={6}>
+              <Card loading={loading}>
+                <Statistic title="Created (30d)" value={stats?.advops.createdLast30d ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={24} md={12}>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Card title="By Status" loading={loading}>
+                    <StatusBarChart data={stats?.advops.byStatus ?? []} colorFn={statusColor} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Card title="By Priority" loading={loading}>
+                    <StatusBarChart data={stats?.advops.byPriority ?? []} colorFn={statusColor} />
+                  </Card>
+                </Col>
+              </Row>
+            </Col>
+          </Row>
+
+          {/* Workbench */}
+          <Title level={4} style={{ marginTop: 24 }}>Detection Workbenches</Title>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="Total Workbenches" value={stats?.workbench.total ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="Created (30d)" value={stats?.workbench.createdLast30d ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <AntTooltip title="Workbenches with status DEPLOYED — rule has been pushed to GitHub and the target platform and is actively running.">
+                  <Statistic
+                    title="Active (Deployed)"
+                    value={stats?.workbench.activeCount ?? 0}
+                    valueStyle={{ color: '#389e0d' }}
+                  />
+                </AntTooltip>
+              </Card>
+            </Col>
+            <Col xs={24} md={12}>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} sm={12}>
+                  <Card title="By Status" loading={loading}>
+                    <StatusBarChart data={stats?.workbench.byStatus ?? []} colorFn={statusColor} />
+                  </Card>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Card title="By Robustness Level" loading={loading}>
+                    <StatusBarChart
+                      data={(stats?.workbench.byRobustness ?? []).map((d) => ({
+                        status: ROBUSTNESS_LABELS[d.status] ?? d.status,
+                        count: d.count,
+                      }))}
+                      colorFn={() => '#1677ff'}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            </Col>
+          </Row>
+
+          {/* Rules */}
+          <Title level={4} style={{ marginTop: 24 }}>Detection Rules</Title>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="Total Rules" value={stats?.rules.total ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="Created (30d)" value={stats?.rules.createdLast30d ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic
+                  title="Active"
+                  value={stats?.rules.activeCount ?? 0}
+                  valueStyle={{ color: '#52c41a' }}
+                />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic
+                  title="Deprecated"
+                  value={stats?.rules.deprecatedCount ?? 0}
+                  valueStyle={{ color: '#cf1322' }}
+                />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="With Workbench" value={stats?.rules.withPlaybooksCount ?? 0} />
+              </Card>
+            </Col>
+            <Col xs={12} md={4}>
+              <Card loading={loading}>
+                <Statistic title="Standalone" value={stats?.rules.standaloneCount ?? 0} />
+              </Card>
+            </Col>
+          </Row>
+
+          <Divider />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {Object.entries(STATUS_COLORS).map(([s, c]) => (
+              <Tag key={s} color={c} style={{ marginBottom: 4 }}>{s}</Tag>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default ReportingTab;

@@ -1,0 +1,118 @@
+name: mdr_de_t1003_001
+metadata:
+  uuid: 12345678-1234-5678-1234-567812345678
+  schema: mdr::2.1
+  version: 1
+  tlp: AMBER
+  created: 2024-01-15T10:30:00Z
+  modified: 2024-01-15T10:30:00Z
+  author:
+    name: analyst_user
+    organisation: SecOps Team
+
+description: Detect LSASS memory access for credential dumping
+
+response:
+  alert_severity: CRITICAL
+
+configurations:
+  defender_for_endpoint:
+    query: |
+      // Detect LSASS memory access
+      // tags: credential-access, lsass, t1003
+      DeviceProcessEvents
+      | where ProcessCommandLine has_any ("lsass", "sekurlsa", "mimikatz")
+          or FileName in~ ("mimikatz.exe", "procdump.exe", "dumpert.exe")
+      | where InitiatingProcessFileName !in~ ("MsMpEng.exe", "SenseIR.exe")
+      | project Timestamp, DeviceName, FileName, ProcessCommandLine,
+          InitiatingProcessFileName, SHA256
+      | extend Severity = "Critical"
+    alert:
+      enabled: true
+    impacted_entities:
+      device: DeviceName
+
+  splunk:
+    query: |
+      index=windows sourcetype=WinEventLog:Security EventCode=4663
+      Object_Name="*lsass.exe" Access_Mask IN ("0x1410", "0x1438")
+      | where NOT [search index=windows sourcetype=WinEventLog:Security
+          Process_Name IN ("MsMpEng.exe", "SenseIR.exe")]
+      | stats count by _time, Computer, Process_Name, Process_ID
+      | where count > 0
+
+  sigma:
+    rule: |
+      title: LSASS Memory Access
+      id: 12345678-1234-5678-1234-567812345678
+      status: stable
+      description: Detects process accessing LSASS memory
+      references:
+        - https://attack.mitre.org/techniques/T1003/001/
+      author: SecOps Team
+      date: 2024/01/15
+      logsource:
+        product: windows
+        service: security
+      detection:
+        selection:
+          EventID: 4663
+          ObjectName|contains: 'lsass.exe'
+          AccessMask:
+            - '0x1410'
+            - '0x1438'
+        filter:
+          ProcessName|endswith:
+            - '\MsMpEng.exe'
+            - '\SenseIR.exe'
+        condition: selection and not filter
+      falsepositives:
+        - Security software
+        - System maintenance
+      level: critical
+      tags:
+        - attack.credential_access
+        - attack.t1003.001
+
+  wazuh:
+    rule: |
+      <rule id="100001" level="15">
+        <if_sid>60103</if_sid>
+        <field name="win.eventdata.objectName">lsass.exe</field>
+        <field name="win.eventdata.accessMask">0x1410|0x1438</field>
+        <description>LSASS memory access detected - possible credential dumping</description>
+        <mitre>
+          <id>T1003.001</id>
+        </mitre>
+      </rule>
+
+testing:
+  status: PASSED
+  robustness_level: 4
+  last_tested: 2024-01-15T14:00:00Z
+  results:
+    test_cases_passed: 12
+    test_cases_failed: 0
+    false_positive_rate: 0.02
+    detection_coverage: 0.95
+
+tuning:
+  time_window: 5m
+  threshold:
+    value: 1
+    operator: greater_than
+  aggregation:
+    field: DeviceName
+    function: count
+  suppression_window: 1h
+
+platforms:
+  - Windows
+  - Windows Server
+
+targets:
+  - Endpoints
+  - Servers
+
+domains:
+  - Enterprise

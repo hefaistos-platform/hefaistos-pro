@@ -1,0 +1,1485 @@
+import graphene
+import logging
+import hashlib
+import secrets
+import json
+from graphene_django import DjangoObjectType
+from graphene_file_upload.scalars import Upload
+from .models import (
+    CustomUser,
+    UserAiCredential,
+    PasswordResetToken,
+    UserMfaSettings,
+    MfaLoginChallenge,
+    MfaAuditEvent,
+    WebAuthnCredential,
+    WebAuthnChallenge,
+)
+from organizations.models import Organization
+from .decorators import role_required, Roles
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import authenticate
+from django.contrib.auth.signals import user_logged_in
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+from graphql_jwt.shortcuts import get_token
+import pyotp
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+from playbooks.models import PlaybookGraph  # Safe import (models only, avoids circular schema import)
+from ach.models import ACHAnalysis
+from advops.models import ADVOPSReport
+
+logger = logging.getLogger(__name__)
+
+class UserPlaybookGraphLiteType(DjangoObjectType):
+    """A lightweight PlaybookGraph representation for embedding in UserType without importing playbooks.schema (avoids circular import)."""
+    robustnessLevel = graphene.Int(source='robustness_level')
+
+    class Meta:
+        model = PlaybookGraph
+        fields = ('id', 'title', 'status', 'updated_at', 'robustness_level')
+
+class UserACHAnalysisLiteType(DjangoObjectType):
+    """Lite ACH Analysis representation."""
+    class Meta:
+        model = ACHAnalysis
+        fields = ('id', 'title', 'status', 'updated_at')
+
+class UserADVOPSReportLiteType(DjangoObjectType):
+    """Lite ADVOPS Report representation."""
+    class Meta:
+        model = ADVOPSReport
+        fields = ('id', 'hunt_id', 'hypothesis', 'status', 'priority', 'created_at')
+
+class UserType(DjangoObjectType):
+    avatar_url = graphene.String(description="Absolute URL to the user's avatar image (if set).")
+    created_playbooks = graphene.List(UserPlaybookGraphLiteType, description="Playbook graphs authored by the user (latest first).")
+    ach_analyses = graphene.List(UserACHAnalysisLiteType, description="ACH Analyses created by the user.")
+    advops_reports = graphene.List(UserADVOPSReportLiteType, description="ADVOPS Reports created by the user.")
+
+    # Expose AbstractUser fields needed by UserManagementPage
+    lastLogin = graphene.DateTime(source='last_login', description="Timestamp of last successful login.")
+    isStaff = graphene.Boolean(source='is_staff', description="True if user has Django staff privileges.")
+    isSuperuser = graphene.Boolean(source='is_superuser', description="True if user is a Django superuser.")
+
+    class Meta:
+        model = CustomUser
+        # Use 'fields' ONLY (omit password) to avoid Graphene assertion (cannot set both fields & exclude).
+        # Note: 'avatar' is NOT included here because we use a computed resolver 'avatar_url' instead.
+        fields = (
+            'id', 'username', 'email', 'role', 'bio', 'job_title', 'slack_handle', 'organization',
+            'email_notify_review_approved',
+            'email_notify_system_message',
+            'email_notify_chat_message',
+            'email_notify_workbench_edited',
+            'email_notify_news_digest',
+        )
+
+    def resolve_avatar_url(self, info):
+        if getattr(self, 'avatar', None):
+            try:
+                # MEDIA_URL is relative ('/media/'), so build_absolute_uri correctly
+                # resolves to the actual host/port the client is using (via
+                # X-Forwarded-Host + SECURE_PROXY_SSL_HEADER set in settings).
+                url = info.context.build_absolute_uri(self.avatar.url)
+            except Exception:
+                url = self.avatar.url
+            # Attempt cache-busting with modified timestamp
+            try:
+                storage = self.avatar.storage
+                ts = storage.get_modified_time(self.avatar.name).timestamp()
+                return f"{url}?v={int(ts)}"
+            except Exception:
+                return url
+        return None
+
+    def resolve_created_playbooks(self, info):
+        # Filter by author (self) – ordered by most recently updated
+        return PlaybookGraph.objects.filter(author=self).order_by('-updated_at')
+
+    def resolve_ach_analyses(self, info):
+        return ACHAnalysis.objects.filter(owner=self).order_by('-created_at')
+
+    def resolve_advops_reports(self, info):
+        return ADVOPSReport.objects.filter(author=self).order_by('-created_at')
+
+    id = graphene.String()  # Change from graphene.ID to String
+
+    @staticmethod
+    def resolve_id(obj, info):
+        """Convert UUID to string."""
+        return str(obj.id) if obj.id else None
+
+class Query(graphene.ObjectType):
+    me = graphene.Field(UserType)
+    all_users_in_org = graphene.List(UserType)
+    my_ai_credentials = graphene.List(graphene.String, description="Providers with configured AI keys for current user.")
+    mfa_status = graphene.Field(lambda: MfaStatusType)
+    my_webauthn_credentials = graphene.List(lambda: WebAuthnCredentialType)
+
+    def resolve_all_users_in_org(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        # Security: This query returns all users in the *caller's* organization
+        return CustomUser.objects.filter(organization=user.organization)
+
+    def resolve_my_ai_credentials(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return [c.provider for c in UserAiCredential.objects.filter(user=user)]
+
+    def resolve_mfa_status(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=user)
+        webauthn_count = WebAuthnCredential.objects.filter(user=user).count()
+        return MfaStatusType(
+            enabled=bool((settings_obj.totp_enabled and settings_obj.totp_secret) or webauthn_count > 0),
+            totp_enabled=bool(settings_obj.totp_enabled and settings_obj.totp_secret),
+            pending_enrollment=bool(settings_obj.pending_totp_secret),
+            backup_codes_remaining=len(settings_obj.backup_codes_hashes or []),
+            locked_until=settings_obj.locked_until,
+            webauthn_keys=webauthn_count,
+            admin_mfa_required=_mfa_required_for_user(user),
+        )
+
+    def resolve_my_webauthn_credentials(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return WebAuthnCredential.objects.filter(user=user).order_by('-created_at')
+
+    def resolve_me(self, info):
+        """
+        Resolve the current authenticated user.
+        The JWT middleware should set user on info.context.
+        """
+        try:
+            # info.context is the request object (graphql-jwt middleware sets it)
+            request = info.context
+            
+            # If context is a dict (shouldn't happen with jwt middleware, but be safe)
+            if isinstance(request, dict):
+                request = request.get('request')
+            
+            # Get the user from the request
+            if not request:
+                raise Exception("No request context available")
+                
+            user = getattr(request, 'user', None)
+            
+            if not user:
+                raise Exception("No user in request context")
+                
+            if user.is_anonymous:
+                raise Exception("User is not authenticated")
+            
+            logger.info(f"resolve_me: User authenticated as {user.username}")
+            return user
+            
+        except AttributeError as e:
+            logger.error(f"AttributeError in resolve_me: {str(e)}")
+            raise Exception(f"Context error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error in resolve_me: {str(e)}")
+            raise
+
+# Add this class
+class InviteUser(graphene.Mutation):
+    class Arguments:
+        username = graphene.String(required=True)
+        email = graphene.String(required=True)
+        password = graphene.String(required=True)
+        role = graphene.String(required=True)
+
+    user = graphene.Field(UserType)
+
+    class Meta:
+        description = "Creates (invites) a new user in the Admin's organization."
+
+    @staticmethod
+    @role_required([Roles.ADMIN]) # Only Admins can invite
+    def mutate(root, info, username, email, password, role):
+        user = info.context.user
+
+        # Validate Role
+        if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER]:
+            raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
+
+        # Validate Password
+        try:
+            validate_password(password)
+        except ValidationError as e:
+            raise Exception(f"Password validation failed: {', '.join(e)}")
+
+        # Create User
+        new_user = CustomUser(
+            username=username,
+            email=email,
+            role=role,
+            organization=user.organization # Create in the Admin's org
+        )
+        new_user.set_password(password)
+        new_user.save()
+
+        # Send welcome/invitation email to new user
+        try:
+            from core.email_service import get_email_service
+            from core.email_templates import login_link_text, login_link_html
+            service = get_email_service()
+            if service.is_configured() and email:
+                org_name = user.organization.name if user.organization else 'HEFAISTOS'
+                service.send_message(
+                    to=[email],
+                    subject=f'🎉 Welcome to {org_name} - Your HEFAISTOS Account',
+                    text=f"""Hello {username},
+
+You have been invited to join {org_name} on HEFAISTOS.
+
+Your account details:
+- Username: {username}
+- Temporary Password: {password}
+- Role: {role}
+- Organization: {org_name}
+
+Please log in and change your password immediately.
+
+{login_link_text()}
+
+If you have any questions, please contact your administrator.
+
+Best regards,
+The HEFAISTOS Team""",
+                    html=f"""<html><body>
+<h2>🎉 Welcome to {org_name}!</h2>
+<p>Hello <strong>{username}</strong>,</p>
+<p>You have been invited to join <strong>{org_name}</strong> on HEFAISTOS.</p>
+<h3>Your account details:</h3>
+<ul>
+<li><strong>Username:</strong> {username}</li>
+<li><strong>Temporary Password:</strong> <code style="background:#f0f0f0;padding:2px 6px;border-radius:3px;">{password}</code></li>
+<li><strong>Role:</strong> {role}</li>
+<li><strong>Organization:</strong> {org_name}</li>
+</ul>
+<p style="color:#c00;"><strong>⚠️ Please log in and change your password immediately.</strong></p>
+{login_link_html()}
+<p>If you have any questions, please contact your administrator.</p>
+<p>Best regards,<br/>The HEFAISTOS Team</p>
+</body></html>"""
+                )
+                logger.info(f"Sent invitation email to new user {username} at {email}")
+        except Exception as e:
+            logger.error(f"Failed to send invitation email to {email}: {e}")
+
+        return InviteUser(user=new_user)
+
+# Add this class
+class DeleteUser(graphene.Mutation):
+    class Arguments:
+        user_id = graphene.ID(required=True)
+
+    ok = graphene.Boolean()
+
+    class Meta:
+        description = "Deletes a user from the Admin's organization."
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, user_id):
+        user = info.context.user
+
+        # --- Security Check 1: Can't delete yourself ---
+        if str(user.id) == user_id:
+            raise Exception("You cannot delete your own account.")
+
+        # --- Security Check 2: Find user *in your org* ---
+        try:
+            user_to_delete = CustomUser.objects.get(
+                pk=user_id, 
+                organization=user.organization
+            )
+        except CustomUser.DoesNotExist:
+            raise Exception("User not found in your organization.")
+
+        # --- Security Check 3: Don't delete service accounts? (Optional)
+        if "svc" in user_to_delete.username:
+            raise Exception("Cannot delete service accounts from this UI.")
+
+        user_to_delete.delete()
+        return DeleteUser(ok=True)
+
+class UploadAvatar(graphene.Mutation):
+    class Arguments:
+        file = Upload(required=True)
+
+    user = graphene.Field(UserType)
+
+    @staticmethod
+    def mutate(root, info, file, **kwargs):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Not logged in")
+        content_type = getattr(file, 'content_type', '')
+        if content_type and not content_type.startswith('image/'):
+            raise Exception('Invalid file type. Please upload an image.')
+        size = getattr(file, 'size', None)
+        if size and size > 2 * 1024 * 1024:
+            raise Exception('Avatar exceeds 2MB size limit.')
+        name = getattr(file, 'name', 'avatar')
+        ext = name.split('.')[-1].lower() if '.' in name else 'png'
+        safe_ext = ext if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp'] else 'png'
+        filename = f"avatar_{user.id}.{safe_ext}"
+        try:
+            from PIL import Image
+            from io import BytesIO
+            from django.core.files.base import ContentFile
+            if hasattr(file, 'seek'):
+                file.seek(0)
+            img = Image.open(file)
+            img.load()  # Force Pillow to fully decode the image now so the file
+                        # pointer is at the end before we start processing, making
+                        # the except-block fallback safe to seek(0) and re-read
+            save_format = 'PNG' if safe_ext == 'png' else 'JPEG'
+            # JPEG does not support alpha; always convert to RGB for JPEG output
+            if save_format == 'JPEG':
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+            else:
+                if img.mode not in ('RGB', 'RGBA'):
+                    img = img.convert('RGB')
+            max_size = 256
+            w, h = img.size
+            if w < h:
+                new_w = max_size
+                new_h = int(h * (max_size / w))
+            else:
+                new_h = max_size
+                new_w = int(w * (max_size / h))
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+            left = (new_w - max_size) // 2
+            top = (new_h - max_size) // 2
+            img = img.crop((left, top, left + max_size, top + max_size))
+            buffer = BytesIO()
+            img.save(buffer, format=save_format, optimize=True)
+            buffer.seek(0)
+            user.avatar.save(filename, ContentFile(buffer.read()), save=True)
+        except Exception:
+            # Fallback: save original file; seek to beginning first since Pillow
+            # may have advanced the file pointer during processing
+            if hasattr(file, 'seek'):
+                file.seek(0)
+            user.avatar.save(filename, file, save=True)
+        return UploadAvatar(user=user)
+
+
+class UpdateProfile(graphene.Mutation):
+    """Allows authenticated users to update their profile information."""
+    class Arguments:
+        bio = graphene.String()
+        job_title = graphene.String()
+        slack_handle = graphene.String()
+
+    user = graphene.Field(UserType, description="Updated user profile with new bio, job_title, slack_handle.")
+
+    @staticmethod
+    def mutate(root, info, bio=None, job_title=None, slack_handle=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Not logged in")
+        
+        changed = False
+        if bio is not None:
+            user.bio = bio
+            changed = True
+        if job_title is not None:
+            user.job_title = job_title
+            changed = True
+        if slack_handle is not None:
+            user.slack_handle = slack_handle
+            changed = True
+        
+        if changed:
+            user.save(update_fields=['bio', 'job_title', 'slack_handle'])
+        
+        return UpdateProfile(user=user)
+
+
+class ChangePassword(graphene.Mutation):
+    """Allows authenticated users to change their own password."""
+    class Arguments:
+        current_password = graphene.String(required=True, description="User's current password for verification")
+        new_password = graphene.String(required=True, description="New password to set")
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, current_password, new_password):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        
+        # Verify current password
+        if not user.check_password(current_password):
+            raise Exception("Current password is incorrect")
+        
+        # Validate new password using Django's validators
+        try:
+            validate_password(new_password, user=user)
+        except ValidationError as e:
+            raise Exception(f"Password validation failed: {', '.join(e.messages)}")
+        
+        # Set the new password
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        
+        # Send password change confirmation email
+        try:
+            from core.email_service import get_email_service
+            from core.email_templates import login_link_text, login_link_html
+            service = get_email_service()
+            if service.is_configured() and user.email:
+                from django.utils import timezone
+                service.send_message(
+                    to=[user.email],
+                    subject='Password Changed - HEFAISTOS',
+                    text=f"""Hello {user.username},
+
+Your password was successfully changed on {timezone.now().strftime('%Y-%m-%d at %H:%M UTC')}.
+
+If you did not make this change, please contact your administrator immediately.
+
+{login_link_text()}
+
+Best regards,
+The HEFAISTOS Team""",
+                    html=f"""<html><body>
+<h2>Password Changed</h2>
+<p>Hello <strong>{user.username}</strong>,</p>
+<p>Your password was successfully changed on <strong>{timezone.now().strftime('%Y-%m-%d at %H:%M UTC')}</strong>.</p>
+<p><strong>If you did not make this change, please contact your administrator immediately.</strong></p>
+{login_link_html()}
+<p>Best regards,<br/>The HEFAISTOS Team</p>
+</body></html>"""
+                )
+                logger.info(f"Sent password change confirmation email to {user.username}")
+        except Exception as e:
+            logger.error(f"Failed to send password change email to {user.email}: {e}")
+        
+        logger.info(f"Password changed successfully for user: {user.username}")
+        return ChangePassword(ok=True, message="Password changed successfully")
+
+
+class UpdateNotificationPreferences(graphene.Mutation):
+    class Arguments:
+        emailNotifyReviewApproved = graphene.Boolean()
+        emailNotifySystemMessage = graphene.Boolean()
+        emailNotifyChatMessage = graphene.Boolean()
+        emailNotifyWorkbenchEdited = graphene.Boolean()
+        emailNotifyNewsDigest = graphene.Boolean()
+
+    user = graphene.Field(UserType)
+
+    class Meta:
+        description = "Updates email notification preferences for the current user."
+
+    @staticmethod
+    def mutate(root, info, **kwargs):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        changed = []
+        mapping = {
+            'emailNotifyReviewApproved': 'email_notify_review_approved',
+            'emailNotifySystemMessage': 'email_notify_system_message',
+            'emailNotifyChatMessage': 'email_notify_chat_message',
+            'emailNotifyWorkbenchEdited': 'email_notify_workbench_edited',
+            'emailNotifyNewsDigest': 'email_notify_news_digest',
+        }
+        for arg_key, field_name in mapping.items():
+            if arg_key in kwargs and kwargs[arg_key] is not None:
+                setattr(user, field_name, bool(kwargs[arg_key]))
+                changed.append(field_name)
+        if changed:
+            user.save(update_fields=changed)
+        return UpdateNotificationPreferences(user=user)
+
+class UserAiCredentialType(DjangoObjectType):
+    class Meta:
+        model = UserAiCredential
+        fields = ("id", "provider", "created_at", "updated_at")
+
+class SetUserAiKey(graphene.Mutation):
+    class Arguments:
+        provider = graphene.String(required=True)
+        api_key = graphene.String(required=True)
+
+    credential = graphene.Field(UserAiCredentialType)
+
+    @staticmethod
+    def mutate(root, info, provider, api_key):
+        import hashlib
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        provider_norm = provider.strip().lower()
+        if provider_norm not in [p.value for p in UserAiCredential.Provider]:
+            raise Exception("Unsupported provider")
+        fingerprint = hashlib.sha256(api_key.encode('utf-8')).hexdigest()
+        cred, _ = UserAiCredential.objects.update_or_create(
+            user=user,
+            provider=provider_norm,
+            defaults={
+                'encrypted_key': api_key,
+                'key_fingerprint': fingerprint,
+            }
+        )
+        return SetUserAiKey(credential=cred)
+
+class DeleteUserAiKey(graphene.Mutation):
+    class Arguments:
+        provider = graphene.String(required=True)
+
+    ok = graphene.Boolean()
+
+    @staticmethod
+    def mutate(root, info, provider):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        provider_norm = provider.strip().lower()
+        UserAiCredential.objects.filter(user=user, provider=provider_norm).delete()
+        return DeleteUserAiKey(ok=True)
+
+
+class MfaStatusType(graphene.ObjectType):
+    enabled = graphene.Boolean(required=True)
+    totp_enabled = graphene.Boolean(required=True)
+    pending_enrollment = graphene.Boolean(required=True)
+    backup_codes_remaining = graphene.Int(required=True)
+    locked_until = graphene.DateTime()
+    webauthn_keys = graphene.Int(required=True)
+    admin_mfa_required = graphene.Boolean(required=True)
+
+
+def _mfa_required_for_user(user):
+    return getattr(user, 'role', None) == Roles.ADMIN
+
+
+def _has_mfa_method(user, settings_obj):
+    has_totp = bool(settings_obj.totp_enabled and settings_obj.totp_secret)
+    has_webauthn = WebAuthnCredential.objects.filter(user=user).exists()
+    return has_totp or has_webauthn
+
+
+def _get_webauthn_rp_id():
+    return getattr(settings, 'WEBAUTHN_RP_ID', None) or "localhost"
+
+
+def _get_webauthn_origin():
+    configured = getattr(settings, 'WEBAUTHN_ORIGIN', None)
+    if configured:
+        return configured
+    frontend_url = getattr(settings, 'FRONTEND_URL', None)
+    if frontend_url:
+        return frontend_url.rstrip('/')
+    return "http://localhost:3000"
+
+
+class StartMfaLogin(graphene.Mutation):
+    class Arguments:
+        username = graphene.String(required=True)
+        password = graphene.String(required=True)
+
+    token = graphene.String()
+    mfa_required = graphene.Boolean(required=True)
+    challenge_id = graphene.String()
+    message = graphene.String()
+    has_webauthn = graphene.Boolean(required=True)
+
+    @staticmethod
+    def mutate(root, info, username, password):
+        user = authenticate(request=info.context, username=username, password=password)
+        if not user:
+            raise Exception("Invalid credentials")
+
+        mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
+        if mfa_settings.is_locked():
+            raise Exception("MFA verification is temporarily locked due to repeated failures")
+
+        has_webauthn = WebAuthnCredential.objects.filter(user=user).exists()
+        has_totp = bool(mfa_settings.totp_enabled and mfa_settings.totp_secret)
+        must_use_mfa = _mfa_required_for_user(user)
+
+        if must_use_mfa and not (has_totp or has_webauthn):
+            raise Exception("Administrator account requires MFA, but no MFA method is enrolled")
+
+        if not has_totp and not has_webauthn:
+            token = get_token(user)
+            user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+            return StartMfaLogin(token=token, mfa_required=False, challenge_id=None, message="Login successful", has_webauthn=False)
+
+        challenge = MfaLoginChallenge.create_for_user(user=user)
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.LOGIN_CHALLENGE_CREATED,
+            details={"challenge_id": challenge.challenge_id},
+        )
+        return StartMfaLogin(
+            token=None,
+            mfa_required=True,
+            challenge_id=challenge.challenge_id,
+            message="MFA required",
+            has_webauthn=has_webauthn,
+        )
+
+
+class VerifyMfaLogin(graphene.Mutation):
+    class Arguments:
+        challenge_id = graphene.String(required=True)
+        otp_code = graphene.String()
+        backup_code = graphene.String()
+
+    token = graphene.String()
+    ok = graphene.Boolean(required=True)
+    message = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, challenge_id, otp_code=None, backup_code=None):
+        try:
+            challenge = MfaLoginChallenge.objects.select_related('user').get(challenge_id=challenge_id, used=False)
+        except MfaLoginChallenge.DoesNotExist:
+            raise Exception("Invalid MFA challenge")
+
+        if challenge.is_expired():
+            raise Exception("MFA challenge expired")
+
+        user = challenge.user
+        mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
+        if mfa_settings.is_locked():
+            raise Exception("MFA verification is temporarily locked due to repeated failures")
+
+        verified = False
+        if otp_code:
+            secret = mfa_settings.totp_secret
+            if secret:
+                verified = pyotp.TOTP(secret).verify((otp_code or '').strip(), valid_window=1)
+        elif backup_code:
+            verified = mfa_settings.verify_and_consume_backup_code(backup_code)
+
+        if not verified:
+            challenge.failed_attempts = challenge.failed_attempts + 1
+            challenge.save(update_fields=['failed_attempts'])
+            mfa_settings.failed_attempts = mfa_settings.failed_attempts + 1
+            if mfa_settings.failed_attempts >= 5:
+                mfa_settings.lock_for_minutes(15)
+                MfaAuditEvent.objects.create(
+                    user=user,
+                    event=MfaAuditEvent.Event.LOGIN_LOCKED,
+                    details={"reason": "too_many_failed_attempts"},
+                )
+            mfa_settings.save(update_fields=['failed_attempts', 'locked_until'])
+            MfaAuditEvent.objects.create(
+                user=user,
+                event=MfaAuditEvent.Event.LOGIN_FAILED,
+                details={"challenge_id": challenge_id},
+            )
+            raise Exception("Invalid MFA code")
+
+        challenge.used = True
+        challenge.save(update_fields=['used'])
+        mfa_settings.failed_attempts = 0
+        mfa_settings.locked_until = None
+        mfa_settings.save(update_fields=['failed_attempts', 'locked_until', 'backup_codes_hashes'])
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.LOGIN_SUCCESS,
+            details={"challenge_id": challenge_id},
+        )
+        token = get_token(user)
+        user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+        return VerifyMfaLogin(token=token, ok=True, message="MFA verified")
+
+
+class WebAuthnCredentialType(DjangoObjectType):
+    class Meta:
+        model = WebAuthnCredential
+        fields = ("id", "name", "created_at", "last_used_at")
+
+
+class StartWebAuthnRegistration(graphene.Mutation):
+    class Arguments:
+        credential_name = graphene.String()
+
+    challenge_id = graphene.String(required=True)
+    options_json = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, credential_name=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        rp_id = _get_webauthn_rp_id()
+        excluded = [
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(c.credential_id))
+            for c in WebAuthnCredential.objects.filter(user=user)
+        ]
+        options = generate_registration_options(
+            rp_id=rp_id,
+            rp_name="HEFAISTOS",
+            user_id=str(user.id).encode("utf-8"),
+            user_name=user.username,
+            user_display_name=user.username,
+            exclude_credentials=excluded or None,
+        )
+        challenge = WebAuthnChallenge.create_challenge(
+            challenge_type=WebAuthnChallenge.ChallengeType.REGISTRATION,
+            challenge=bytes_to_base64url(options.challenge),
+            user=user,
+            username=user.username,
+        )
+        return StartWebAuthnRegistration(
+            challenge_id=challenge.challenge_id,
+            options_json=options_to_json(options),
+        )
+
+
+class FinishWebAuthnRegistration(graphene.Mutation):
+    class Arguments:
+        challenge_id = graphene.String(required=True)
+        credential = graphene.JSONString(required=True)
+        credential_name = graphene.String()
+
+    ok = graphene.Boolean(required=True)
+    credential_obj = graphene.Field(WebAuthnCredentialType)
+
+    @staticmethod
+    def mutate(root, info, challenge_id, credential, credential_name=None):
+        if isinstance(credential, str):
+            credential = json.loads(credential)
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        try:
+            challenge = WebAuthnChallenge.objects.get(
+                challenge_id=challenge_id,
+                user=user,
+                challenge_type=WebAuthnChallenge.ChallengeType.REGISTRATION,
+                used=False,
+            )
+        except WebAuthnChallenge.DoesNotExist:
+            raise Exception("Invalid WebAuthn registration challenge")
+        if challenge.is_expired():
+            raise Exception("WebAuthn registration challenge expired")
+
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=base64url_to_bytes(challenge.challenge),
+            expected_rp_id=_get_webauthn_rp_id(),
+            expected_origin=_get_webauthn_origin(),
+            require_user_verification=True,
+        )
+        cred = WebAuthnCredential.objects.create(
+            user=user,
+            name=(credential_name or "Security Key").strip() or "Security Key",
+            credential_id=bytes_to_base64url(verification.credential_id),
+            public_key=bytes_to_base64url(verification.credential_public_key),
+            sign_count=verification.sign_count,
+            transports=[],
+        )
+        challenge.used = True
+        challenge.save(update_fields=['used'])
+        return FinishWebAuthnRegistration(ok=True, credential_obj=cred)
+
+
+class StartWebAuthnMfaAuthentication(graphene.Mutation):
+    class Arguments:
+        login_challenge_id = graphene.String(required=True)
+
+    options_json = graphene.String(required=True)
+    webauthn_challenge_id = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, login_challenge_id):
+        try:
+            login_challenge = MfaLoginChallenge.objects.select_related('user').get(challenge_id=login_challenge_id, used=False)
+        except MfaLoginChallenge.DoesNotExist:
+            raise Exception("Invalid MFA login challenge")
+        if login_challenge.is_expired():
+            raise Exception("MFA challenge expired")
+        user = login_challenge.user
+        credentials = list(WebAuthnCredential.objects.filter(user=user))
+        if not credentials:
+            raise Exception("No security keys registered")
+        allow = [PublicKeyCredentialDescriptor(id=base64url_to_bytes(c.credential_id)) for c in credentials]
+        options = generate_authentication_options(
+            rp_id=_get_webauthn_rp_id(),
+            allow_credentials=allow,
+        )
+        challenge = WebAuthnChallenge.create_challenge(
+            challenge_type=WebAuthnChallenge.ChallengeType.AUTHENTICATION,
+            challenge=bytes_to_base64url(options.challenge),
+            user=user,
+            username=user.username,
+        )
+        return StartWebAuthnMfaAuthentication(
+            options_json=options_to_json(options),
+            webauthn_challenge_id=challenge.challenge_id,
+        )
+
+
+class VerifyWebAuthnMfaAuthentication(graphene.Mutation):
+    class Arguments:
+        login_challenge_id = graphene.String(required=True)
+        webauthn_challenge_id = graphene.String(required=True)
+        credential = graphene.JSONString(required=True)
+
+    ok = graphene.Boolean(required=True)
+    token = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, login_challenge_id, webauthn_challenge_id, credential):
+        if isinstance(credential, str):
+            credential = json.loads(credential)
+        try:
+            login_challenge = MfaLoginChallenge.objects.select_related('user').get(challenge_id=login_challenge_id, used=False)
+        except MfaLoginChallenge.DoesNotExist:
+            raise Exception("Invalid MFA login challenge")
+        if login_challenge.is_expired():
+            raise Exception("MFA challenge expired")
+        try:
+            webauthn_challenge = WebAuthnChallenge.objects.get(
+                challenge_id=webauthn_challenge_id,
+                challenge_type=WebAuthnChallenge.ChallengeType.AUTHENTICATION,
+                user=login_challenge.user,
+                used=False,
+            )
+        except WebAuthnChallenge.DoesNotExist:
+            raise Exception("Invalid WebAuthn challenge")
+        if webauthn_challenge.is_expired():
+            raise Exception("WebAuthn challenge expired")
+
+        credential_id = credential.get("id")
+        stored = WebAuthnCredential.objects.filter(user=login_challenge.user, credential_id=credential_id).first()
+        if not stored:
+            raise Exception("Security key is not registered for this user")
+
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=base64url_to_bytes(webauthn_challenge.challenge),
+            expected_rp_id=_get_webauthn_rp_id(),
+            expected_origin=_get_webauthn_origin(),
+            credential_public_key=base64url_to_bytes(stored.public_key),
+            credential_current_sign_count=stored.sign_count,
+            require_user_verification=True,
+        )
+        stored.sign_count = verification.new_sign_count
+        stored.last_used_at = timezone.now()
+        stored.save(update_fields=['sign_count', 'last_used_at'])
+        webauthn_challenge.used = True
+        webauthn_challenge.save(update_fields=['used'])
+        login_challenge.used = True
+        login_challenge.save(update_fields=['used'])
+        token = get_token(login_challenge.user)
+        user_logged_in.send(sender=login_challenge.user.__class__, request=info.context, user=login_challenge.user)
+        return VerifyWebAuthnMfaAuthentication(ok=True, token=token)
+
+
+class StartPasswordlessLogin(graphene.Mutation):
+    class Arguments:
+        username = graphene.String(required=True)
+
+    webauthn_challenge_id = graphene.String(required=True)
+    options_json = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, username):
+        try:
+            user = CustomUser.objects.get(username=username)
+        except CustomUser.DoesNotExist:
+            raise Exception("Invalid credentials")
+        creds = list(WebAuthnCredential.objects.filter(user=user))
+        if not creds:
+            raise Exception("No security key enrolled for this account")
+        allow = [PublicKeyCredentialDescriptor(id=base64url_to_bytes(c.credential_id)) for c in creds]
+        options = generate_authentication_options(
+            rp_id=_get_webauthn_rp_id(),
+            allow_credentials=allow,
+        )
+        challenge = WebAuthnChallenge.create_challenge(
+            challenge_type=WebAuthnChallenge.ChallengeType.PASSWORDLESS,
+            challenge=bytes_to_base64url(options.challenge),
+            user=user,
+            username=user.username,
+        )
+        return StartPasswordlessLogin(
+            webauthn_challenge_id=challenge.challenge_id,
+            options_json=options_to_json(options),
+        )
+
+
+class VerifyPasswordlessLogin(graphene.Mutation):
+    class Arguments:
+        webauthn_challenge_id = graphene.String(required=True)
+        credential = graphene.JSONString(required=True)
+
+    ok = graphene.Boolean(required=True)
+    token = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, webauthn_challenge_id, credential):
+        if isinstance(credential, str):
+            credential = json.loads(credential)
+        try:
+            challenge = WebAuthnChallenge.objects.select_related('user').get(
+                challenge_id=webauthn_challenge_id,
+                challenge_type=WebAuthnChallenge.ChallengeType.PASSWORDLESS,
+                used=False,
+            )
+        except WebAuthnChallenge.DoesNotExist:
+            raise Exception("Invalid passwordless challenge")
+        if challenge.is_expired():
+            raise Exception("Passwordless challenge expired")
+        user = challenge.user
+        credential_id = credential.get("id")
+        stored = WebAuthnCredential.objects.filter(user=user, credential_id=credential_id).first()
+        if not stored:
+            raise Exception("Security key is not registered for this user")
+
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=base64url_to_bytes(challenge.challenge),
+            expected_rp_id=_get_webauthn_rp_id(),
+            expected_origin=_get_webauthn_origin(),
+            credential_public_key=base64url_to_bytes(stored.public_key),
+            credential_current_sign_count=stored.sign_count,
+            require_user_verification=True,
+        )
+        stored.sign_count = verification.new_sign_count
+        stored.last_used_at = timezone.now()
+        stored.save(update_fields=['sign_count', 'last_used_at'])
+        challenge.used = True
+        challenge.save(update_fields=['used'])
+        token = get_token(user)
+        user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+        return VerifyPasswordlessLogin(ok=True, token=token)
+
+
+class DeleteWebAuthnCredential(graphene.Mutation):
+    class Arguments:
+        credential_id = graphene.ID(required=True)
+
+    ok = graphene.Boolean(required=True)
+
+    @staticmethod
+    def mutate(root, info, credential_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        WebAuthnCredential.objects.filter(id=credential_id, user=user).delete()
+        return DeleteWebAuthnCredential(ok=True)
+
+def _generate_backup_codes(count: int = 8):
+    return [secrets.token_hex(4).upper() for _ in range(count)]
+
+
+def _hash_backup_codes(codes):
+    return [hashlib.sha256(code.strip().encode('utf-8')).hexdigest() for code in codes]
+
+
+class BeginTotpEnrollment(graphene.Mutation):
+    secret = graphene.String(required=True)
+    otpauth_uri = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=user)
+        secret = pyotp.random_base32()
+        settings_obj.pending_totp_secret = secret
+        settings_obj.save(update_fields=['pending_totp_secret_encrypted', 'updated_at'])
+        issuer = "HEFAISTOS"
+        uri = pyotp.TOTP(secret).provisioning_uri(name=user.username, issuer_name=issuer)
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.TOTP_ENROLL_STARTED,
+            details={},
+        )
+        return BeginTotpEnrollment(secret=secret, otpauth_uri=uri)
+
+
+class ConfirmTotpEnrollment(graphene.Mutation):
+    ok = graphene.Boolean(required=True)
+    backup_codes = graphene.List(graphene.String, required=True)
+
+    class Arguments:
+        otp_code = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, otp_code):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=user)
+        pending_secret = settings_obj.pending_totp_secret
+        if not pending_secret:
+            raise Exception("No pending TOTP enrollment")
+        if not pyotp.TOTP(pending_secret).verify((otp_code or '').strip(), valid_window=1):
+            raise Exception("Invalid TOTP code")
+
+        backup_codes = _generate_backup_codes()
+        settings_obj.totp_secret = pending_secret
+        settings_obj.pending_totp_secret = ''
+        settings_obj.totp_enabled = True
+        settings_obj.backup_codes_hashes = _hash_backup_codes(backup_codes)
+        settings_obj.backup_codes_generated_at = timezone.now()
+        settings_obj.failed_attempts = 0
+        settings_obj.locked_until = None
+        settings_obj.save()
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.TOTP_ENROLL_CONFIRMED,
+            details={},
+        )
+        return ConfirmTotpEnrollment(ok=True, backup_codes=backup_codes)
+
+
+class DisableTotpMfa(graphene.Mutation):
+    ok = graphene.Boolean(required=True)
+
+    class Arguments:
+        current_password = graphene.String(required=True)
+        otp_code = graphene.String()
+        backup_code = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, current_password, otp_code=None, backup_code=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        if not user.check_password(current_password):
+            raise Exception("Current password is incorrect")
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=user)
+        if not settings_obj.totp_enabled:
+            return DisableTotpMfa(ok=True)
+
+        valid = False
+        if otp_code and settings_obj.totp_secret:
+            valid = pyotp.TOTP(settings_obj.totp_secret).verify((otp_code or '').strip(), valid_window=1)
+        elif backup_code:
+            valid = settings_obj.verify_and_consume_backup_code(backup_code)
+        if not valid:
+            raise Exception("Invalid MFA verification code")
+
+        settings_obj.totp_enabled = False
+        settings_obj.totp_secret = ''
+        settings_obj.pending_totp_secret = ''
+        settings_obj.backup_codes_hashes = []
+        settings_obj.failed_attempts = 0
+        settings_obj.locked_until = None
+        settings_obj.save()
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.TOTP_DISABLED,
+            details={},
+        )
+        return DisableTotpMfa(ok=True)
+
+
+class RegenerateBackupCodes(graphene.Mutation):
+    ok = graphene.Boolean(required=True)
+    backup_codes = graphene.List(graphene.String, required=True)
+
+    class Arguments:
+        current_password = graphene.String(required=True)
+        otp_code = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, current_password, otp_code):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        if not user.check_password(current_password):
+            raise Exception("Current password is incorrect")
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=user)
+        if not settings_obj.totp_enabled or not settings_obj.totp_secret:
+            raise Exception("TOTP MFA is not enabled")
+        if not pyotp.TOTP(settings_obj.totp_secret).verify((otp_code or '').strip(), valid_window=1):
+            raise Exception("Invalid TOTP code")
+
+        backup_codes = _generate_backup_codes()
+        settings_obj.backup_codes_hashes = _hash_backup_codes(backup_codes)
+        settings_obj.backup_codes_generated_at = timezone.now()
+        settings_obj.save(update_fields=['backup_codes_hashes', 'backup_codes_generated_at', 'updated_at'])
+        MfaAuditEvent.objects.create(
+            user=user,
+            event=MfaAuditEvent.Event.BACKUP_CODES_REGENERATED,
+            details={},
+        )
+        return RegenerateBackupCodes(ok=True, backup_codes=backup_codes)
+
+
+class AdminResetUserMfa(graphene.Mutation):
+    ok = graphene.Boolean(required=True)
+    message = graphene.String()
+
+    class Arguments:
+        user_id = graphene.ID(required=True)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, user_id):
+        caller = info.context.user
+        try:
+            if caller.is_superuser:
+                target = CustomUser.objects.get(pk=user_id)
+            else:
+                target = CustomUser.objects.get(pk=user_id, organization=caller.organization)
+        except CustomUser.DoesNotExist:
+            raise Exception("User not found in your organization.")
+
+        settings_obj, _ = UserMfaSettings.objects.get_or_create(user=target)
+        settings_obj.totp_enabled = False
+        settings_obj.totp_secret = ''
+        settings_obj.pending_totp_secret = ''
+        settings_obj.backup_codes_hashes = []
+        settings_obj.failed_attempts = 0
+        settings_obj.locked_until = None
+        settings_obj.save()
+        MfaLoginChallenge.objects.filter(user=target, used=False, expires_at__gt=timezone.now()).update(used=True)
+        WebAuthnCredential.objects.filter(user=target).delete()
+        WebAuthnChallenge.objects.filter(user=target, used=False, expires_at__gt=timezone.now()).update(used=True)
+        MfaAuditEvent.objects.create(
+            user=target,
+            event=MfaAuditEvent.Event.ADMIN_RESET,
+            details={"admin": caller.username},
+        )
+        return AdminResetUserMfa(ok=True, message="User MFA reset successfully.")
+
+
+class AdminResetUserPassword(graphene.Mutation):
+    """Allows an admin/superuser to reset any user's password."""
+    class Arguments:
+        user_id = graphene.ID(required=True)
+        new_password = graphene.String(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, user_id, new_password):
+        caller = info.context.user
+        try:
+            if caller.is_superuser:
+                target = CustomUser.objects.get(pk=user_id)
+            else:
+                target = CustomUser.objects.get(pk=user_id, organization=caller.organization)
+        except CustomUser.DoesNotExist:
+            raise Exception("User not found in your organization.")
+
+        # Validate new password
+        try:
+            validate_password(new_password, user=target)
+        except ValidationError as e:
+            raise Exception(f"Password validation failed: {', '.join(e.messages)}")
+
+        target.set_password(new_password)
+        target.save(update_fields=['password'])
+
+        # Optionally send notification email
+        try:
+            from core.email_service import get_email_service
+            from core.email_templates import login_link_text, login_link_html
+            service = get_email_service()
+            if service.is_configured() and target.email:
+                service.send_message(
+                    to=[target.email],
+                    subject='Your HEFAISTOS Password Was Reset',
+                    text=f"""Hello {target.username},
+
+Your password was reset by an administrator ({caller.username}). Please log in with your new password.
+
+{login_link_text()}
+
+If you did not expect this change, please contact your administrator immediately.
+
+Best regards,
+The HEFAISTOS Team""",
+                    html=f"""<html><body>
+<h2>Password Reset</h2>
+<p>Hello <strong>{target.username}</strong>,</p>
+<p>Your password was reset by an administrator (<strong>{caller.username}</strong>).</p>
+<p>Please log in with your new password.</p>
+{login_link_html()}
+<p>If you did not expect this change, please contact your administrator immediately.</p>
+<p>Best regards,<br/>The HEFAISTOS Team</p>
+</body></html>"""
+                )
+                logger.info(f"Sent password reset notification to {target.username}")
+        except Exception as e:
+            logger.error(f"Failed to send password reset email to {target.email}: {e}")
+
+        logger.info(f"Admin '{caller.username}' reset password for user '{target.username}'")
+        return AdminResetUserPassword(ok=True, message="Password reset successfully.")
+
+
+class RequestPasswordReset(graphene.Mutation):
+    """Allows a user to request a password reset token by providing their username or email."""
+    class Arguments:
+        username_or_email = graphene.String(required=True)
+
+    ok = graphene.Boolean()
+    # Return the reset token directly (admins can copy/share it when email is not configured)
+    reset_token = graphene.String()
+    message = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, username_or_email):
+        import secrets
+        from django.db.models import Q
+
+        # Find user by username or email (case-insensitive)
+        try:
+            target = CustomUser.objects.get(
+                Q(username__iexact=username_or_email) | Q(email__iexact=username_or_email)
+            )
+        except CustomUser.DoesNotExist:
+            # Do not reveal whether the user exists (security)
+            return RequestPasswordReset(ok=True, reset_token=None, message="If an account with that username/email exists, a reset link has been generated.")
+        except CustomUser.MultipleObjectsReturned:
+            # If multiple users match (shouldn't happen), use username exact match
+            try:
+                target = CustomUser.objects.get(username__iexact=username_or_email)
+            except CustomUser.DoesNotExist:
+                return RequestPasswordReset(ok=True, reset_token=None, message="If an account with that username/email exists, a reset link has been generated.")
+
+        # Invalidate any existing unused tokens for this user
+        PasswordResetToken.objects.filter(user=target, used=False).delete()
+
+        # Generate a secure token
+        token_value = secrets.token_urlsafe(32)
+        PasswordResetToken.objects.create(user=target, token=token_value)
+
+        # Try to send email with reset link
+        reset_token_to_return = None
+        try:
+            from core.email_service import get_email_service
+            service = get_email_service()
+            if service.is_configured() and target.email:
+                from django.conf import settings
+                frontend_url = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
+                reset_url = f"{frontend_url}/reset-password?token={token_value}"
+                service.send_message(
+                    to=[target.email],
+                    subject='HEFAISTOS Password Reset Request',
+                    text=f"""Hello {target.username},
+
+You requested a password reset. Use the link below to reset your password (valid for 1 hour):
+
+{reset_url}
+
+If you did not request a password reset, please ignore this message.
+
+Best regards,
+The HEFAISTOS Team""",
+                    html=f"""<html><body>
+<h2>Password Reset Request</h2>
+<p>Hello <strong>{target.username}</strong>,</p>
+<p>You requested a password reset. Click the link below to reset your password (valid for 1 hour):</p>
+<p><a href="{reset_url}" style="color:#2563eb;text-decoration:underline">{reset_url}</a></p>
+<p>If you did not request a password reset, please ignore this message.</p>
+<p>Best regards,<br/>The HEFAISTOS Team</p>
+</body></html>"""
+                )
+                logger.info(f"Sent password reset email to {target.username}")
+            else:
+                # Email not configured — return token so admin can share it
+                reset_token_to_return = token_value
+        except Exception as e:
+            logger.error(f"Failed to send password reset email: {e}")
+            reset_token_to_return = token_value
+
+        return RequestPasswordReset(
+            ok=True,
+            reset_token=reset_token_to_return,
+            message="If an account with that username/email exists, a reset link has been generated."
+        )
+
+
+class ResetPassword(graphene.Mutation):
+    """Allows a user to reset their password using a valid reset token."""
+    class Arguments:
+        token = graphene.String(required=True)
+        new_password = graphene.String(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, token, new_password):
+        try:
+            reset_token = PasswordResetToken.objects.select_related('user').get(token=token, used=False)
+        except PasswordResetToken.DoesNotExist:
+            raise Exception("Invalid or already-used password reset token.")
+
+        if reset_token.is_expired():
+            raise Exception("This password reset token has expired. Please request a new one.")
+
+        target = reset_token.user
+
+        # Validate new password
+        try:
+            validate_password(new_password, user=target)
+        except ValidationError as e:
+            raise Exception(f"Password validation failed: {', '.join(e.messages)}")
+
+        # Set new password and mark token as used
+        target.set_password(new_password)
+        target.save(update_fields=['password'])
+        reset_token.used = True
+        reset_token.save(update_fields=['used'])
+
+        logger.info(f"Password reset successfully for user '{target.username}' via token.")
+        return ResetPassword(ok=True, message="Password has been reset successfully. You can now log in.")
+
+
+class Mutation(graphene.ObjectType):
+    start_mfa_login = StartMfaLogin.Field()
+    verify_mfa_login = VerifyMfaLogin.Field()
+    start_webauthn_registration = StartWebAuthnRegistration.Field()
+    finish_webauthn_registration = FinishWebAuthnRegistration.Field()
+    start_webauthn_mfa_authentication = StartWebAuthnMfaAuthentication.Field()
+    verify_webauthn_mfa_authentication = VerifyWebAuthnMfaAuthentication.Field()
+    start_passwordless_login = StartPasswordlessLogin.Field()
+    verify_passwordless_login = VerifyPasswordlessLogin.Field()
+    delete_webauthn_credential = DeleteWebAuthnCredential.Field()
+    begin_totp_enrollment = BeginTotpEnrollment.Field()
+    confirm_totp_enrollment = ConfirmTotpEnrollment.Field()
+    disable_totp_mfa = DisableTotpMfa.Field()
+    regenerate_backup_codes = RegenerateBackupCodes.Field()
+    admin_reset_user_mfa = AdminResetUserMfa.Field()
+    invite_user = InviteUser.Field()
+    delete_user = DeleteUser.Field()
+    update_profile = UpdateProfile.Field()
+    upload_avatar = UploadAvatar.Field()
+    change_password = ChangePassword.Field()
+    # Admin edit user mutation
+    admin_update_user = graphene.Field(
+        UserType,
+        user_id=graphene.ID(required=True),
+        email=graphene.String(),
+        role=graphene.String(),
+        bio=graphene.String(),
+        job_title=graphene.String(),
+        slack_handle=graphene.String(),
+        organization_id=graphene.UUID(),
+    )
+    set_user_ai_key = SetUserAiKey.Field()
+    delete_user_ai_key = DeleteUserAiKey.Field()
+    update_notification_preferences = UpdateNotificationPreferences.Field()
+    admin_reset_user_password = AdminResetUserPassword.Field()
+    request_password_reset = RequestPasswordReset.Field()
+    reset_password = ResetPassword.Field()
+
+    @role_required([Roles.ADMIN])
+    def resolve_admin_update_user(self, info, user_id, email=None, role=None, bio=None, job_title=None, slack_handle=None, organization_id=None):
+        caller = info.context.user
+        try:
+            # Superusers can edit any user; org-scoped admins stay within their org
+            if caller.is_superuser:
+                target = CustomUser.objects.get(pk=user_id)
+            else:
+                target = CustomUser.objects.get(pk=user_id, organization=caller.organization)
+        except CustomUser.DoesNotExist:
+            raise Exception("User not found in your organization.")
+
+        changed_fields = []
+        if email is not None:
+            target.email = email
+            changed_fields.append('email')
+        if role is not None:
+            if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER]:
+                raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
+            target.role = role
+            changed_fields.append('role')
+        if bio is not None:
+            target.bio = bio
+            changed_fields.append('bio')
+        if job_title is not None:
+            target.job_title = job_title
+            changed_fields.append('job_title')
+        if slack_handle is not None:
+            target.slack_handle = slack_handle
+            changed_fields.append('slack_handle')
+
+        if organization_id is not None:
+            try:
+                new_org = Organization.objects.get(pk=organization_id)
+            except Organization.DoesNotExist:
+                raise Exception("Organization not found")
+
+            # Only superusers may assign outside their own org
+            if (not caller.is_superuser) and caller.organization_id != new_org.id:
+                raise Exception("Permission denied to assign user to that organization")
+
+            target.organization = new_org
+            # Use the actual field name for ForeignKey
+            changed_fields.append('organization_id')
+
+        if changed_fields:
+            target.save(update_fields=changed_fields)
+
+            # Send notification email to user about profile changes by admin
+            try:
+                from core.email_service import get_email_service
+                from core.email_templates import login_link_text, login_link_html
+                service = get_email_service()
+                if service.is_configured() and target.email:
+                    changes_text = ', '.join(changed_fields)
+                    service.send_message(
+                        to=[target.email],
+                        subject='Your HEFAISTOS Profile Was Updated',
+                        text=f"""Hello {target.username},
+
+Your profile was updated by an administrator ({caller.username}).
+
+Changed fields: {changes_text}
+
+If you did not expect this change, please contact your administrator.
+
+{login_link_text()}
+
+Best regards,
+The HEFAISTOS Team""",
+                        html=f"""<html><body>
+<h2>Profile Updated</h2>
+<p>Hello <strong>{target.username}</strong>,</p>
+<p>Your profile was updated by an administrator (<strong>{caller.username}</strong>).</p>
+<p><strong>Changed fields:</strong> {changes_text}</p>
+<p>If you did not expect this change, please contact your administrator.</p>
+{login_link_html()}
+<p>Best regards,<br/>The HEFAISTOS Team</p>
+</body></html>"""
+                    )
+                    logger.info(f"Sent profile update notification to {target.username}")
+            except Exception as e:
+                logger.error(f"Failed to send profile update email to {target.email}: {e}")
+
+        return target

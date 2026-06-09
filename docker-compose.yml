@@ -1,0 +1,496 @@
+services:
+  # --- PROXY SERVICE (Entry Point) ---
+  nginx:
+    image: nginx:alpine
+    container_name: hefaistos-proxy
+    ports:
+      - "8080:8080"   # HTTP (mapped to external 8080)
+      - "8443:8443"   # HTTPS (mapped to external 8443)
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/certs:/etc/nginx/certs
+      - media_data:/var/www/media:ro
+      - navigator_data:/navigator-data:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - hefaistos-net
+
+  # --- FRONTEND ---
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hefaistos-frontend
+    networks:
+      - hefaistos-net
+
+  backend:
+    build: ./backend
+    container_name: hefaistos-backend
+    ports:
+      - "7000:7000"  # KQL LSP Server
+      - "7001:7001"  # SPL LSP Server
+    volumes:
+      - ./backend:/app
+      - connector-token:/run/connector
+      - media_data:/app/media
+      - navigator_data:/navigator-data
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - CONNECTOR_TOKEN_FILE=/run/connector/token.jwt
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+      - MAILGUN_API_BASE=${MAILGUN_API_BASE:-https://api.eu.mailgun.net}
+      - MAILGUN_DOMAIN=${MAILGUN_DOMAIN:-}
+      - MAILGUN_FROM_EMAIL=${MAILGUN_FROM_EMAIL:-}
+      - FRONTEND_URL=${FRONTEND_URL:-https://detect.hefaistos.org}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-detect.hefaistos.org}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://detect.hefaistos.org}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost:8443,http://localhost:8080}
+      - ADMIN_ALLOWED_IP_RANGES=${ADMIN_ALLOWED_IP_RANGES:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12}
+      # LSP Configuration
+      - ENABLE_LSP_SERVERS=true
+      # OPENTIDE Configuration
+      - OPENTIDE_ENABLED=True
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+      - mailgun_api
+    healthcheck:
+      # Check both that Django is responding AND that the token file exists
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{__typename}\"}' && test -s /run/connector/token.jwt"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
+  # --- DATABASE ---
+  db:
+    image: postgres:14
+    container_name: hefaistos-db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=hefaistos_db
+      - POSTGRES_USER=hefaistos_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - hefaistos-net
+
+  # --- ELASTICSEARCH ---
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: hefaistos-elastic
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Memory limit for stability
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - hefaistos-net
+      
+  # --- RABBITMQ ---
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    hostname: rabbitmq
+    container_name: hefaistos-rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=hefaistos_mq
+    # Exposing management UI directly for debugging if needed, otherwise access via Nginx
+    ports:
+      - "15672:15672" 
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq/
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    secrets:
+      - rabbitmq_pass
+    entrypoint: sh -c 'RABBITMQ_DEFAULT_PASS=$$(cat /run/secrets/rabbitmq_pass | xargs) exec docker-entrypoint.sh rabbitmq-server'
+    networks:
+      - hefaistos-net
+
+  # --- CONNECTORS ---
+  
+  deploy_connector:
+    build:
+      context: .
+      dockerfile: ./deploy_connector/Dockerfile
+    command: python connector.py
+    volumes:
+      - ./deploy_connector:/app/deploy_connector
+      - connector-token:/run/connector:ro
+    environment:
+      - HEFAISTOS_API_URL=http://backend:8000/graphql
+      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+    secrets:
+      - rabbitmq_pass
+    depends_on:
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+
+  listener:
+    build: ./backend
+    command: python services/listener.py
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+
+  # --- AI GENERATION WORKER ---
+  # Processes async AI generation tasks (generate rule, suggest improvements, generate similar)
+  # published via RabbitMQ to avoid 504 gateway timeouts on long-running AI calls
+  ai_generation_worker:
+    build: ./backend
+    command: python services/ai_generation_worker.py
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
+  # --- OPENTIDE ENRICHMENT WORKER ---
+  # Processes async OpenTIDE metadata preview tasks published via RabbitMQ
+  opentide_enrichment_worker:
+    build: ./backend
+    command: python services/opentide_enrichment_worker.py
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
+  # --- SCHEDULER SERVICE ---
+  # Runs periodic tasks like scheduled repository pulls
+  scheduler:
+    build: ./backend
+    container_name: hefaistos-scheduler
+    command: python run_scheduler.py
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - DIGEST_DAY=MONDAY
+      - DIGEST_HOUR=8
+      - FRONTEND_URL=${FRONTEND_URL:-https://localhost:8443}
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+    restart: unless-stopped
+
+  # --- OPENTIDE HEF PUBLISH WORKER ---
+  opentide-hef-publish-worker:
+    build: ./backend
+    container_name: hefaistos-opentide-hef-publish-worker
+    command: python manage.py run_opentide_hef_publish_worker
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+      - OPENTIDE_ENABLED=True
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+    restart: unless-stopped
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+
+  opentide-hef-import-worker:
+    build: ./backend
+    container_name: hefaistos-opentide-hef-import-worker
+    command: python manage.py run_opentide_hef_import_worker
+    volumes:
+      - ./backend:/app
+    environment:
+      - DB_NAME=hefaistos_db
+      - DB_USER=hefaistos_user
+      - DB_HOST=db
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+      - OPENTIDE_ENABLED=True
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+    restart: unless-stopped
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+
+  notification_connector:
+    build:
+      context: .
+      dockerfile: ./notification_connector/Dockerfile
+    command: python notifier.py
+    volumes:
+      - ./notification_connector:/app/notification_connector
+      - connector-token:/run/connector:ro
+    environment:
+      - HEFAISTOS_API_URL=http://backend:8000/graphql
+      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - RABBITMQ_CONNECT_MAX_ATTEMPTS=25
+    secrets:
+      - rabbitmq_pass
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+
+  threat_intel_connector:
+    build:
+      context: .
+      dockerfile: ./threat_intel_connector/Dockerfile
+    command: python connector.py
+    volumes:
+      - ./threat_intel_connector:/app/threat_intel_connector
+      - connector-token:/run/connector:ro
+    environment:
+      - HEFAISTOS_API_URL=http://backend:8000/graphql
+      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+      - MISP_VERIFY_SSL=false
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - MISP_URL=https://misp.counterintel.cz
+    secrets:
+      - rabbitmq_pass
+      - misp_key
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - hefaistos-net
+
+  rule_connector:
+    build:
+      context: .
+      dockerfile: ./rule_connector/Dockerfile
+    command: python connector.py
+    volumes:
+      - ./rule_connector:/app/rule_connector
+      - ./hefaistos-sdk:/app/hefaistos-sdk
+      - connector-token:/run/connector:ro
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - HEFAISTOS_API_URL=http://backend:8000/graphql
+      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+    secrets:
+      - rabbitmq_pass
+    depends_on:
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
+  git_push_connector:
+    build:
+      context: .
+      dockerfile: ./git_push_connector/Dockerfile
+    command: python connector.py
+    volumes:
+      - ./git_push_connector:/app/git_push_connector
+      - ./hefaistos-sdk:/app/hefaistos-sdk
+      - connector-token:/run/connector:ro
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=hefaistos_mq
+      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      - HEFAISTOS_API_URL=http://backend:8000/graphql
+      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+    secrets:
+      - rabbitmq_pass
+    depends_on:
+      backend:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
+# --- VOLUMES & NETWORKS ---
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  elasticsearch_data:
+  connector-token:
+  media_data:
+  navigator_data:
+
+networks:
+  hefaistos-net:
+    driver: bridge
+
+# --- SECRETS DEFINITION ---
+secrets:
+  db_password:
+    file: ./.secrets/db_password
+  rabbitmq_pass:
+    file: ./.secrets/rabbitmq_pass
+  field_key:
+    file: ./.secrets/field_key
+  misp_key:
+    file: ./.secrets/misp_key
+  mailgun_api:
+    file: ./.secrets/mailgun_api

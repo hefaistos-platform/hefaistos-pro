@@ -1,0 +1,66 @@
+@import '@xyflow/react/dist/style.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* reverting to light-only, remove theme variables */
+
+/* --- Brand Logo styles --- */
+.logo-brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.logo-title {
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
+  font-weight: 800;
+  color: #0958d9; /* Blue */
+  letter-spacing: 2px;
+  font-size: 22px;
+}
+.logo-subtitle {
+  font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
+  font-weight: 700;
+  color: #1f2937; /* Near black */
+  letter-spacing: 1px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.logo-brand:hover .logo-title,
+.logo-brand:hover .logo-subtitle {
+  animation: logo-shake 350ms ease-in-out 0s 1;
+}
+
+@keyframes logo-shake {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(1px, -1px) rotate(-0.5deg); }
+  40% { transform: translate(-1px, 1px) rotate(0.6deg); }
+  60% { transform: translate(1px, 0px) rotate(-0.4deg); }
+  80% { transform: translate(-1px, -1px) rotate(0.5deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+
+/* Keep enlarged Capability Abstraction nodes above siblings on hover. */
+.react-flow__node-capability-abstraction {
+  overflow: visible !important;
+}
+
+.react-flow__node-capability-abstraction:hover {
+  z-index: 1000 !important;
+}

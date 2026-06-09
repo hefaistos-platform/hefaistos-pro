@@ -1,0 +1,282 @@
+{
+  "hex_format": "2.0",
+  "metadata": {
+    "name": "T1003.001 - Credential Dumping: LSASS Memory",
+    "description": "Detection and response playbook for LSASS credential dumping techniques used by attackers to extract credentials for lateral movement and privilege escalation.",
+    "version": "1.0.0",
+    "status": "DEVELOPMENT",
+    "tags": [
+      "credential-access",
+      "credential-dumping",
+      "lsass",
+      "windows",
+      "critical"
+    ],
+    "created_by": "security-team@example.com",
+    "created_date": "2026-02-05",
+    "last_modified": "2026-02-05"
+  },
+  "strategy": {
+    "mitre_techniques": [
+      {
+        "technique_id": "T1003.001",
+        "name": "Credential Dumping: LSASS Memory",
+        "tactic": "Credential Access"
+      }
+    ],
+    "detection_approach": "Behavioral detection of memory access patterns combined with process monitoring",
+    "selected_detection_method": "Windows Event Logs + EDR telemetry"
+  },
+  "capability_abstraction": {
+    "mission": {
+      "goal": "Detect and respond to LSASS credential dumping attacks within 15 minutes",
+      "description": "Organizations need visibility into attempts to extract credentials from LSASS process memory. LSASS stores credentials that can be exploited for lateral movement."
+    },
+    "layers": [
+      {
+        "layer_id": "layer_1",
+        "layer_name": "Detection Layer",
+        "capability": "Memory Access Monitoring",
+        "description": "Monitor for suspicious memory access to LSASS process using Sysmon Event 10",
+        "nodes": [
+          "node_1",
+          "node_2"
+        ]
+      },
+      {
+        "layer_id": "layer_2",
+        "layer_name": "Enrichment Layer",
+        "capability": "Process Context Analysis",
+        "description": "Enrich alerts with process ancestry, file operations, and network connections",
+        "nodes": [
+          "node_3"
+        ]
+      },
+      {
+        "layer_id": "layer_3",
+        "layer_name": "Response Layer",
+        "capability": "Automated Containment",
+        "description": "Execute automated response actions including isolation and notifications",
+        "nodes": [
+          "node_4",
+          "node_5"
+        ]
+      }
+    ]
+  },
+  "detection_logic": {
+    "detection_rule": "title: LSASS Credential Dumping Detection\nlogsource:\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    EventID: 10\n    TargetImage: '*lsass.exe'\n    GrantedAccess:\n      - '0x001F0FFF'\n      - '0x00100410'\n  filter:\n    SourceImage:\n      - 'C:\\\\Program Files*'\n  condition: selection and not filter\nfalsepositives:\n  - Legitimate memory analysis tools\n  - EDR software scans\nlevel: high",
+    "rule_format": "sigma",
+    "data_sources": [
+      {
+        "source": "Windows Event Logs",
+        "event_ids": [
+          10
+        ],
+        "provider": "Microsoft-Windows-Sysmon/Operational"
+      },
+      {
+        "source": "EDR Telemetry",
+        "event_type": "ProcessAccess",
+        "required_fields": [
+          "SourceImage",
+          "TargetImage",
+          "GrantedAccess",
+          "CallStack"
+        ]
+      }
+    ],
+    "blind_spots": [
+      "Detection may miss dumps using kernel-mode techniques or direct system calls",
+      "Encrypted memory regions may bypass heuristics",
+      "Timing-based evasion where attacker waits for normal activity patterns"
+    ]
+  },
+  "operational_context": {
+    "goal": "Enable SOC teams to detect and respond to LSASS memory dumps within 15 minutes",
+    "technical_context": "LSASS (Local Security Authority Subsystem Service) stores credentials and authentication tickets in memory. Attackers use tools like Mimikatz, Procdump, or custom tools to dump LSASS memory to extract plaintext credentials and hashes.",
+    "false_positives": [
+      "Legitimate memory analysis tools (WinDbg, IDA Pro)",
+      "Windows Defender and other security software scanning LSASS",
+      "Autoruns and other system utilities",
+      "Performance monitoring tools accessing process memory"
+    ],
+    "triage_guidance": "1. Review parent process and user account - service accounts dumping LSASS are highly suspicious\n2. Check if parent process is legitimate (cmd.exe, powershell.exe, etc.)\n3. Look for process creation events around the same time (Mimikatz process)\n4. Correlate with network events to identify command & control connections",
+    "response_playbook": "1. Isolate host from network (disable network interfaces)\n2. Collect memory dump from affected system\n3. Terminate the dumping process and parent process\n4. Force password reset for all accounts on the host\n5. Scan for credentials in logs (Event ID 4688 for process creation)\n6. Enable credential guard on domain controllers"
+  },
+  "testing": {
+    "test_scenario": "Use Mimikatz 'sekurlsa::logonpasswords' or Procdump to dump LSASS memory and verify detection fires",
+    "test_expected_output": "Alert should fire within 2 seconds with: process name (mimikatz/procdump), user account, source and target process information",
+    "test_environment": "Windows 10/11 or Server 2019+, domain-joined, with Sysmon enabled",
+    "target_file_path": "/detections/windows/credential_access/t1003_001_lsass_memory_dump.sigma"
+  },
+  "soar_configuration": {
+    "alert_trigger": "T1003_001_LSASS_Memory_Dump",
+    "default_severity": "HIGH",
+    "enrichment_steps": [
+      {
+        "step": 1,
+        "name": "Get Process Timeline",
+        "description": "Query EDR for all process events for the dumping process and parent",
+        "action": "query_edr"
+      },
+      {
+        "step": 2,
+        "name": "Check Credential Usage",
+        "description": "Check if dumped credentials were used in network logons",
+        "action": "query_logs"
+      },
+      {
+        "step": 3,
+        "name": "Get User Risk Profile",
+        "description": "Look up user in identity provider for risk assessment",
+        "action": "query_identity"
+      }
+    ],
+    "containment_steps": [
+      {
+        "step": 1,
+        "name": "Isolate Host",
+        "description": "Disconnect host from network to prevent lateral movement",
+        "action": "network_isolate"
+      },
+      {
+        "step": 2,
+        "name": "Terminate Dumping Process",
+        "description": "Kill the dumping process and parent processes",
+        "action": "process_kill"
+      },
+      {
+        "step": 3,
+        "name": "Force Credential Reset",
+        "description": "Reset passwords for all user accounts on the host",
+        "action": "reset_credentials"
+      }
+    ],
+    "notification_steps": [
+      {
+        "step": 1,
+        "channel": "slack",
+        "template": "lsass_dump_critical_alert",
+        "mentions": [
+          "@incident-response",
+          "@security-team"
+        ]
+      },
+      {
+        "step": 2,
+        "channel": "email",
+        "template": "credential_dumping_alert",
+        "recipients": [
+          "ciso@example.com"
+        ]
+      }
+    ]
+  },
+  "graph_structure": {
+    "nodes": [
+      {
+        "id": "node_1",
+        "name": "Windows Sysmon Event Parser",
+        "type": "detection",
+        "layer": "layer_1",
+        "description": "Parse and analyze Sysmon event ID 10 for LSASS access patterns",
+        "position": {
+          "x": 100,
+          "y": 100
+        },
+        "color": "#FF6B6B",
+        "mitre_techniques": [
+          "T1003.001"
+        ]
+      },
+      {
+        "id": "node_2",
+        "name": "Access Pattern Analysis",
+        "type": "detection",
+        "layer": "layer_1",
+        "description": "Analyze GrantedAccess values and call stacks to identify suspicious memory access",
+        "position": {
+          "x": 300,
+          "y": 100
+        },
+        "color": "#FF6B6B",
+        "mitre_techniques": [
+          "T1003.001"
+        ]
+      },
+      {
+        "id": "node_3",
+        "name": "Enrich with Process Ancestry",
+        "type": "enrichment",
+        "layer": "layer_2",
+        "description": "Add process tree, command line arguments, loaded DLLs, and network connections",
+        "position": {
+          "x": 200,
+          "y": 250
+        },
+        "color": "#4ECDC4",
+        "mitre_techniques": []
+      },
+      {
+        "id": "node_4",
+        "name": "Execute Containment",
+        "type": "response",
+        "layer": "layer_3",
+        "description": "Trigger automated network isolation and process termination",
+        "position": {
+          "x": 100,
+          "y": 400
+        },
+        "color": "#95E1D3",
+        "mitre_techniques": []
+      },
+      {
+        "id": "node_5",
+        "name": "Notify SOC & Create Incident",
+        "type": "response",
+        "layer": "layer_3",
+        "description": "Send notifications to SOC team and create incident in tracking system",
+        "position": {
+          "x": 300,
+          "y": 400
+        },
+        "color": "#95E1D3",
+        "mitre_techniques": []
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1",
+        "source": "node_1",
+        "target": "node_3",
+        "label": "trigger"
+      },
+      {
+        "id": "edge_2",
+        "source": "node_2",
+        "target": "node_3",
+        "label": "trigger"
+      },
+      {
+        "id": "edge_3",
+        "source": "node_3",
+        "target": "node_4",
+        "label": "trigger"
+      },
+      {
+        "id": "edge_4",
+        "source": "node_3",
+        "target": "node_5",
+        "label": "trigger"
+      }
+    ]
+  },
+  "audit_trail": {
+    "robustness_level": 4,
+    "data_source_robustness": "Sysmon Event 10 is reliable and comprehensive for process access monitoring",
+    "data_source_maturity": "Mature - available since Windows Vista with Sysmon support",
+    "notes": "This detection is part of the critical infrastructure monitoring program. Tested in production environment with low false positive rate (<0.1% per day).",
+    "validation_status": "Validated - Tested against Mimikatz and Procdump in controlled environment"
+  }
+}

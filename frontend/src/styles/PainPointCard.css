@@ -1,0 +1,88 @@
+/* Pain Point Card Styles */
+
+.pain-point-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.pain-point-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+}
+
+.status-icon {
+  font-size: 20px;
+  min-width: 24px;
+}
+
+.card-title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: bold;
+  color: #0f1419;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.card-description {
+  margin: 0 0 16px 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 12px;
+  color: #999;
+}
+
+.author {
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.comments-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #faad14;
+  font-weight: 500;
+}
+
+.date {
+  color: #ccc;
+}

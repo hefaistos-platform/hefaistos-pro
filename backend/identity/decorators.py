@@ -1,0 +1,63 @@
+from functools import wraps
+from django.core.exceptions import PermissionDenied
+from .models import CustomUser
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Expose the roles for easy import by other modules
+Roles = CustomUser.Roles
+
+def role_required(roles: list):
+    """
+    A decorator that checks if a logged-in user has one of the required roles.
+    `roles` is a list of strings, e.g., [Roles.ADMIN, Roles.ANALYST]
+    Service accounts (connector_svc or usernames containing 'service') bypass role checks.
+    Platform admins (is_superuser or is_staff) also bypass org-scoped role checks —
+    the ADMIN role is scoped to the user's own organization only.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Attempt to find 'info' object (which has .context)
+            info = None
+            for arg in args:
+                if hasattr(arg, 'context'):
+                    info = arg
+                    break
+            
+            if info:
+                user = info.context.user
+
+                # Check 1: Is user logged in?
+                if user.is_anonymous:
+                    logger.warning(f"[role_required] Anonymous user attempted to access {func.__name__}")
+                    raise PermissionDenied("You must be logged in to perform this action.")
+
+                # Check 2: Allow service accounts to bypass role checks
+                is_service_account = (
+                    hasattr(user, 'username') and 
+                    (user.username == 'connector_svc' or 'service' in user.username.lower())
+                )
+                
+                if is_service_account:
+                    logger.info(f"[role_required] Service account '{user.username}' allowed access to {func.__name__}")
+                    # Service accounts bypass role checks for connector operations
+                    return func(*args, **kwargs)
+
+                # Check 3: Allow platform admins (superuser/staff) to bypass org-scoped role checks
+                if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
+                    logger.info(f"[role_required] Platform admin '{user.username}' (superuser={user.is_superuser}, staff={user.is_staff}) allowed access to {func.__name__}")
+                    return func(*args, **kwargs)
+
+                # Check 4: Does user have the required role?
+                if user.role not in roles:
+                    logger.warning(f"[role_required] User '{user.username}' with role '{user.role}' denied access to {func.__name__} (requires {roles})")
+                    raise PermissionDenied(f"You do not have permission. Requires one of: {', '.join(roles)}")
+
+                logger.info(f"[role_required] User '{user.username}' with role '{user.role}' allowed access to {func.__name__}")
+
+            # If all checks pass, run the original mutation
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
