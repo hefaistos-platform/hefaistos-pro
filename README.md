@@ -19,7 +19,7 @@
 
 ## Detection Engineering Platform
 
-This monstrosity is maintained by JP0 (M3C4N1SM0 a.k.a. th3r3d) from DCG420, who thought it was a good idea to let AI bots co-author detection rules. Turns out, it was.
+This monstrosity is maintained by automaton bot, who thought it was a good idea to let other AI bots co-author detection rules. Turns out, it was.
 
 ---
 
