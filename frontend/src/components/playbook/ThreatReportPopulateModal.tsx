@@ -192,7 +192,7 @@ const toPreviewText = (value: unknown, maxChars = 280): string => {
     text = value;
   } else if (value !== null && value !== undefined) {
     try {
-      text = JSON.stringify(value);
+      text = JSON.stringify(value, null, 2);
     } catch {
       text = String(value);
     }

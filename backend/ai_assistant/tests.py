@@ -7,6 +7,7 @@ from playbooks.models import PlaybookGraph, CapabilityAbstraction
 
 from .schema import (
     _build_playbook_generation_context,
+    _coerce_markdown_text,
     _extract_threat_report_parts,
     _map_layer_name,
     _parse_capability_entries,
@@ -110,3 +111,28 @@ class ThreatReportMappingHelperTests(TestCase):
 
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["technique_code"], "T1055.002")
+
+    def test_coerce_markdown_text_formats_structured_technical_context(self):
+        structured = {
+            "tools_and_malware": [
+                {
+                    "name": "RUSTCLOAK",
+                    "role": "Rust-based loader delivered as malicious UnityPlayer.dll",
+                    "mapped_techniques": [
+                        "MITRE ATT&CK [T1574.002]",
+                        "MITRE ATT&CK [T1497.001]",
+                    ],
+                }
+            ],
+            "environment_preconditions": [
+                "Windows endpoint where a user can execute a lure via MITRE ATT&CK [T1204.002].",
+            ],
+        }
+
+        rendered = _coerce_markdown_text(structured)
+
+        self.assertIn("- **Tools And Malware:**", rendered)
+        self.assertIn("- **RUSTCLOAK:** Rust-based loader delivered as malicious UnityPlayer.dll", rendered)
+        self.assertIn("- **Mapped Techniques:**", rendered)
+        self.assertIn("- MITRE ATT&CK [T1574.002]", rendered)
+        self.assertIn("- **Environment Preconditions:**", rendered)

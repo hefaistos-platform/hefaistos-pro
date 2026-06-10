@@ -128,6 +128,112 @@ def _coerce_text(value) -> str:
     return str(value).strip()
 
 
+def _is_empty_value(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    if isinstance(value, (list, dict)) and len(value) == 0:
+        return True
+    return False
+
+
+def _humanize_key(raw_key: str) -> str:
+    text = str(raw_key or '')
+    text = re.sub(r'[_\-]+', ' ', text)
+    text = re.sub(r'(?<=[a-z0-9])([A-Z])', r' \1', text)
+    text = ' '.join(text.split()).strip()
+    if not text:
+        return ''
+    return text.title()
+
+
+def _summarize_structured_item(item: dict) -> str:
+    code = _coerce_text(_lookup_value(item, 'code', 'id', default=''))
+    name = _coerce_text(_lookup_value(item, 'name', 'title', default=''))
+    role = _coerce_text(_lookup_value(item, 'role', 'description', 'purpose', default=''))
+
+    if code and name and role:
+        return f"**{code} {name}:** {role}"
+    if code and name:
+        return f"**{code} {name}**"
+    if code and role:
+        return f"**{code}:** {role}"
+    if name and role:
+        return f"**{name}:** {role}"
+    if name:
+        return f"**{name}**"
+    if code:
+        return f"**{code}**"
+    return ''
+
+
+def _format_markdown_lines(value, indent: int = 0) -> list[str]:
+    lines: list[str] = []
+    prefix = '  ' * indent
+
+    if isinstance(value, dict):
+        for raw_key, raw_val in value.items():
+            if _is_empty_value(raw_val):
+                continue
+            label = _humanize_key(raw_key)
+            if isinstance(raw_val, (dict, list)):
+                lines.append(f"{prefix}- **{label}:**")
+                lines.extend(_format_markdown_lines(raw_val, indent + 1))
+            else:
+                lines.append(f"{prefix}- **{label}:** {_coerce_text(raw_val)}")
+        return lines
+
+    if isinstance(value, list):
+        for item in value:
+            if _is_empty_value(item):
+                continue
+            if isinstance(item, dict):
+                summary = _summarize_structured_item(item)
+                if summary:
+                    lines.append(f"{prefix}- {summary}")
+                    detail = {
+                        k: v for k, v in item.items()
+                        if _normalize_lookup_key(str(k)) not in {
+                            'code',
+                            'id',
+                            'name',
+                            'title',
+                            'role',
+                            'description',
+                            'purpose',
+                        }
+                    }
+                    if detail:
+                        lines.extend(_format_markdown_lines(detail, indent + 1))
+                    continue
+                lines.append(f"{prefix}-")
+                lines.extend(_format_markdown_lines(item, indent + 1))
+                continue
+            if isinstance(item, list):
+                lines.append(f"{prefix}-")
+                lines.extend(_format_markdown_lines(item, indent + 1))
+                continue
+            lines.append(f"{prefix}- {_coerce_text(item)}")
+        return lines
+
+    text = _coerce_text(value)
+    if text:
+        lines.append(f"{prefix}- {text}")
+    return lines
+
+
+def _coerce_markdown_text(value) -> str:
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (dict, list)):
+        lines = _format_markdown_lines(value)
+        return '\n'.join(lines).strip()
+    return str(value).strip()
+
+
 def _coerce_string_list(value) -> list[str]:
     items = []
     for raw in _coerce_list(value):
@@ -1627,7 +1733,7 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             default=[],
         )
         legacy_technique_codes = _extract_codes(techniques_raw, technique_pattern)
-        technical_context = _coerce_text(_lookup_value(part2, 'technical context'))
+        technical_context = _coerce_markdown_text(_lookup_value(part2, 'technical context'))
         technical_context_codes = _extract_codes(technical_context, technique_pattern)
         all_payload_technique_codes = _extract_codes(payload_obj, technique_pattern)
 
@@ -1663,10 +1769,10 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             [primary_choke_point_code] if primary_choke_point_code else technique_codes,
         )
 
-        strategic_goal = _coerce_text(_lookup_value(part2, 'strategic goal'))
-        response_playbook = _coerce_text(_lookup_value(part2, 'response playbook'))
-        false_positives = _coerce_text(_lookup_value(part2, 'known false positives', 'false positives'))
-        blind_spots = _coerce_text(_lookup_value(part2, 'blind spots & coverage gaps', 'blind spots'))
+        strategic_goal = _coerce_markdown_text(_lookup_value(part2, 'strategic goal'))
+        response_playbook = _coerce_markdown_text(_lookup_value(part2, 'response playbook'))
+        false_positives = _coerce_markdown_text(_lookup_value(part2, 'known false positives', 'false positives'))
+        blind_spots = _coerce_markdown_text(_lookup_value(part2, 'blind spots & coverage gaps', 'blind spots'))
 
         trigger_block = _lookup_value(part4, 'trigger and severity', default={}) or {}
         trigger = _coerce_text(_lookup_value(trigger_block, 'trigger', 'trigger condition', default=''))
@@ -1721,8 +1827,8 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             _lookup_value(part4, 'downstream correlation requirements', default={})
         )
 
-        validation_strategy = _coerce_text(_lookup_value(part5, 'validation strategy'))
-        choke_point_testing = _coerce_text(_lookup_value(part5, 'choke point testing'))
+        validation_strategy = _coerce_markdown_text(_lookup_value(part5, 'validation strategy'))
+        choke_point_testing = _coerce_markdown_text(_lookup_value(part5, 'choke point testing'))
 
         applied_fields: list[str] = []
         capabilities_added = 0
@@ -1794,7 +1900,7 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
                 context_sections.append(technical_context)
             if context_lines:
                 context_sections.append(
-                    "--- Threat Report Extraction Metadata ---\n" + '\n'.join(context_lines)
+                    "### Threat Report Extraction Metadata\n" + '\n'.join(context_lines)
                 )
             technical_context_block = '\n\n'.join(section for section in context_sections if section.strip())
             if technical_context_block:
