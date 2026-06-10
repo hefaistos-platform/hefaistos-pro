@@ -167,6 +167,41 @@ const resolvePart = (source: Record<string, unknown>, aliases: string[]): Record
   return {};
 };
 
+const resolveValue = (source: Record<string, unknown>, aliases: string[]): unknown => {
+  const lookup = Object.entries(source || {}).reduce<Record<string, unknown>>((acc, [key, val]) => {
+    acc[normalizeKey(key)] = val;
+    return acc;
+  }, {});
+  for (const alias of aliases) {
+    const aliasKey = normalizeKey(alias);
+    if (aliasKey in lookup) {
+      return lookup[aliasKey];
+    }
+    for (const [actualKey, value] of Object.entries(lookup)) {
+      if (aliasKey && (actualKey.startsWith(aliasKey) || actualKey.includes(aliasKey))) {
+        return value;
+      }
+    }
+  }
+  return undefined;
+};
+
+const toPreviewText = (value: unknown, maxChars = 280): string => {
+  let text = '';
+  if (typeof value === 'string') {
+    text = value;
+  } else if (value !== null && value !== undefined) {
+    try {
+      text = JSON.stringify(value);
+    } catch {
+      text = String(value);
+    }
+  }
+  const normalized = text.trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars).trimEnd()}...`;
+};
+
 const extractCodes = (source: unknown, regex: RegExp) => {
   const found: string[] = [];
   const walk = (node: unknown) => {
@@ -377,17 +412,34 @@ export const ThreatReportPopulateModal: React.FC<ThreatReportPopulateModalProps>
     const techniques = extractCodes(part1, /\bT\d{4}(?:\.\d{3})?\b/g);
     const strategyCodes = extractCodes(part1, /\bDET\d{3,}\b/g);
     const capabilityLibrary = part1['capability abstraction library'] || part1.capability_abstraction_library;
+    const primaryChokePoint = extractCodes(
+      resolveValue(part1, [
+        'primary choke point (mitre att&ck technique)',
+        'primary choke point',
+      ]),
+      /\bT\d{4}(?:\.\d{3})?\b/g
+    )[0] || '';
     const capabilityCount = Array.isArray(capabilityLibrary)
       ? capabilityLibrary.length
       : (typeof capabilityLibrary === 'object' && capabilityLibrary
           ? Object.keys(capabilityLibrary as Record<string, unknown>).length
           : 0);
+    const strategicGoal = toPreviewText(
+      resolveValue(part2, ['strategic goal']),
+      220
+    );
+    const technicalContext = toPreviewText(
+      resolveValue(part2, ['technical context']),
+      360
+    );
 
     return {
       techniques,
+      primaryChokePoint,
       strategyCodes,
       capabilityCount,
-      strategicGoal: String(part2['strategic goal'] || part2.strategic_goal || ''),
+      strategicGoal,
+      technicalContext,
     };
   }, [stagedResult]);
 
@@ -567,6 +619,10 @@ export const ThreatReportPopulateModal: React.FC<ThreatReportPopulateModalProps>
             {preview && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-800">
                 <div className="rounded border bg-white p-2">
+                  <p className="font-semibold mb-1">Primary choke point</p>
+                  <p>{preview.primaryChokePoint || 'Not provided'}</p>
+                </div>
+                <div className="rounded border bg-white p-2">
                   <p className="font-semibold mb-1">Mapped ATT&amp;CK techniques</p>
                   <p>{preview.techniques.length ? preview.techniques.join(', ') : 'None detected'}</p>
                 </div>
@@ -581,6 +637,10 @@ export const ThreatReportPopulateModal: React.FC<ThreatReportPopulateModalProps>
                 <div className="rounded border bg-white p-2">
                   <p className="font-semibold mb-1">Strategic goal (preview)</p>
                   <p>{preview.strategicGoal || 'Not provided'}</p>
+                </div>
+                <div className="rounded border bg-white p-2 md:col-span-2">
+                  <p className="font-semibold mb-1">Technical context (preview)</p>
+                  <p className="whitespace-pre-wrap">{preview.technicalContext || 'Not provided'}</p>
                 </div>
               </div>
             )}

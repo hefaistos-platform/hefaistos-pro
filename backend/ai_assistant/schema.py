@@ -174,6 +174,11 @@ def _extract_codes(value, pattern: str) -> list[str]:
     return found
 
 
+def _extract_first_code(value, pattern: str) -> str:
+    codes = _extract_codes(value, pattern)
+    return codes[0] if codes else ''
+
+
 def _merge_text(current: str, incoming: str, mode: str) -> str:
     current_norm = (current or '').strip()
     incoming_norm = (incoming or '').strip()
@@ -302,7 +307,12 @@ def _parse_capability_entries(part1: dict, fallback_technique_codes: list[str]) 
     for row in candidates:
         if not isinstance(row, dict):
             continue
-        technique_code = _coerce_text(_lookup_value(row, 'attack technique code', 'att&ck technique code', 'technique code'))
+        raw_technique_code = _coerce_text(
+            _lookup_value(row, 'attack technique code', 'att&ck technique code', 'technique code')
+        )
+        technique_code = _extract_first_code(raw_technique_code, r'\bT\d{4}(?:\.\d{3})?\b')
+        if not technique_code:
+            technique_code = raw_technique_code.upper()
         if not technique_code and fallback_technique_codes:
             technique_code = fallback_technique_codes[0]
         layer = _map_layer_name(_coerce_text(_lookup_value(row, 'abstraction layer')))
@@ -1598,6 +1608,17 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             )
 
         part1, part2, part4, part5 = _extract_threat_report_parts(payload_obj)
+        technique_pattern = r'\bT\d{4}(?:\.\d{3})?\b'
+
+        primary_choke_point_raw = _lookup_value(
+            part1,
+            'primary choke point (mitre att&ck technique)',
+            'primary choke point',
+            'primary choke point mitre attack technique',
+            default='',
+        )
+        primary_choke_point_codes = _extract_codes(primary_choke_point_raw, technique_pattern)
+
         techniques_raw = _lookup_value(
             part1,
             'mitre att&ck techniques',
@@ -1605,9 +1626,30 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             'mitre techniques',
             default=[],
         )
-        technique_codes = _extract_codes(techniques_raw, r'\bT\d{4}(?:\.\d{3})?\b')
+        legacy_technique_codes = _extract_codes(techniques_raw, technique_pattern)
+        technical_context = _coerce_text(_lookup_value(part2, 'technical context'))
+        technical_context_codes = _extract_codes(technical_context, technique_pattern)
+        all_payload_technique_codes = _extract_codes(payload_obj, technique_pattern)
+
+        primary_choke_point_code = ''
+        for candidates in (
+            primary_choke_point_codes,
+            legacy_technique_codes,
+            technical_context_codes,
+            all_payload_technique_codes,
+        ):
+            if candidates:
+                primary_choke_point_code = candidates[0]
+                break
+
+        technique_codes = _merge_list([], legacy_technique_codes, 'APPEND')
+        technique_codes = _merge_list(technique_codes, technical_context_codes, 'APPEND')
         if not technique_codes:
-            technique_codes = _extract_codes(payload_obj, r'\bT\d{4}(?:\.\d{3})?\b')
+            technique_codes = all_payload_technique_codes
+        if primary_choke_point_code:
+            technique_codes = [primary_choke_point_code] + [
+                code for code in technique_codes if code != primary_choke_point_code
+            ]
 
         detection_strategy_raw = _lookup_value(
             part1,
@@ -1616,7 +1658,10 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             default=[],
         )
         detection_strategy_codes = _extract_codes(detection_strategy_raw, r'\bDET\d{3,}\b')
-        capability_entries = _parse_capability_entries(part1, technique_codes)
+        capability_entries = _parse_capability_entries(
+            part1,
+            [primary_choke_point_code] if primary_choke_point_code else technique_codes,
+        )
 
         strategic_goal = _coerce_text(_lookup_value(part2, 'strategic goal'))
         response_playbook = _coerce_text(_lookup_value(part2, 'response playbook'))
@@ -1686,7 +1731,8 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
 
         with transaction.atomic():
             if technique_codes:
-                mapped_technique = _resolve_mitre_technique(technique_codes)
+                technique_for_graph = [primary_choke_point_code] if primary_choke_point_code else technique_codes
+                mapped_technique = _resolve_mitre_technique(technique_for_graph)
                 if mapped_technique and (mode_value == 'OVERWRITE' or not graph.mitre_technique_id):
                     graph.mitre_technique = mapped_technique
                     applied_fields.append('mitreTechnique')
@@ -1695,17 +1741,24 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             extraction_meta = {
                 'appliedAt': datetime.utcnow().isoformat() + 'Z',
                 'mode': mode_value,
+                'primaryChokePointCode': primary_choke_point_code,
                 'mitreTechniqueCodes': technique_codes,
                 'detectionStrategyCodes': detection_strategy_codes,
             }
             if mode_value == 'OVERWRITE':
                 selected_strategy['threatReportExtractions'] = [extraction_meta]
+                if primary_choke_point_code:
+                    selected_strategy['primaryChokePointCode'] = primary_choke_point_code
+                else:
+                    selected_strategy.pop('primaryChokePointCode', None)
                 selected_strategy['mitreTechniqueCodes'] = technique_codes
                 selected_strategy['detectionStrategyCodes'] = detection_strategy_codes
             else:
                 selected_strategy['threatReportExtractions'] = list(
                     selected_strategy.get('threatReportExtractions') or []
                 ) + [extraction_meta]
+                if primary_choke_point_code:
+                    selected_strategy['primaryChokePointCode'] = primary_choke_point_code
                 selected_strategy['mitreTechniqueCodes'] = _merge_list(
                     selected_strategy.get('mitreTechniqueCodes') or [],
                     technique_codes,
@@ -1720,8 +1773,14 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
             applied_fields.append('selectedStrategy')
 
             context_lines = []
+            if primary_choke_point_code:
+                context_lines.append(f"Primary choke point: {primary_choke_point_code}")
             if technique_codes:
-                context_lines.append(f"Mapped ATT&CK techniques: {', '.join(technique_codes)}")
+                related_techniques = [
+                    code for code in technique_codes if code != primary_choke_point_code
+                ] if primary_choke_point_code else technique_codes
+                if related_techniques:
+                    context_lines.append(f"Related ATT&CK techniques: {', '.join(related_techniques)}")
             if detection_strategy_codes:
                 context_lines.append(f"Detection strategy codes: {', '.join(detection_strategy_codes)}")
             if capability_entries:
@@ -1730,7 +1789,14 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
                     context_lines.append(
                         f"- [{row['abstraction_layer']}] {row['component_artifact']}"
                     )
-            technical_context_block = '\n'.join(context_lines)
+            context_sections = []
+            if technical_context:
+                context_sections.append(technical_context)
+            if context_lines:
+                context_sections.append(
+                    "--- Threat Report Extraction Metadata ---\n" + '\n'.join(context_lines)
+                )
+            technical_context_block = '\n\n'.join(section for section in context_sections if section.strip())
             if technical_context_block:
                 merged = _merge_text(graph.technical_context, technical_context_block, mode_value)
                 if merged != (graph.technical_context or ''):

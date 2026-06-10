@@ -94,3 +94,19 @@ class ThreatReportMappingHelperTests(TestCase):
         self.assertEqual(parsed[0]["abstraction_layer"], CapabilityAbstraction.AbstractionLayer.TOOL)
         self.assertEqual(parsed[1]["abstraction_layer"], CapabilityAbstraction.AbstractionLayer.PROCESS_BEHAVIOR)
         self.assertEqual(_map_layer_name("Network behavior"), CapabilityAbstraction.AbstractionLayer.NETWORK_BEHAVIOR)
+
+    def test_parse_capability_entries_normalizes_bracketed_technique_code(self):
+        part1 = {
+            "Capability Abstraction Library": [
+                {
+                    "ATT&CK Technique Code": "[T1055.002]",
+                    "Abstraction Layer": "API/EXPORT",
+                    "Component / Artifact": "NtWriteVirtualMemory",
+                }
+            ]
+        }
+
+        parsed = _parse_capability_entries(part1, fallback_technique_codes=[])
+
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["technique_code"], "T1055.002")
