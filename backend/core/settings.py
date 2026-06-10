@@ -24,9 +24,23 @@ def get_secret(secret_name, default_env_var=None):
         with open(secret_path, 'r') as f:
             return f.read().strip()
     except FileNotFoundError:
-        if default_env_var:
-            return os.environ.get(default_env_var)
-        return None
+        pass
+
+    if default_env_var:
+        # Support standard Docker-style *_FILE env variables even when
+        # running without the entrypoint helper (e.g., direct manage.py).
+        file_env_var = f"{default_env_var}_FILE"
+        file_path = os.environ.get(file_env_var)
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    return f.read().strip()
+            except FileNotFoundError:
+                pass
+
+        return os.environ.get(default_env_var)
+
+    return None
 # --- END HELPER ---
 
 # Import user-configurable deployment settings from backend/hefaistos/settings.py.
@@ -339,9 +353,20 @@ RABBITMQ_PASS = get_secret('rabbitmq_pass', 'RABBITMQ_PASS')
 # --- FIELD ENCRYPTION KEY ---
 # This key is used for encrypting credentials (e.g., Git tokens) in the database.
 # WARNING: If you lose this key, all encrypted data will be lost.
-# Configure via env var `FIELD_ENCRYPTION_KEY` (base64 urlsafe) or `FIELD_ENCRYPTION_KEY_FILE` pointing to a file.
+# Configure via env var `FIELD_ENCRYPTION_KEY` (base64 urlsafe),
+# `FIELD_ENCRYPTION_KEY_FILE` pointing to a file, or
+# legacy `FIELD_ENCRYPTION_KEY_PATH` (kept for backward compatibility).
 
 FIELD_ENCRYPTION_KEY = get_secret('field_key', 'FIELD_ENCRYPTION_KEY')
+if not FIELD_ENCRYPTION_KEY:
+    field_key_path = os.environ.get('FIELD_ENCRYPTION_KEY_PATH')
+    if field_key_path:
+        try:
+            with open(field_key_path, 'r') as f:
+                FIELD_ENCRYPTION_KEY = f.read().strip()
+        except FileNotFoundError:
+            pass
+
 if FIELD_ENCRYPTION_KEY:
     FIELD_ENCRYPTION_KEY = FIELD_ENCRYPTION_KEY.encode()
 
@@ -349,7 +374,8 @@ if not FIELD_ENCRYPTION_KEY:
     # In production, require explicit configuration
     if not DEBUG:
         raise RuntimeError(
-            "FIELD_ENCRYPTION_KEY not configured. Set FIELD_ENCRYPTION_KEY or FIELD_ENCRYPTION_KEY_FILE."
+            "FIELD_ENCRYPTION_KEY not configured. Set FIELD_ENCRYPTION_KEY, "
+            "FIELD_ENCRYPTION_KEY_FILE, or FIELD_ENCRYPTION_KEY_PATH."
         )
     # In development, warn and leave it unset (encryption helpers will no-op)
     # To enable encryption locally, set FIELD_ENCRYPTION_KEY or FIELD_ENCRYPTION_KEY_FILE.
