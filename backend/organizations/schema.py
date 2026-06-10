@@ -17,6 +17,18 @@ from .models import (
     DacDeploymentConfig,
     OrganizationAITaskConfig,
     OrganizationAITaskRun,
+    HefaistosInstanceIdentity,
+    HefaistosRemotePeer,
+    HefaistosInboundShareKey,
+    HefaistosPullJob,
+)
+from .sharing import (
+    build_key_hint,
+    generate_raw_share_key,
+    get_or_create_instance_identity,
+    hash_api_key,
+    normalize_scope,
+    pull_from_remote_peer,
 )
 from .ai_tasks import (
     ensure_org_task_configs,
@@ -283,6 +295,74 @@ class SmtpSettingsType(graphene.ObjectType):
 
 
 # ---------------------------------------------------------------------------
+# HEFAISTOS instance sharing (PULL-only)
+# ---------------------------------------------------------------------------
+
+class HefaistosInstanceIdentityType(graphene.ObjectType):
+    instance_id = graphene.UUID()
+    created_at = graphene.DateTime()
+    updated_at = graphene.DateTime()
+
+
+class HefaistosRemotePeerType(graphene.ObjectType):
+    id = graphene.UUID()
+    name = graphene.String()
+    remote_url = graphene.String()
+    remote_instance_id = graphene.UUID()
+    default_scope = graphene.String()
+    verify_ssl = graphene.Boolean()
+    allow_self_signed = graphene.Boolean()
+    tls_cert_fingerprint = graphene.String()
+    enabled = graphene.Boolean()
+    has_api_key = graphene.Boolean()
+    last_sync_at = graphene.DateTime()
+    last_sync_status = graphene.String()
+    last_sync_message = graphene.String()
+    created_at = graphene.DateTime()
+    updated_at = graphene.DateTime()
+
+    def resolve_has_api_key(self, info):
+        return bool(getattr(self, 'has_api_key', False))
+
+
+class HefaistosInboundShareKeyType(graphene.ObjectType):
+    id = graphene.UUID()
+    name = graphene.String()
+    key_hint = graphene.String()
+    allowed_scopes = graphene.List(graphene.String)
+    is_active = graphene.Boolean()
+    expires_at = graphene.DateTime()
+    last_used_at = graphene.DateTime()
+    created_at = graphene.DateTime()
+    updated_at = graphene.DateTime()
+
+    def resolve_allowed_scopes(self, info):
+        return [str(scope).upper() for scope in (self.allowed_scopes or []) if str(scope).strip()]
+
+
+class HefaistosPullJobType(graphene.ObjectType):
+    id = graphene.UUID()
+    peer_id = graphene.UUID()
+    peer_name = graphene.String()
+    requested_scope = graphene.String()
+    status = graphene.String()
+    summary = graphene.JSONString()
+    message = graphene.String()
+    started_at = graphene.DateTime()
+    completed_at = graphene.DateTime()
+    triggered_by_username = graphene.String()
+
+    def resolve_peer_id(self, info):
+        return self.peer_id
+
+    def resolve_peer_name(self, info):
+        return self.peer.name if getattr(self, 'peer', None) else None
+
+    def resolve_triggered_by_username(self, info):
+        return self.triggered_by.username if getattr(self, 'triggered_by', None) else None
+
+
+# ---------------------------------------------------------------------------
 # Organization AI Tasks
 # ---------------------------------------------------------------------------
 
@@ -465,6 +545,23 @@ class Query(graphene.ObjectType):
         PlatformCredentialType,
         description="List platform credentials configured for the current user's organisation.",
     )
+    hefaistos_instance_identity = graphene.Field(
+        HefaistosInstanceIdentityType,
+        description='Singleton HEFAISTOS instance identifier (UUID v5).',
+    )
+    hefaistos_remote_peers = graphene.List(
+        HefaistosRemotePeerType,
+        description='Configured remote HEFAISTOS peers for PULL synchronization (admin only).',
+    )
+    hefaistos_inbound_share_keys = graphene.List(
+        HefaistosInboundShareKeyType,
+        description='Inbound API keys allowing remote instances to PULL read-only data (admin only).',
+    )
+    hefaistos_pull_jobs = graphene.List(
+        HefaistosPullJobType,
+        limit=graphene.Int(required=False, default_value=20),
+        description='Recent HEFAISTOS PULL synchronization jobs (admin only).',
+    )
     org_ai_task_configs = graphene.List(
         OrgAITaskConfigType,
         description='Organization AI task configuration catalog (admin only).',
@@ -519,6 +616,41 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             raise GraphQLError("Authentication required")
         return PlatformCredential.objects.filter(organization=user.organization)
+
+    def resolve_hefaistos_instance_identity(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        return get_or_create_instance_identity()
+
+    def resolve_hefaistos_remote_peers(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
+            raise GraphQLError('Permission denied')
+        return HefaistosRemotePeer.objects.filter(organization=user.organization).order_by('name')
+
+    def resolve_hefaistos_inbound_share_keys(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
+            raise GraphQLError('Permission denied')
+        return HefaistosInboundShareKey.objects.filter(organization=user.organization).order_by('name')
+
+    def resolve_hefaistos_pull_jobs(self, info, limit=20):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
+            raise GraphQLError('Permission denied')
+        max_limit = max(1, min(int(limit or 20), 100))
+        return HefaistosPullJob.objects.filter(
+            organization=user.organization,
+        ).select_related(
+            'peer', 'triggered_by',
+        ).order_by('-started_at')[:max_limit]
 
     def resolve_org_ai_task_configs(self, info):
         user = info.context.user
@@ -2108,6 +2240,212 @@ class UpsertSmtpSettings(graphene.Mutation):
         )
 
 
+class SetHefaistosRemotePeer(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=False)
+        name = graphene.String(required=True)
+        remote_url = graphene.String(required=True)
+        remote_instance_id = graphene.UUID(required=True)
+        api_key = graphene.String(required=False)
+        default_scope = graphene.String(required=False, default_value='ALL')
+        verify_ssl = graphene.Boolean(required=False, default_value=True)
+        allow_self_signed = graphene.Boolean(required=False, default_value=False)
+        tls_cert_fingerprint = graphene.String(required=False)
+        enabled = graphene.Boolean(required=False, default_value=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    peer = graphene.Field(HefaistosRemotePeerType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(
+        root,
+        info,
+        name,
+        remote_url,
+        remote_instance_id,
+        id=None,
+        api_key=None,
+        default_scope='ALL',
+        verify_ssl=True,
+        allow_self_signed=False,
+        tls_cert_fingerprint=None,
+        enabled=True,
+    ):
+        from django.core.exceptions import ValidationError
+
+        user = info.context.user
+        normalized_scope = normalize_scope(default_scope)
+
+        peer = None
+        created = False
+        if id:
+            peer = HefaistosRemotePeer.objects.filter(pk=id, organization=user.organization).first()
+            if peer is None:
+                raise GraphQLError('Remote peer not found')
+        else:
+            peer = HefaistosRemotePeer(
+                organization=user.organization,
+                created_by=user,
+            )
+            created = True
+
+        peer.name = (name or '').strip()
+        peer.remote_url = (remote_url or '').strip().rstrip('/')
+        peer.remote_instance_id = remote_instance_id
+        peer.default_scope = normalized_scope
+        peer.verify_ssl = bool(verify_ssl)
+        peer.allow_self_signed = bool(allow_self_signed)
+        peer.tls_cert_fingerprint = (tls_cert_fingerprint or '').strip()
+        peer.enabled = bool(enabled)
+        if api_key is not None and str(api_key).strip():
+            peer.api_key = str(api_key).strip()
+
+        try:
+            peer.full_clean()
+            peer.save()
+        except ValidationError as exc:
+            details = getattr(exc, 'message_dict', None) or {'error': exc.messages}
+            raise GraphQLError(str(details))
+
+        return SetHefaistosRemotePeer(
+            success=True,
+            message='Remote peer created successfully' if created else 'Remote peer updated successfully',
+            peer=peer,
+        )
+
+
+class DeleteHefaistosRemotePeer(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, id):
+        user = info.context.user
+        deleted, _ = HefaistosRemotePeer.objects.filter(
+            pk=id,
+            organization=user.organization,
+        ).delete()
+        if not deleted:
+            return DeleteHefaistosRemotePeer(success=False, message='Remote peer not found')
+        return DeleteHefaistosRemotePeer(success=True, message='Remote peer deleted')
+
+
+class CreateHefaistosInboundShareKey(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=True)
+        allowed_scopes = graphene.List(graphene.String, required=True)
+        expires_at = graphene.DateTime(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    key = graphene.Field(HefaistosInboundShareKeyType)
+    raw_api_key = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, name, allowed_scopes, expires_at=None):
+        from django.core.exceptions import ValidationError
+
+        user = info.context.user
+        scopes = [normalize_scope(scope) for scope in (allowed_scopes or [])]
+        if not scopes:
+            raise GraphQLError('At least one scope is required')
+        if 'ALL' in scopes:
+            scopes = ['ALL']
+        else:
+            scopes = list(dict.fromkeys(scopes))
+
+        raw_key = generate_raw_share_key()
+        entry = HefaistosInboundShareKey(
+            organization=user.organization,
+            name=(name or '').strip(),
+            key_hash=hash_api_key(raw_key),
+            key_hint=build_key_hint(raw_key),
+            allowed_scopes=scopes,
+            expires_at=expires_at,
+            is_active=True,
+            created_by=user,
+        )
+        try:
+            entry.full_clean()
+            entry.save()
+        except ValidationError as exc:
+            details = getattr(exc, 'message_dict', None) or {'error': exc.messages}
+            raise GraphQLError(str(details))
+
+        return CreateHefaistosInboundShareKey(
+            success=True,
+            message='Inbound share key created. Store the key now; it will not be shown again.',
+            key=entry,
+            raw_api_key=raw_key,
+        )
+
+
+class RevokeHefaistosInboundShareKey(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    key = graphene.Field(HefaistosInboundShareKeyType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, id):
+        user = info.context.user
+        key_obj = HefaistosInboundShareKey.objects.filter(
+            pk=id,
+            organization=user.organization,
+        ).first()
+        if key_obj is None:
+            return RevokeHefaistosInboundShareKey(success=False, message='Share key not found', key=None)
+        key_obj.is_active = False
+        key_obj.save(update_fields=['is_active', 'updated_at'])
+        return RevokeHefaistosInboundShareKey(success=True, message='Share key revoked', key=key_obj)
+
+
+class PullFromRemoteHefaistos(graphene.Mutation):
+    class Arguments:
+        peer_id = graphene.UUID(required=True)
+        scope = graphene.String(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    job = graphene.Field(HefaistosPullJobType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, peer_id, scope=None):
+        user = info.context.user
+        peer = HefaistosRemotePeer.objects.filter(
+            pk=peer_id,
+            organization=user.organization,
+        ).first()
+        if peer is None:
+            return PullFromRemoteHefaistos(success=False, message='Remote peer not found', job=None)
+        if not peer.enabled:
+            return PullFromRemoteHefaistos(success=False, message='Remote peer is disabled', job=None)
+
+        try:
+            if scope:
+                normalize_scope(scope)
+            job = pull_from_remote_peer(peer, actor=user, requested_scope=scope or peer.default_scope)
+            return PullFromRemoteHefaistos(
+                success=True,
+                message=job.message or 'Pull completed',
+                job=job,
+            )
+        except Exception as exc:
+            # pull_from_remote_peer already records a FAILED job entry
+            return PullFromRemoteHefaistos(success=False, message=str(exc), job=None)
+
+
 class SetOrgAiTaskConfig(graphene.Mutation):
     class Arguments:
         task_key = graphene.String(required=True)
@@ -2339,3 +2677,8 @@ class Mutation(graphene.ObjectType):
     run_org_ai_task_now = RunOrgAiTaskNow.Field()
     update_dac_deployment_config = UpdateDacDeploymentConfig.Field()
     queue_opentide_hef_import = QueueOpenTideHefImport.Field()
+    set_hefaistos_remote_peer = SetHefaistosRemotePeer.Field()
+    delete_hefaistos_remote_peer = DeleteHefaistosRemotePeer.Field()
+    create_hefaistos_inbound_share_key = CreateHefaistosInboundShareKey.Field()
+    revoke_hefaistos_inbound_share_key = RevokeHefaistosInboundShareKey.Field()
+    pull_from_remote_hefaistos = PullFromRemoteHefaistos.Field()

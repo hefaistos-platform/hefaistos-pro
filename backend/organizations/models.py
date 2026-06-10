@@ -6,6 +6,13 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from cryptography.fernet import Fernet, InvalidToken
 
 MISP_INSTANCE_LIMIT = 5
+SHARING_SCOPE_CHOICES = [
+    ('WORKBENCH', 'Workbench'),
+    ('RULES', 'Rules'),
+    ('ACH', 'ACH'),
+    ('ALL', 'All'),
+]
+SHARING_SCOPE_VALUES = {choice[0] for choice in SHARING_SCOPE_CHOICES}
 
 # ---------------------------------------------------------------------------
 # Field-level encryption helpers (same pattern as rules/models.py)
@@ -678,3 +685,209 @@ class OpenTideHefImportJob(models.Model):
 
     def __str__(self):
         return f'HEFImportJob({self.id}) [{self.status}]'
+
+
+class HefaistosInstanceIdentity(models.Model):
+    """Singleton model storing this HEFAISTOS instance identity (UUID v5)."""
+
+    singleton_key = models.CharField(max_length=32, unique=True, default='default')
+    instance_id = models.UUIDField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'HEFAISTOS Instance Identity'
+        verbose_name_plural = 'HEFAISTOS Instance Identity'
+
+    def __str__(self):
+        return f'InstanceIdentity({self.instance_id})'
+
+
+class HefaistosRemotePeer(models.Model):
+    """Configured remote HEFAISTOS peer used for PULL-only synchronization."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='hefaistos_remote_peers',
+    )
+    name = models.CharField(max_length=120)
+    remote_url = models.URLField(max_length=512)
+    remote_instance_id = models.UUIDField()
+    _api_key = models.TextField(
+        db_column='api_key',
+        blank=True,
+        default='',
+        help_text='Encrypted API key for remote pull authentication.',
+    )
+    default_scope = models.CharField(
+        max_length=16,
+        choices=SHARING_SCOPE_CHOICES,
+        default='ALL',
+        help_text='Default content range to pull from the remote instance.',
+    )
+    verify_ssl = models.BooleanField(default=True)
+    allow_self_signed = models.BooleanField(default=False)
+    tls_cert_fingerprint = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        help_text='Optional SHA-256 TLS certificate fingerprint pin (hex).',
+    )
+    enabled = models.BooleanField(default=True)
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_sync_status = models.CharField(max_length=16, blank=True, default='')
+    last_sync_message = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        'identity.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_hefaistos_remote_peers',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = [('organization', 'name')]
+        verbose_name = 'HEFAISTOS Remote Peer'
+        verbose_name_plural = 'HEFAISTOS Remote Peers'
+
+    def __str__(self):
+        return f'{self.name} ({self.organization.name})'
+
+    @property
+    def api_key(self) -> str:
+        return _decrypt(self._api_key) or ''
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        self._api_key = _encrypt(value or '') or ''
+
+    @property
+    def has_api_key(self) -> bool:
+        return bool(self._api_key)
+
+    def clean(self):
+        if self.default_scope not in SHARING_SCOPE_VALUES:
+            raise ValidationError({'default_scope': 'Unsupported sharing scope.'})
+        if self.allow_self_signed and self.verify_ssl:
+            raise ValidationError(
+                {'verify_ssl': 'Disable strict SSL verification when allow_self_signed is enabled.'}
+            )
+        if self.tls_cert_fingerprint:
+            normalized = ''.join(ch for ch in self.tls_cert_fingerprint if ch.isalnum()).lower()
+            if len(normalized) != 64:
+                raise ValidationError(
+                    {'tls_cert_fingerprint': 'Fingerprint must be a SHA-256 hex value (64 hex chars).'}
+                )
+
+
+class HefaistosInboundShareKey(models.Model):
+    """Inbound API keys allowing remote instances to PULL read-only data."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='hefaistos_inbound_share_keys',
+    )
+    name = models.CharField(max_length=120)
+    key_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text='SHA-256 hex hash of the raw inbound key.',
+    )
+    key_hint = models.CharField(
+        max_length=24,
+        blank=True,
+        default='',
+        help_text='Non-sensitive key preview for admins (e.g. prefix/suffix).',
+    )
+    allowed_scopes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Allowed pull scopes for this key: WORKBENCH, RULES, ACH, ALL.',
+    )
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        'identity.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_hefaistos_inbound_share_keys',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        unique_together = [('organization', 'name')]
+        indexes = [
+            models.Index(fields=['organization', 'is_active']),
+            models.Index(fields=['key_hash']),
+        ]
+        verbose_name = 'HEFAISTOS Inbound Share Key'
+        verbose_name_plural = 'HEFAISTOS Inbound Share Keys'
+
+    def __str__(self):
+        return f'{self.name} ({self.organization.name})'
+
+    def clean(self):
+        invalid = [
+            scope for scope in (self.allowed_scopes or [])
+            if str(scope).upper() not in SHARING_SCOPE_VALUES
+        ]
+        if invalid:
+            raise ValidationError(
+                {'allowed_scopes': f'Unsupported scopes: {", ".join(sorted(set(map(str, invalid))))}'}
+            )
+
+
+class HefaistosPullJob(models.Model):
+    """Audit trail and status history for remote PULL synchronization jobs."""
+
+    class Status(models.TextChoices):
+        QUEUED = 'QUEUED', 'Queued'
+        PROCESSING = 'PROCESSING', 'Processing'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='hefaistos_pull_jobs',
+    )
+    peer = models.ForeignKey(
+        HefaistosRemotePeer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pull_jobs',
+    )
+    requested_scope = models.CharField(max_length=16, choices=SHARING_SCOPE_CHOICES, default='ALL')
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    summary = models.JSONField(default=dict, blank=True)
+    message = models.TextField(blank=True, default='')
+    triggered_by = models.ForeignKey(
+        'identity.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='hefaistos_pull_jobs',
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        verbose_name = 'HEFAISTOS Pull Job'
+        verbose_name_plural = 'HEFAISTOS Pull Jobs'
+
+    def __str__(self):
+        return f'PullJob({self.id}) [{self.status}]'

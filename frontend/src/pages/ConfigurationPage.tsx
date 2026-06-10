@@ -37,6 +37,7 @@ import { InviteUserModal } from '../components/InviteUserModal';
 import PlatformCredentials from './settings/PlatformCredentials';
 import HefPublishTargets from './settings/HefPublishTargets';
 import AITasksTab from './settings/AITasks';
+import InstanceSharing from './settings/InstanceSharing';
 
 // ---------------------------------------------------------------------------
 // GraphQL – Users & Org AI (from UserManagementPage)
@@ -1246,7 +1247,7 @@ const DacTab: React.FC<{ repositories: Repo[] }> = ({ repositories }) => {
 // Main ConfigurationPage
 // ---------------------------------------------------------------------------
 
-const VALID_TABS = ['users', 'hef', 'rules', 'misp', 'smtp', 'aitasks', 'orgai', 'platforms', 'dac'] as const;
+const VALID_TABS = ['users', 'hef', 'rules', 'misp', 'smtp', 'sharing', 'aitasks', 'orgai', 'platforms', 'dac'] as const;
 type TabKey = typeof VALID_TABS[number];
 
 export const ConfigurationPage: React.FC = () => {
@@ -1467,6 +1468,11 @@ export const ConfigurationPage: React.FC = () => {
       key: 'smtp',
       label: 'SMTP',
       children: <App><SMTPTab canManage={canAdminConfig} /></App>,
+    },
+    {
+      key: 'sharing',
+      label: 'Instance Sharing',
+      children: <App><InstanceSharing /></App>,
     },
     {
       key: 'aitasks',

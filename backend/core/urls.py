@@ -23,6 +23,7 @@ from django.views.static import serve
 from playbooks.views import attack_navigator_layer_json
 from ai_assistant.views import maieutic_ai, maieutic_hints, maieutic_validate
 from lsp_server.views import lsp_status
+from organizations.views import sharing_export, sharing_instance_info
 from django.views.decorators.csrf import csrf_exempt
 from graphene_file_upload.django import FileUploadGraphQLView
 from rest_framework_simplejwt.views import (
@@ -44,6 +45,9 @@ urlpatterns = [
     path('api/maieutic/hints', maieutic_hints, name='maieutic-hints'),
     path('api/maieutic/ai', maieutic_ai, name='maieutic-ai'),
     path('api/lsp/status', lsp_status, name='lsp-status'),
+    # Instance-to-instance sharing API (read-only remote export surface)
+    path('api/sharing/info', sharing_instance_info, name='sharing-info'),
+    path('api/sharing/export', sharing_export, name='sharing-export'),
     path('api/webhooks/', include('webhooks.urls')),
     # Serve user-uploaded media files (avatars, snapshots) in all environments
     re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),

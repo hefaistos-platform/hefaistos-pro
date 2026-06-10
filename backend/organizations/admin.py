@@ -7,6 +7,10 @@ from .models import (
 	OpenTideHefPublishJob,
 	OrganizationAITaskConfig,
 	OrganizationAITaskRun,
+	HefaistosInstanceIdentity,
+	HefaistosRemotePeer,
+	HefaistosInboundShareKey,
+	HefaistosPullJob,
 )
 
 
@@ -106,4 +110,72 @@ class OrganizationAITaskRunAdmin(admin.ModelAdmin):
 	readonly_fields = tuple(f.name for f in OrganizationAITaskRun._meta.fields)
 
 	def has_add_permission(self, request):  # pragma: no cover
+		return False
+
+
+@admin.register(HefaistosInstanceIdentity)
+class HefaistosInstanceIdentityAdmin(admin.ModelAdmin):
+	list_display = ("instance_id", "created_at", "updated_at")
+	readonly_fields = ("singleton_key", "instance_id", "created_at", "updated_at")
+
+	def has_add_permission(self, request):  # pragma: no cover
+		return False
+
+	def has_delete_permission(self, request, obj=None):  # pragma: no cover
+		return False
+
+
+@admin.register(HefaistosRemotePeer)
+class HefaistosRemotePeerAdmin(admin.ModelAdmin):
+	list_display = (
+		"name",
+		"organization",
+		"remote_url",
+		"remote_instance_id",
+		"default_scope",
+		"enabled",
+		"last_sync_at",
+		"last_sync_status",
+	)
+	list_filter = ("organization", "enabled", "default_scope", "verify_ssl", "allow_self_signed")
+	search_fields = ("name", "remote_url", "remote_instance_id")
+	readonly_fields = ("id", "created_at", "updated_at", "last_sync_at", "last_sync_status", "last_sync_message")
+
+
+@admin.register(HefaistosInboundShareKey)
+class HefaistosInboundShareKeyAdmin(admin.ModelAdmin):
+	list_display = (
+		"name",
+		"organization",
+		"key_hint",
+		"is_active",
+		"expires_at",
+		"last_used_at",
+		"updated_at",
+	)
+	list_filter = ("organization", "is_active")
+	search_fields = ("name", "key_hint", "key_hash")
+	readonly_fields = ("id", "key_hash", "created_at", "updated_at", "last_used_at")
+
+
+@admin.register(HefaistosPullJob)
+class HefaistosPullJobAdmin(admin.ModelAdmin):
+	list_display = (
+		"id",
+		"organization",
+		"peer",
+		"requested_scope",
+		"status",
+		"started_at",
+		"completed_at",
+		"triggered_by",
+	)
+	list_filter = ("organization", "status", "requested_scope")
+	search_fields = ("id", "message")
+	readonly_fields = tuple(f.name for f in HefaistosPullJob._meta.fields)
+
+	def has_add_permission(self, request):  # pragma: no cover
+		return False
+
+	def has_change_permission(self, request, obj=None):  # pragma: no cover
 		return False
