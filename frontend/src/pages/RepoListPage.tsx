@@ -8,8 +8,8 @@ import { ClockCircleOutlined, PlusOutlined, EditOutlined, DeleteOutlined, LockOu
 const GET_RULE_REPOSITORIES = gql`
   query GetRuleRepositories {
     me { username role }
-    allRuleRepositories { 
-      id name url username provider apiBaseUrl lastSync ruleCount 
+    allRuleRepositories {
+      id name url username provider apiBaseUrl verifySsl lastSync ruleCount
       autoPullEnabled autoPullSchedule nextScheduledPull
     }
   }
@@ -30,9 +30,9 @@ const PUSH_PLAYBOOK_TO_GIT = gql`
   }
 `;
 const CREATE_RULE_REPOSITORY = gql`
-  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String, $provider: String, $apiBaseUrl: String) {
-    createRuleRepository(name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl) {
-      repository { id name url username provider apiBaseUrl lastSync }
+  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String, $provider: String, $apiBaseUrl: String, $verifySsl: Boolean) {
+    createRuleRepository(name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl, verifySsl: $verifySsl) {
+      repository { id name url username provider apiBaseUrl verifySsl lastSync }
     }
   }
 `;
@@ -278,7 +278,7 @@ const MISPInstancesTab: React.FC<{ role: string }> = ({ role }) => {
 };
 
 interface MeData { username: string; role: string }
-interface Repo { id: string; name: string; url: string | null; username: string | null; provider?: string | null; apiBaseUrl?: string | null; lastSync: string | null; ruleCount?: number; autoPullEnabled?: boolean; autoPullSchedule?: string; nextScheduledPull?: string | null }
+interface Repo { id: string; name: string; url: string | null; username: string | null; provider?: string | null; apiBaseUrl?: string | null; verifySsl?: boolean; lastSync: string | null; ruleCount?: number; autoPullEnabled?: boolean; autoPullSchedule?: string; nextScheduledPull?: string | null }
 interface GetRepositoriesData { me?: MeData | null; allRuleRepositories: Repo[] }
 interface PullRepoResult { pullRuleRepository: { ok: boolean; message?: string; repository: { id: string; lastSync: string | null } } }
 interface CreateRepoResult { createRuleRepository: { repository: Repo } }
@@ -302,9 +302,9 @@ const RepoListPage: React.FC = () => {
     onError: (err) => message.error(err.message || 'Delete failed'),
   });
   const UPDATE_RULE_REPOSITORY = gql`
-    mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $provider: String, $apiBaseUrl: String, $autoPullEnabled: Boolean, $autoPullSchedule: String) {
-      updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, provider: $provider, apiBaseUrl: $apiBaseUrl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule) {
-        repository { id name url username provider apiBaseUrl lastSync autoPullEnabled autoPullSchedule nextScheduledPull }
+    mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $provider: String, $apiBaseUrl: String, $verifySsl: Boolean, $autoPullEnabled: Boolean, $autoPullSchedule: String) {
+      updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, provider: $provider, apiBaseUrl: $apiBaseUrl, verifySsl: $verifySsl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule) {
+        repository { id name url username provider apiBaseUrl verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull }
       }
     }
   `;
@@ -354,6 +354,7 @@ const RepoListPage: React.FC = () => {
       username: repo.username || '',
       provider: repo.provider || 'AUTO',
       apiBaseUrl: repo.apiBaseUrl || '',
+      verifySsl: repo.verifySsl ?? true,
       token: '',
       autoPullEnabled: repo.autoPullEnabled || false,
       autoPullSchedule: repo.autoPullSchedule || 'DISABLED',
@@ -572,7 +573,7 @@ const RepoListPage: React.FC = () => {
                     confirmLoading={saving || creating}
                     destroyOnClose
                   >
-                    <Form layout="vertical" form={form} preserve={false}>
+                    <Form layout="vertical" form={form} preserve={false} initialValues={{ verifySsl: true }}>
                       <Form.Item label="Name" name="name" rules={editingRepo ? [] : [{ required: true, message: 'Name is required' }]}>
                         <Input placeholder="My Rules Repo" disabled={false} />
                       </Form.Item>
@@ -602,6 +603,14 @@ const RepoListPage: React.FC = () => {
                         rules={[{ type: 'url', message: 'Enter a valid URL' }]}
                       >
                         <Input placeholder="https://gitlab.example.com/api/v4 (optional)" />
+                      </Form.Item>
+                      <Form.Item
+                        label="Verify SSL"
+                        name="verifySsl"
+                        valuePropName="checked"
+                        tooltip="Disable only for trusted self-signed certificates."
+                      >
+                        <Switch />
                       </Form.Item>
                       <Form.Item label="Token/Password" name="token">
                         <Input.Password placeholder="access token (optional)" autoComplete="new-password" />

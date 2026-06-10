@@ -46,12 +46,14 @@ def get_repo_client(
     token: str,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> RepoClient:
     return RepoClient(
         repo_url=repo_url,
         token=token,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
 
 
@@ -63,6 +65,7 @@ def _build_client(
     repo_url: Optional[str] = None,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> RepoClient:
     effective_repo_url = repo_url or f'https://github.com/{repo_owner}/{repo_name}'
     return RepoClient(
@@ -70,6 +73,7 @@ def _build_client(
         token=token,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
 
 
@@ -83,6 +87,7 @@ def _resolve_commit_sha(
     repo_url: Optional[str] = None,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> str:
     """Return the commit SHA to use for tree walking.
 
@@ -96,6 +101,7 @@ def _resolve_commit_sha(
         repo_url=repo_url,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
     return client.resolve_commit_sha(branch=branch, commit_sha=commit_sha)
 
@@ -109,6 +115,7 @@ def _fetch_tree(
     repo_url: Optional[str] = None,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> List[Dict[str, Any]]:
     """Fetch the recursive git tree for *sha* and return the list of tree items."""
     client = _build_client(
@@ -118,6 +125,7 @@ def _fetch_tree(
         repo_url=repo_url,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
     return client.fetch_tree(sha)
 
@@ -133,6 +141,7 @@ def discover_hef_bundles(
     repo_url: Optional[str] = None,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """Discover HEF bundle descriptors in a GitHub repository.
 
@@ -168,6 +177,7 @@ def discover_hef_bundles(
         repo_url=repo_url,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
     resolved_sha = client.resolve_commit_sha(branch=branch, commit_sha=commit_sha)
 
@@ -315,6 +325,7 @@ def fetch_bundle_files(
     repo_url: Optional[str] = None,
     provider: str = 'AUTO',
     api_base_url: Optional[str] = None,
+    verify_ssl: bool = True,
 ) -> Dict[str, Optional[str]]:
     """Fetch the YAML content of each file path in *file_paths*.
 
@@ -333,6 +344,7 @@ def fetch_bundle_files(
         repo_url=repo_url,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
 
     for role, path in file_paths.items():

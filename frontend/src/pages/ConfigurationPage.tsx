@@ -167,7 +167,7 @@ const GET_RULE_REPOSITORIES = gql`
   query GetRuleRepositories {
     me { username role }
     allRuleRepositories {
-      id name url username lastSync ruleCount
+      id name url username verifySsl lastSync ruleCount
       autoPullEnabled autoPullSchedule nextScheduledPull
     }
   }
@@ -188,9 +188,9 @@ const PUSH_PLAYBOOK_TO_GIT = gql`
   }
 `;
 const CREATE_RULE_REPOSITORY = gql`
-  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String) {
-    createRuleRepository(name: $name, url: $url, username: $username, token: $token) {
-      repository { id name url username lastSync }
+  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String, $verifySsl: Boolean) {
+    createRuleRepository(name: $name, url: $url, username: $username, token: $token, verifySsl: $verifySsl) {
+      repository { id name url username verifySsl lastSync }
     }
   }
 `;
@@ -200,9 +200,9 @@ const DELETE_RULE_REPOSITORY = gql`
   }
 `;
 const UPDATE_RULE_REPOSITORY = gql`
-  mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $autoPullEnabled: Boolean, $autoPullSchedule: String) {
-    updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule) {
-      repository { id name url username lastSync autoPullEnabled autoPullSchedule nextScheduledPull }
+  mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $verifySsl: Boolean, $autoPullEnabled: Boolean, $autoPullSchedule: String) {
+    updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, verifySsl: $verifySsl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule) {
+      repository { id name url username verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull }
     }
   }
 `;
@@ -438,6 +438,7 @@ interface Repo {
   name: string;
   url: string | null;
   username: string | null;
+  verifySsl?: boolean;
   lastSync: string | null;
   ruleCount?: number;
   autoPullEnabled?: boolean;
@@ -687,7 +688,15 @@ const RulesTab: React.FC = () => {
   const openCreateModal = () => { setEditingRepo(null); form.resetFields(); setIsModalOpen(true); };
   const openEditModal = (repo: Repo) => {
     setEditingRepo(repo);
-    form.setFieldsValue({ name: repo.name, url: repo.url || '', username: repo.username || '', token: '', autoPullEnabled: repo.autoPullEnabled || false, autoPullSchedule: repo.autoPullSchedule || 'DISABLED' });
+    form.setFieldsValue({
+      name: repo.name,
+      url: repo.url || '',
+      username: repo.username || '',
+      token: '',
+      verifySsl: repo.verifySsl ?? true,
+      autoPullEnabled: repo.autoPullEnabled || false,
+      autoPullSchedule: repo.autoPullSchedule || 'DISABLED',
+    });
     setIsModalOpen(true);
   };
 
@@ -809,7 +818,7 @@ const RulesTab: React.FC = () => {
           confirmLoading={saving || creating}
           destroyOnClose
         >
-          <Form layout="vertical" form={form} preserve={false}>
+          <Form layout="vertical" form={form} preserve={false} initialValues={{ verifySsl: true }}>
             <Form.Item label="Name" name="name" rules={editingRepo ? [] : [{ required: true, message: 'Name is required' }]}>
               <Input placeholder="My Rules Repo" />
             </Form.Item>
@@ -821,6 +830,14 @@ const RulesTab: React.FC = () => {
             </Form.Item>
             <Form.Item label="Token/Password" name="token">
               <Input.Password placeholder="access token (optional)" autoComplete="new-password" />
+            </Form.Item>
+            <Form.Item
+              label="Verify SSL"
+              name="verifySsl"
+              valuePropName="checked"
+              tooltip="Disable only for trusted self-signed certificates."
+            >
+              <Switch />
             </Form.Item>
             {editingRepo && (
               <>

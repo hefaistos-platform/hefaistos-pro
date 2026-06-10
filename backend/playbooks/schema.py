@@ -4763,7 +4763,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
         return compile_platform_rule_files(graph, target_folder)
 
     @staticmethod
-    def _create_github_commit(repo_owner, repo_name, branch, github_token, files, commit_message):
+    def _create_github_commit(repo_owner, repo_name, branch, github_token, files, commit_message, verify_ssl=True):
         headers = {
             'Authorization': f'token {github_token}',
             'Accept': 'application/vnd.github+json',
@@ -4771,7 +4771,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
         }
 
         ref_url = f'https://api.github.com/repos/{repo_owner}/{repo_name}/git/ref/heads/{branch}'
-        ref_resp = requests.get(ref_url, headers=headers)
+        ref_resp = requests.get(ref_url, headers=headers, verify=verify_ssl)
         if ref_resp.status_code != 200:
             error_msg = ref_resp.json().get('message', ref_resp.text)
             raise ValueError(f'Unable to access branch {branch}: {error_msg}')
@@ -4781,7 +4781,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
             raise ValueError(f'Unable to resolve HEAD SHA for branch {branch}')
 
         commit_url = f'https://api.github.com/repos/{repo_owner}/{repo_name}/git/commits/{base_commit_sha}'
-        commit_resp = requests.get(commit_url, headers=headers)
+        commit_resp = requests.get(commit_url, headers=headers, verify=verify_ssl)
         if commit_resp.status_code != 200:
             error_msg = commit_resp.json().get('message', commit_resp.text)
             raise ValueError(f'Unable to read base commit: {error_msg}')
@@ -4796,6 +4796,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
                 f'https://api.github.com/repos/{repo_owner}/{repo_name}/git/blobs',
                 headers=headers,
                 json={'content': content, 'encoding': 'utf-8'},
+                verify=verify_ssl,
             )
             if blob_resp.status_code not in (200, 201):
                 error_msg = blob_resp.json().get('message', blob_resp.text)
@@ -4813,6 +4814,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
             f'https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees',
             headers=headers,
             json={'base_tree': base_tree_sha, 'tree': tree_entries},
+            verify=verify_ssl,
         )
         if tree_resp.status_code not in (200, 201):
             error_msg = tree_resp.json().get('message', tree_resp.text)
@@ -4828,6 +4830,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
                 'tree': new_tree_sha,
                 'parents': [base_commit_sha],
             },
+            verify=verify_ssl,
         )
         if new_commit_resp.status_code not in (200, 201):
             error_msg = new_commit_resp.json().get('message', new_commit_resp.text)
@@ -4839,6 +4842,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
             ref_url,
             headers=headers,
             json={'sha': new_commit_sha, 'force': False},
+            verify=verify_ssl,
         )
         if update_ref_resp.status_code != 200:
             error_msg = update_ref_resp.json().get('message', update_ref_resp.text)
@@ -4855,6 +4859,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
         repo_url = None
         provider = 'GITHUB'
         api_base_url = None
+        verify_ssl = True
         
         # Resolve credentials from configured repository if repository_id is provided
         if repository_id:
@@ -4871,6 +4876,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
             repo_url = repo.git_url
             provider = repo.provider
             api_base_url = repo.api_base_url
+            verify_ssl = bool(getattr(repo, 'verify_ssl', True))
         else:
             if not github_token or not repo_owner or not repo_name:
                 return PushPlaybookToGitHub(success=False, message="GitHub token, owner, and repo name are required", url=None)
@@ -4932,6 +4938,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
                 commit_message=commit_message,
                 provider=provider,
                 api_base_url=api_base_url,
+                verify_ssl=verify_ssl,
             )
 
             file_url = client.file_web_url(branch, primary_path)
@@ -4942,7 +4949,7 @@ class PushPlaybookToGitHub(graphene.Mutation):
                 action="PUBLISHED_OPENTIDE_HEF" if push_opentide_bundle else "PUBLISHED_PLATFORM_RULES",
                 details=(
                     f"Published {len(all_files)} file(s) [{', '.join(pushed_types)}] "
-                    f"to {repo_owner}/{repo_name} ({primary_path or 'repository root'})"
+                    f"to {client.full_name} ({primary_path or 'repository root'})"
                 ),
             )
 
@@ -4980,6 +4987,7 @@ class PullPlaybookFromGitHub(graphene.Mutation):
         repo_url = None
         provider = 'GITHUB'
         api_base_url = None
+        verify_ssl = True
 
         # Resolve credentials from configured repository if repository_id is provided
         if repository_id:
@@ -4996,6 +5004,7 @@ class PullPlaybookFromGitHub(graphene.Mutation):
             repo_url = repo.git_url
             provider = repo.provider
             api_base_url = repo.api_base_url
+            verify_ssl = bool(getattr(repo, 'verify_ssl', True))
         
         if not repository_id and (not github_token or not repo_owner or not repo_name):
             return PullPlaybookFromGitHub(success=False, message="GitHub token, owner, and repo name are required", graph=None)
@@ -5017,6 +5026,7 @@ class PullPlaybookFromGitHub(graphene.Mutation):
                 token=github_token,
                 provider=provider,
                 api_base_url=api_base_url,
+                verify_ssl=verify_ssl,
             )
             ref = client.resolve_commit_sha(branch=branch)
             content = client.get_file_content(file_path, ref)

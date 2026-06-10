@@ -141,9 +141,15 @@ def create_github_commit(
     github_token: str,
     files: Dict[str, str],
     commit_message: str,
+    verify_ssl: bool = True,
 ) -> str:
     repo_url = f'https://github.com/{repo_owner}/{repo_name}'
-    client = RepoClient(repo_url=repo_url, token=github_token, provider='GITHUB')
+    client = RepoClient(
+        repo_url=repo_url,
+        token=github_token,
+        provider='GITHUB',
+        verify_ssl=verify_ssl,
+    )
     return client.commit_files(branch=branch, files=files, commit_message=commit_message)
 
 
@@ -156,12 +162,14 @@ def create_repository_commit(
     commit_message: str,
     provider: str = 'AUTO',
     api_base_url: str | None = None,
+    verify_ssl: bool = True,
 ) -> tuple[str, RepoClient]:
     client = RepoClient(
         repo_url=repo_url,
         token=token,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
     sha = client.commit_files(branch=branch, files=files, commit_message=commit_message)
     return sha, client

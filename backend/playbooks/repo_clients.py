@@ -92,7 +92,14 @@ def infer_provider(repo_url: str | None, configured_provider: str | None = None)
 
 
 class RepoClient:
-    def __init__(self, repo_url: str, token: str, provider: str = RepoProvider.AUTO, api_base_url: str | None = None):
+    def __init__(
+        self,
+        repo_url: str,
+        token: str,
+        provider: str = RepoProvider.AUTO,
+        api_base_url: str | None = None,
+        verify_ssl: bool = True,
+    ):
         if not token:
             raise ValueError('Repository token is required')
         self.token = token
@@ -102,6 +109,23 @@ class RepoClient:
         self.ref = parsed
         self.provider = infer_provider(repo_url, provider)
         self.api_base_url = (api_base_url or '').rstrip('/') or self._default_api_base()
+        self.verify_ssl = bool(verify_ssl)
+
+    def _get(self, url: str, **kwargs):
+        kwargs.setdefault('verify', self.verify_ssl)
+        return requests.get(url, **kwargs)
+
+    def _post(self, url: str, **kwargs):
+        kwargs.setdefault('verify', self.verify_ssl)
+        return requests.post(url, **kwargs)
+
+    def _patch(self, url: str, **kwargs):
+        kwargs.setdefault('verify', self.verify_ssl)
+        return requests.patch(url, **kwargs)
+
+    def _put(self, url: str, **kwargs):
+        kwargs.setdefault('verify', self.verify_ssl)
+        return requests.put(url, **kwargs)
 
     def _default_api_base(self) -> str:
         if self.provider == RepoProvider.GITHUB:
@@ -155,19 +179,19 @@ class RepoClient:
         headers = self._headers()
         if self.provider == RepoProvider.GITHUB:
             url = f'{self.api_base_url}/repos/{self.full_name}/git/ref/heads/{branch}'
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = self._get(url, headers=headers, timeout=30)
             if resp.status_code != 200:
                 raise ValueError(f'Cannot resolve HEAD of branch {branch}: {resp.text}')
             sha = resp.json().get('object', {}).get('sha')
         elif self.provider == RepoProvider.GITLAB:
             url = f'{self.api_base_url}/projects/{self._project_path()}/repository/branches/{quote(branch, safe="")}'
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = self._get(url, headers=headers, timeout=30)
             if resp.status_code != 200:
                 raise ValueError(f'Cannot resolve HEAD of branch {branch}: {resp.text}')
             sha = resp.json().get('commit', {}).get('id')
         else:
             url = f'{self.api_base_url}/repos/{self.full_name}/branches/{quote(branch, safe="")}'
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = self._get(url, headers=headers, timeout=30)
             if resp.status_code != 200:
                 raise ValueError(f'Cannot resolve HEAD of branch {branch}: {resp.text}')
             sha = resp.json().get('commit', {}).get('id')
@@ -180,7 +204,7 @@ class RepoClient:
         headers = self._headers()
         if self.provider == RepoProvider.GITHUB:
             url = f'{self.api_base_url}/repos/{self.full_name}/git/trees/{sha}?recursive=1'
-            resp = requests.get(url, headers=headers, timeout=60)
+            resp = self._get(url, headers=headers, timeout=60)
             if resp.status_code != 200:
                 raise ValueError(f'Cannot fetch git tree for SHA {sha}: {resp.text}')
             return resp.json().get('tree', [])
@@ -190,7 +214,7 @@ class RepoClient:
             items: list[dict[str, Any]] = []
             while True:
                 url = f'{self.api_base_url}/projects/{self._project_path()}/repository/tree'
-                resp = requests.get(
+                resp = self._get(
                     url,
                     headers=headers,
                     params={'ref': sha, 'recursive': True, 'per_page': 100, 'page': page},
@@ -211,7 +235,7 @@ class RepoClient:
             return items
 
         url = f'{self.api_base_url}/repos/{self.full_name}/git/trees/{sha}'
-        resp = requests.get(url, headers=headers, params={'recursive': 1}, timeout=60)
+        resp = self._get(url, headers=headers, params={'recursive': 1}, timeout=60)
         if resp.status_code != 200:
             raise ValueError(f'Cannot fetch git tree for SHA {sha}: {resp.text}')
         return resp.json().get('tree', [])
@@ -220,7 +244,7 @@ class RepoClient:
         headers = self._headers()
         if self.provider == RepoProvider.GITHUB:
             url = f'{self.api_base_url}/repos/{self.full_name}/contents/{path}'
-            resp = requests.get(url, headers=headers, params={'ref': ref}, timeout=30)
+            resp = self._get(url, headers=headers, params={'ref': ref}, timeout=30)
             if resp.status_code == 404:
                 return None
             if resp.status_code != 200:
@@ -231,7 +255,7 @@ class RepoClient:
         if self.provider == RepoProvider.GITLAB:
             enc_path = quote(path, safe='')
             url = f'{self.api_base_url}/projects/{self._project_path()}/repository/files/{enc_path}'
-            resp = requests.get(url, headers=headers, params={'ref': ref}, timeout=30)
+            resp = self._get(url, headers=headers, params={'ref': ref}, timeout=30)
             if resp.status_code == 404:
                 return None
             if resp.status_code != 200:
@@ -240,7 +264,7 @@ class RepoClient:
             return base64.b64decode(content).decode('utf-8')
 
         url = f'{self.api_base_url}/repos/{self.full_name}/contents/{path}'
-        resp = requests.get(url, headers=headers, params={'ref': ref}, timeout=30)
+        resp = self._get(url, headers=headers, params={'ref': ref}, timeout=30)
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:
@@ -262,7 +286,7 @@ class RepoClient:
         read_ref_url = f'{self.api_base_url}/repos/{self.full_name}/git/ref/heads/{branch}'
         update_ref_url = f'{self.api_base_url}/repos/{self.full_name}/git/refs/heads/{branch}'
 
-        ref_resp = requests.get(read_ref_url, headers=headers, timeout=30)
+        ref_resp = self._get(read_ref_url, headers=headers, timeout=30)
         if ref_resp.status_code != 200:
             raise ValueError(f'Unable to access branch {branch}: {ref_resp.text}')
         base_commit_sha = ref_resp.json().get('object', {}).get('sha')
@@ -270,7 +294,7 @@ class RepoClient:
             raise ValueError(f'Unable to resolve HEAD SHA for branch {branch}')
 
         commit_url = f'{self.api_base_url}/repos/{self.full_name}/git/commits/{base_commit_sha}'
-        commit_resp = requests.get(commit_url, headers=headers, timeout=30)
+        commit_resp = self._get(commit_url, headers=headers, timeout=30)
         if commit_resp.status_code != 200:
             raise ValueError(f'Unable to read base commit: {commit_resp.text}')
         base_tree_sha = commit_resp.json().get('tree', {}).get('sha')
@@ -279,7 +303,7 @@ class RepoClient:
 
         tree_entries = []
         for path, content in files.items():
-            blob_resp = requests.post(
+            blob_resp = self._post(
                 f'{self.api_base_url}/repos/{self.full_name}/git/blobs',
                 headers=headers,
                 json={'content': content, 'encoding': 'utf-8'},
@@ -294,7 +318,7 @@ class RepoClient:
                 'sha': blob_resp.json().get('sha'),
             })
 
-        tree_resp = requests.post(
+        tree_resp = self._post(
             f'{self.api_base_url}/repos/{self.full_name}/git/trees',
             headers=headers,
             json={'base_tree': base_tree_sha, 'tree': tree_entries},
@@ -304,7 +328,7 @@ class RepoClient:
             raise ValueError(f'Unable to create git tree: {tree_resp.text}')
 
         new_tree_sha = tree_resp.json().get('sha')
-        new_commit_resp = requests.post(
+        new_commit_resp = self._post(
             f'{self.api_base_url}/repos/{self.full_name}/git/commits',
             headers=headers,
             json={'message': commit_message, 'tree': new_tree_sha, 'parents': [base_commit_sha]},
@@ -314,7 +338,7 @@ class RepoClient:
             raise ValueError(f'Unable to create commit: {new_commit_resp.text}')
         new_commit_sha = new_commit_resp.json().get('sha')
 
-        update_ref_resp = requests.patch(
+        update_ref_resp = self._patch(
             update_ref_url,
             headers=headers,
             json={'sha': new_commit_sha, 'force': False},
@@ -337,7 +361,7 @@ class RepoClient:
             })
 
         url = f'{self.api_base_url}/projects/{self._project_path()}/repository/commits'
-        resp = requests.post(
+        resp = self._post(
             url,
             headers=headers,
             json={'branch': branch, 'commit_message': commit_message, 'actions': actions},
@@ -356,7 +380,7 @@ class RepoClient:
         for path, content in files.items():
             existing_sha = None
             get_url = f'{self.api_base_url}/repos/{self.full_name}/contents/{path}'
-            get_resp = requests.get(get_url, headers=headers, params={'ref': branch}, timeout=30)
+            get_resp = self._get(get_url, headers=headers, params={'ref': branch}, timeout=30)
             if get_resp.status_code == 200:
                 existing_sha = get_resp.json().get('sha')
             elif get_resp.status_code != 404:
@@ -370,7 +394,7 @@ class RepoClient:
             if existing_sha:
                 payload['sha'] = existing_sha
 
-            put_resp = requests.put(get_url, headers=headers, json=payload, timeout=30)
+            put_resp = self._put(get_url, headers=headers, json=payload, timeout=30)
             if put_resp.status_code not in (200, 201):
                 raise ValueError(f'Unable to upsert file {path}: {put_resp.text}')
 

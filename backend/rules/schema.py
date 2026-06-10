@@ -129,6 +129,7 @@ class RuleRepositoryType(DjangoObjectType):
     next_scheduled_pull = graphene.DateTime()
     provider = graphene.String()
     api_base_url = graphene.String()
+    verify_ssl = graphene.Boolean()
 
     class Meta:
         model = RuleRepository
@@ -140,6 +141,7 @@ class RuleRepositoryType(DjangoObjectType):
             "username",
             "provider",
             "api_base_url",
+            "verify_ssl",
             "auto_pull_enabled",
             "auto_pull_schedule",
             "next_scheduled_pull",
@@ -704,12 +706,13 @@ class CreateRuleRepository(graphene.Mutation):
         token = graphene.String(required=False, description="The access token. Will be encrypted.")
         provider = graphene.String(required=False, description="AUTO, GITHUB, GITLAB, or GITEA")
         api_base_url = graphene.String(required=False, description="Optional custom API base URL for self-hosted providers.")
+        verify_ssl = graphene.Boolean(required=False, default_value=True, description="Verify TLS certificates for repository API calls.")
 
     repository = graphene.Field(RuleRepositoryType)
 
     @staticmethod
     @role_required([Roles.ADMIN])
-    def mutate(root, info, name, url, username=None, token=None, provider='AUTO', api_base_url=None):
+    def mutate(root, info, name, url, username=None, token=None, provider='AUTO', api_base_url=None, verify_ssl=True):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
@@ -721,6 +724,7 @@ class CreateRuleRepository(graphene.Mutation):
             username=username,
             provider=(provider or 'AUTO').upper(),
             api_base_url=api_base_url or None,
+            verify_ssl=bool(verify_ssl),
             organization=user.organization
         )
         if token:
@@ -748,6 +752,7 @@ class UpdateRuleRepository(graphene.Mutation):
         token = graphene.String(description="A new token. If left blank, the old token is preserved.")
         provider = graphene.String(description="AUTO, GITHUB, GITLAB, or GITEA")
         api_base_url = graphene.String(description="Optional custom API base URL for self-hosted providers.")
+        verify_ssl = graphene.Boolean(description="Verify TLS certificates for repository API calls.")
         # Schedule fields
         auto_pull_enabled = graphene.Boolean(description="Enable/disable automatic pulls")
         auto_pull_schedule = graphene.String(description="Pull schedule: DISABLED, 24H, 48H, 72H, WEEKLY")

@@ -1018,6 +1018,7 @@ class Query(graphene.ObjectType):
         _target_folder = target_folder or ''
         _provider = 'GITHUB'
         _api_base_url = None
+        _verify_ssl = True
         _repo_url = f'https://github.com/{_repo_owner}/{_repo_name}' if _repo_owner and _repo_name else None
 
         if profile_id:
@@ -1038,6 +1039,7 @@ class Query(graphene.ObjectType):
             _token = repo.token or ''
             _provider = repo.provider
             _api_base_url = repo.api_base_url
+            _verify_ssl = bool(getattr(repo, 'verify_ssl', True))
             _repo_url = repo.git_url
             _branch = branch or profile.branch or 'main'
             _target_folder = target_folder or profile.target_folder or ''
@@ -1056,6 +1058,7 @@ class Query(graphene.ObjectType):
             _token = repo_obj.token if repo_obj else ''
             _provider = repo_obj.provider if repo_obj else 'GITHUB'
             _api_base_url = repo_obj.api_base_url if repo_obj else None
+            _verify_ssl = bool(getattr(repo_obj, 'verify_ssl', True)) if repo_obj else True
             _repo_url = repo_obj.git_url if repo_obj else f'https://github.com/{_repo_owner}/{_repo_name}'
 
         if not _token:
@@ -1075,6 +1078,7 @@ class Query(graphene.ObjectType):
                 repo_url=_repo_url,
                 provider=_provider,
                 api_base_url=_api_base_url,
+                verify_ssl=_verify_ssl,
             )
         except Exception as exc:
             raise GraphQLError(f'Bundle discovery failed: {exc}')
@@ -1105,6 +1109,7 @@ class Query(graphene.ObjectType):
                         repo_url=_repo_url,
                         provider=_provider,
                         api_base_url=_api_base_url,
+                        verify_ssl=_verify_ssl,
                     )
                     mdr_data = _yaml.safe_load(fetched.get('mdr') or '') or {}
                     mdr_meta = mdr_data.get('metadata') or {}

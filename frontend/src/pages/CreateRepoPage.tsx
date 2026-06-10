@@ -14,6 +14,7 @@ const GET_ALL_REPOS_QUERY = gql`
       username
       provider
       apiBaseUrl
+      verifySsl
       lastSync
     }
   }
@@ -21,8 +22,8 @@ const GET_ALL_REPOS_QUERY = gql`
 
 // Mutation from Day 152 (extended with fields for cache append)
 const CREATE_REPO_MUTATION = gql`
-  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String, $provider: String, $apiBaseUrl: String) {
-    createRuleRepository(name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl) {
+  mutation CreateRuleRepository($name: String!, $url: String!, $username: String, $token: String, $provider: String, $apiBaseUrl: String, $verifySsl: Boolean) {
+    createRuleRepository(name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl, verifySsl: $verifySsl) {
       repository {
         id
         name
@@ -30,6 +31,7 @@ const CREATE_REPO_MUTATION = gql`
         username
         provider
         apiBaseUrl
+        verifySsl
         lastSync
       }
     }
@@ -44,6 +46,7 @@ interface CreateRepoVars {
   token?: string;    // Same for token
   provider?: string;
   apiBaseUrl?: string;
+  verifySsl?: boolean;
 }
 
 // GraphQL repository node returned from server (distinct from form data)
@@ -54,6 +57,7 @@ interface RuleRepositoryNode {
   username: string | null;
   provider?: string | null;
   apiBaseUrl?: string | null;
+  verifySsl?: boolean | null;
   lastSync: string | null;
 }
 
@@ -75,6 +79,7 @@ export const CreateRepoPage = () => {
         ...(formData.token ? { token: formData.token } : {}),
         ...(formData.provider ? { provider: formData.provider } : {}),
         ...(formData.apiBaseUrl ? { apiBaseUrl: formData.apiBaseUrl } : {}),
+        verifySsl: formData.verifySsl ?? true,
       };
       await createRuleRepository({
         variables,

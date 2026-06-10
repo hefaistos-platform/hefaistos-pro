@@ -15,18 +15,19 @@ interface RuleRepositoryNode {
   username: string | null;
   provider?: string | null;
   apiBaseUrl?: string | null;
+  verifySsl?: boolean | null;
   lastSync?: string | null;
 }
 
 const GET_REPO_QUERY = gql`
   query GetRuleRepository($id: ID!) {
-    ruleRepository(id: $id) { id name url username provider apiBaseUrl lastSync }
+    ruleRepository(id: $id) { id name url username provider apiBaseUrl verifySsl lastSync }
   }
 `;
 
 const UPDATE_REPO_MUTATION = gql`
-  mutation UpdateRuleRepository($id: ID!, $name: String, $url: String, $username: String, $token: String, $provider: String, $apiBaseUrl: String) {
-    updateRuleRepository(id: $id, name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl) {
+  mutation UpdateRuleRepository($id: ID!, $name: String, $url: String, $username: String, $token: String, $provider: String, $apiBaseUrl: String, $verifySsl: Boolean) {
+    updateRuleRepository(id: $id, name: $name, url: $url, username: $username, token: $token, provider: $provider, apiBaseUrl: $apiBaseUrl, verifySsl: $verifySsl) {
       repository { id }
     }
   }
@@ -67,11 +68,11 @@ export const EditRepoPage = () => {
           update: (cache) => {
             try {
               const existing = cache.readQuery<{ allRuleRepositories: any[] }>({
-                query: gql`query GetAllRuleRepositories { allRuleRepositories { id name url username provider apiBaseUrl lastSync } }`
+                query: gql`query GetAllRuleRepositories { allRuleRepositories { id name url username provider apiBaseUrl verifySsl lastSync } }`
               });
               if (existing) {
                 cache.writeQuery({
-                  query: gql`query GetAllRuleRepositories { allRuleRepositories { id name url username provider apiBaseUrl lastSync } }`,
+                  query: gql`query GetAllRuleRepositories { allRuleRepositories { id name url username provider apiBaseUrl verifySsl lastSync } }`,
                   data: { allRuleRepositories: existing.allRuleRepositories.filter(r => r.id !== repoId) }
                 });
               }

@@ -59,7 +59,7 @@ def _get_max_bundles() -> int:
 
 
 def _resolve_repo_details(job: 'OpenTideHefImportJob'):
-    """Return (repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url)."""
+    """Return (repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url, verify_ssl)."""
     from playbooks.hef_publish import extract_repository_details
 
     if job.profile:
@@ -76,6 +76,7 @@ def _resolve_repo_details(job: 'OpenTideHefImportJob'):
         repo_url = repo.git_url
         provider = repo.provider
         api_base_url = repo.api_base_url
+        verify_ssl = bool(getattr(repo, 'verify_ssl', True))
     else:
         repo_owner = job.repo_owner
         repo_name = job.repo_name
@@ -91,13 +92,14 @@ def _resolve_repo_details(job: 'OpenTideHefImportJob'):
         repo_url = repo_obj.git_url if repo_obj else f'https://github.com/{repo_owner}/{repo_name}'
         provider = repo_obj.provider if repo_obj else 'GITHUB'
         api_base_url = repo_obj.api_base_url if repo_obj else None
+        verify_ssl = bool(getattr(repo_obj, 'verify_ssl', True)) if repo_obj else True
 
     if not token:
         raise RuntimeError(
             f'No repository token available for {repo_owner}/{repo_name}. '
             'Configure a repository with a PAT or use a HEF publish profile.'
         )
-    return repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url
+    return repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url, verify_ssl
 
 
 def _idempotency_key(job, bundle_path: str) -> str:
@@ -129,7 +131,7 @@ def process_import_job(task_id: str) -> None:
     error_message = ''
 
     try:
-        repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url = _resolve_repo_details(job)
+        repo_owner, repo_name, branch, token, target_folder, repo_url, provider, api_base_url, verify_ssl = _resolve_repo_details(job)
 
         # --- Discover bundles when no specific paths were pre-selected ---
         selected_paths = job.selected_bundles or []
@@ -145,6 +147,7 @@ def process_import_job(task_id: str) -> None:
                 repo_url=repo_url,
                 provider=provider,
                 api_base_url=api_base_url,
+                verify_ssl=verify_ssl,
             )
             selected_paths = [b['path'] for b in bundles]
             if not commit_sha:
@@ -205,6 +208,7 @@ def process_import_job(task_id: str) -> None:
                     repo_url=repo_url,
                     provider=provider,
                     api_base_url=api_base_url,
+                    verify_ssl=verify_ssl,
                 )
 
                 # Also fetch platform rule files
@@ -218,6 +222,7 @@ def process_import_job(task_id: str) -> None:
                     repo_url=repo_url,
                     provider=provider,
                     api_base_url=api_base_url,
+                    verify_ssl=verify_ssl,
                 )
 
                 # --- Validate ---
@@ -397,6 +402,7 @@ def _fetch_platform_files(
     repo_url: str | None = None,
     provider: str = 'AUTO',
     api_base_url: str | None = None,
+    verify_ssl: bool = True,
 ) -> dict:
     """Try to discover and fetch per-platform rule files adjacent to the bundle.
 
@@ -422,6 +428,7 @@ def _fetch_platform_files(
         token=token,
         provider=provider,
         api_base_url=api_base_url,
+        verify_ssl=verify_ssl,
     )
 
     for platform in _PLATFORM_SUBDIRS:

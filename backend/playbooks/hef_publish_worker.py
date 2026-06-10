@@ -210,6 +210,7 @@ def process_publish_job(task_id: str) -> None:
             commit_message=job.commit_message,
             provider=repository.provider,
             api_base_url=repository.api_base_url,
+            verify_ssl=bool(getattr(repository, 'verify_ssl', True)),
         )
         remote_url = client.file_web_url(job.branch, primary_path)
 

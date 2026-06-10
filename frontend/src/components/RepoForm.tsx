@@ -9,6 +9,7 @@ export interface RepoFormData {
   token?: string | null;
   provider?: string | null;
   apiBaseUrl?: string | null;
+  verifySsl?: boolean | null;
 }
 
 interface RepoFormProps {
@@ -25,6 +26,7 @@ export const RepoForm: React.FC<RepoFormProps> = ({ initialData, onSubmit, loadi
   const [token, setToken] = useState('');
   const [provider, setProvider] = useState('AUTO');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [verifySsl, setVerifySsl] = useState(true);
 
   useEffect(() => {
     if (initialData) {
@@ -33,6 +35,7 @@ export const RepoForm: React.FC<RepoFormProps> = ({ initialData, onSubmit, loadi
       setUsername(initialData.username || '');
       setProvider(initialData.provider || 'AUTO');
       setApiBaseUrl(initialData.apiBaseUrl || '');
+      setVerifySsl(initialData.verifySsl ?? true);
       // NOTE: We do NOT load the token. Token field is "write-only" for security.
     }
   }, [initialData]);
@@ -45,6 +48,7 @@ export const RepoForm: React.FC<RepoFormProps> = ({ initialData, onSubmit, loadi
       username: username || null,
       provider: provider || 'AUTO',
       apiBaseUrl: apiBaseUrl || null,
+      verifySsl,
     };
     // Only include the token if the user actually typed one in
     if (token) {
@@ -98,6 +102,20 @@ export const RepoForm: React.FC<RepoFormProps> = ({ initialData, onSubmit, loadi
             placeholder="https://gitlab.example.com/api/v4"
           />
         </div>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            id="verify-ssl"
+            type="checkbox"
+            checked={verifySsl}
+            onChange={(e) => setVerifySsl(e.target.checked)}
+          />
+          <label htmlFor="verify-ssl" className="text-sm font-medium">
+            Verify SSL certificate
+          </label>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">
+          Disable only for trusted self-signed certificates.
+        </p>
         <div className="mt-2">
           <label className="block mb-1 text-sm font-medium">Token (Personal Access Token)</label>
           <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={initialData ? "Leave blank to keep existing token" : "Enter new token"} />

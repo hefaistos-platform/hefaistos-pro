@@ -55,6 +55,10 @@ class RuleRepository(models.Model):
         null=True,
         help_text="Optional custom API base URL for self-hosted providers (e.g., https://gitlab.example.com/api/v4)."
     )
+    verify_ssl = models.BooleanField(
+        default=True,
+        help_text="Verify TLS certificates for repository API calls. Disable only for trusted self-signed endpoints.",
+    )
 
     # --- NEW ENCRYPTED FIELDS ---
     username = models.CharField(max_length=512, blank=True, null=True, help_text="Encrypted username or app ID")
