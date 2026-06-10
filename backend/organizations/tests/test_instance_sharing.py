@@ -1,7 +1,11 @@
 import uuid
+from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import Client, TestCase
+from django.utils import timezone
 
 from ach.models import ACHAnalysis
 from organizations.models import (
@@ -10,7 +14,13 @@ from organizations.models import (
     HefaistosRemotePeer,
     Organization,
 )
-from organizations.sharing import hash_api_key, import_payload_into_org, key_allows_scope
+from organizations.sharing import (
+    compute_next_auto_pull_at,
+    hash_api_key,
+    import_payload_into_org,
+    key_allows_scope,
+    normalize_auto_pull_schedule,
+)
 from playbooks.models import PlaybookGraph
 from rules.models import DetectionRule, RuleRepository
 
@@ -374,3 +384,76 @@ class SharingImportRulesTests(TestCase):
         self.assertEqual(DetectionRule.objects.filter(organization=self.org).count(), 0)
         self.assertEqual(ACHAnalysis.objects.filter(owner=self.admin).count(), 0)
         self.assertEqual(len(errors), 3)
+
+
+class SharingAutoPullScheduleHelperTests(TestCase):
+    def test_normalize_auto_pull_schedule(self):
+        self.assertEqual(normalize_auto_pull_schedule('daily'), 'DAILY')
+        self.assertEqual(normalize_auto_pull_schedule('WEEKLY'), 'WEEKLY')
+        with self.assertRaises(ValueError):
+            normalize_auto_pull_schedule('MONTHLY')
+
+    def test_compute_next_auto_pull_at(self):
+        base = timezone.now().replace(microsecond=0)
+        self.assertEqual(compute_next_auto_pull_at('DAILY', from_time=base), base + timedelta(days=1))
+        self.assertEqual(compute_next_auto_pull_at('WEEKLY', from_time=base), base + timedelta(days=7))
+
+
+class SharingScheduledAutoPullCommandTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Sharing Auto Pull Org')
+        user_model = get_user_model()
+        self.admin = user_model.objects.create_user(
+            username='sharing_auto_pull_admin',
+            password='pass1234',
+            organization=self.org,
+            role='ADMIN',
+        )
+        self.peer = HefaistosRemotePeer.objects.create(
+            organization=self.org,
+            name='Auto Pull Peer',
+            remote_url='https://remote-hefaistos.example.com',
+            remote_instance_id=uuid.uuid4(),
+            default_scope='ALL',
+            auto_pull_enabled=True,
+            auto_pull_schedule='DAILY',
+            next_auto_pull_at=timezone.now() - timedelta(minutes=10),
+            verify_ssl=True,
+            allow_self_signed=False,
+            enabled=True,
+            created_by=self.admin,
+        )
+
+    @patch('organizations.management.commands.run_scheduled_hefaistos_pulls.pull_from_remote_peer')
+    def test_command_triggers_due_peer_and_updates_next_run(self, pull_mock):
+        before = timezone.now()
+        call_command('run_scheduled_hefaistos_pulls')
+
+        pull_mock.assert_called_once()
+        self.peer.refresh_from_db()
+        self.assertIsNotNone(self.peer.next_auto_pull_at)
+        self.assertGreaterEqual(self.peer.next_auto_pull_at, before + timedelta(hours=23))
+        self.assertLessEqual(self.peer.next_auto_pull_at, before + timedelta(days=1, minutes=10))
+
+    @patch('organizations.management.commands.run_scheduled_hefaistos_pulls.pull_from_remote_peer')
+    def test_command_skips_disabled_auto_pull(self, pull_mock):
+        self.peer.auto_pull_enabled = False
+        self.peer.save(update_fields=['auto_pull_enabled', 'updated_at'])
+
+        call_command('run_scheduled_hefaistos_pulls')
+        pull_mock.assert_not_called()
+
+    @patch('organizations.management.commands.run_scheduled_hefaistos_pulls.pull_from_remote_peer')
+    def test_command_uses_weekly_schedule_for_next_run(self, pull_mock):
+        self.peer.auto_pull_schedule = 'WEEKLY'
+        self.peer.next_auto_pull_at = timezone.now() - timedelta(minutes=5)
+        self.peer.save(update_fields=['auto_pull_schedule', 'next_auto_pull_at', 'updated_at'])
+        before = timezone.now()
+
+        call_command('run_scheduled_hefaistos_pulls')
+
+        pull_mock.assert_called_once()
+        self.peer.refresh_from_db()
+        self.assertIsNotNone(self.peer.next_auto_pull_at)
+        self.assertGreaterEqual(self.peer.next_auto_pull_at, before + timedelta(days=6, hours=23))
+        self.assertLessEqual(self.peer.next_auto_pull_at, before + timedelta(days=7, minutes=10))

@@ -41,6 +41,9 @@ const GET_INSTANCE_SHARING = gql`
       remoteUrl
       remoteInstanceId
       defaultScope
+      autoPullEnabled
+      autoPullSchedule
+      nextAutoPullAt
       verifySsl
       allowSelfSigned
       tlsCertFingerprint
@@ -86,6 +89,8 @@ const SET_REMOTE_PEER = gql`
     $remoteInstanceId: UUID!
     $apiKey: String
     $defaultScope: String
+    $autoPullEnabled: Boolean
+    $autoPullSchedule: String
     $verifySsl: Boolean
     $allowSelfSigned: Boolean
     $tlsCertFingerprint: String
@@ -98,6 +103,8 @@ const SET_REMOTE_PEER = gql`
       remoteInstanceId: $remoteInstanceId
       apiKey: $apiKey
       defaultScope: $defaultScope
+      autoPullEnabled: $autoPullEnabled
+      autoPullSchedule: $autoPullSchedule
       verifySsl: $verifySsl
       allowSelfSigned: $allowSelfSigned
       tlsCertFingerprint: $tlsCertFingerprint
@@ -164,6 +171,9 @@ interface RemotePeer {
   remoteUrl: string;
   remoteInstanceId: string;
   defaultScope: 'WORKBENCH' | 'RULES' | 'ACH' | 'ALL';
+  autoPullEnabled: boolean;
+  autoPullSchedule: 'DAILY' | 'WEEKLY';
+  nextAutoPullAt?: string | null;
   verifySsl: boolean;
   allowSelfSigned: boolean;
   tlsCertFingerprint: string;
@@ -200,6 +210,10 @@ const scopeOptions = [
   { label: 'Rules', value: 'RULES' },
   { label: 'ACH', value: 'ACH' },
   { label: 'All', value: 'ALL' },
+];
+const autoPullScheduleOptions = [
+  { label: 'Daily', value: 'DAILY' },
+  { label: 'Weekly', value: 'WEEKLY' },
 ];
 
 const statusColor = (status?: string | null): string => {
@@ -244,6 +258,8 @@ const InstanceSharing: React.FC = () => {
     peerForm.resetFields();
     peerForm.setFieldsValue({
       defaultScope: 'ALL',
+      autoPullEnabled: false,
+      autoPullSchedule: 'DAILY',
       verifySsl: true,
       allowSelfSigned: false,
       enabled: true,
@@ -259,6 +275,8 @@ const InstanceSharing: React.FC = () => {
       remoteInstanceId: peer.remoteInstanceId,
       apiKey: '',
       defaultScope: peer.defaultScope,
+      autoPullEnabled: peer.autoPullEnabled,
+      autoPullSchedule: peer.autoPullSchedule,
       verifySsl: peer.verifySsl,
       allowSelfSigned: peer.allowSelfSigned,
       tlsCertFingerprint: peer.tlsCertFingerprint,
@@ -275,6 +293,8 @@ const InstanceSharing: React.FC = () => {
         remoteUrl: values.remoteUrl,
         remoteInstanceId: values.remoteInstanceId,
         defaultScope: values.defaultScope,
+        autoPullEnabled: values.autoPullEnabled,
+        autoPullSchedule: values.autoPullSchedule,
         verifySsl: values.verifySsl,
         allowSelfSigned: values.allowSelfSigned,
         tlsCertFingerprint: values.tlsCertFingerprint || '',
@@ -376,6 +396,22 @@ const InstanceSharing: React.FC = () => {
       dataIndex: 'defaultScope',
       key: 'defaultScope',
       render: (scope: string) => <Tag>{scope}</Tag>,
+    },
+    {
+      title: 'Auto Pull',
+      key: 'autoPull',
+      render: (_: unknown, record: RemotePeer) => (
+        <Space direction="vertical" size={0}>
+          {record.autoPullEnabled ? (
+            <>
+              <Tag color="blue">{record.autoPullSchedule}</Tag>
+              <Text type="secondary">Next: {fmtDate(record.nextAutoPullAt)}</Text>
+            </>
+          ) : (
+            <Tag>Off</Tag>
+          )}
+        </Space>
+      ),
     },
     {
       title: 'API Key',
@@ -554,6 +590,23 @@ const InstanceSharing: React.FC = () => {
           </Form.Item>
           <Form.Item name="defaultScope" label="Default Pull Scope" rules={[{ required: true, message: 'Select default scope' }]}>
             <Select options={scopeOptions} />
+          </Form.Item>
+          <Form.Item name="autoPullEnabled" label="Enable Auto Pull" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item shouldUpdate={(prev, curr) => prev.autoPullEnabled !== curr.autoPullEnabled} noStyle>
+            {({ getFieldValue }) => (
+              <Form.Item
+                name="autoPullSchedule"
+                label="Auto Pull Schedule"
+                rules={getFieldValue('autoPullEnabled') ? [{ required: true, message: 'Select auto pull schedule' }] : []}
+              >
+                <Select
+                  options={autoPullScheduleOptions}
+                  disabled={!getFieldValue('autoPullEnabled')}
+                />
+              </Form.Item>
+            )}
           </Form.Item>
           <Form.Item name="verifySsl" label="Verify TLS Certificate" valuePropName="checked">
             <Switch />

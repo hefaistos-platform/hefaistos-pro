@@ -24,9 +24,11 @@ from .models import (
 )
 from .sharing import (
     build_key_hint,
+    compute_next_auto_pull_at,
     generate_raw_share_key,
     get_or_create_instance_identity,
     hash_api_key,
+    normalize_auto_pull_schedule,
     normalize_scope,
     pull_from_remote_peer,
 )
@@ -310,6 +312,9 @@ class HefaistosRemotePeerType(graphene.ObjectType):
     remote_url = graphene.String()
     remote_instance_id = graphene.UUID()
     default_scope = graphene.String()
+    auto_pull_enabled = graphene.Boolean()
+    auto_pull_schedule = graphene.String()
+    next_auto_pull_at = graphene.DateTime()
     verify_ssl = graphene.Boolean()
     allow_self_signed = graphene.Boolean()
     tls_cert_fingerprint = graphene.String()
@@ -2248,6 +2253,8 @@ class SetHefaistosRemotePeer(graphene.Mutation):
         remote_instance_id = graphene.UUID(required=True)
         api_key = graphene.String(required=False)
         default_scope = graphene.String(required=False, default_value='ALL')
+        auto_pull_enabled = graphene.Boolean(required=False)
+        auto_pull_schedule = graphene.String(required=False)
         verify_ssl = graphene.Boolean(required=False, default_value=True)
         allow_self_signed = graphene.Boolean(required=False, default_value=False)
         tls_cert_fingerprint = graphene.String(required=False)
@@ -2268,6 +2275,8 @@ class SetHefaistosRemotePeer(graphene.Mutation):
         id=None,
         api_key=None,
         default_scope='ALL',
+        auto_pull_enabled=None,
+        auto_pull_schedule=None,
         verify_ssl=True,
         allow_self_signed=False,
         tls_cert_fingerprint=None,
@@ -2291,16 +2300,39 @@ class SetHefaistosRemotePeer(graphene.Mutation):
             )
             created = True
 
+        previous_auto_pull_enabled = bool(getattr(peer, 'auto_pull_enabled', False))
+        previous_auto_pull_schedule = str(getattr(peer, 'auto_pull_schedule', 'DAILY') or 'DAILY').upper()
+        previous_next_auto_pull_at = getattr(peer, 'next_auto_pull_at', None)
+
         peer.name = (name or '').strip()
         peer.remote_url = (remote_url or '').strip().rstrip('/')
         peer.remote_instance_id = remote_instance_id
         peer.default_scope = normalized_scope
+        if auto_pull_enabled is not None:
+            peer.auto_pull_enabled = bool(auto_pull_enabled)
+        if auto_pull_schedule is not None:
+            peer.auto_pull_schedule = normalize_auto_pull_schedule(auto_pull_schedule)
+        else:
+            peer.auto_pull_schedule = normalize_auto_pull_schedule(getattr(peer, 'auto_pull_schedule', 'DAILY'))
         peer.verify_ssl = bool(verify_ssl)
         peer.allow_self_signed = bool(allow_self_signed)
         peer.tls_cert_fingerprint = (tls_cert_fingerprint or '').strip()
         peer.enabled = bool(enabled)
         if api_key is not None and str(api_key).strip():
             peer.api_key = str(api_key).strip()
+
+        if peer.auto_pull_enabled:
+            auto_schedule_changed = previous_auto_pull_schedule != peer.auto_pull_schedule
+            should_initialize_next_run = (
+                created
+                or not previous_auto_pull_enabled
+                or auto_schedule_changed
+                or previous_next_auto_pull_at is None
+            )
+            if should_initialize_next_run:
+                peer.next_auto_pull_at = compute_next_auto_pull_at(peer.auto_pull_schedule)
+        else:
+            peer.next_auto_pull_at = None
 
         try:
             peer.full_clean()

@@ -71,6 +71,18 @@ def run_scheduled_pulls():
         return False
 
 
+def run_scheduled_hefaistos_pulls():
+    """Execute the scheduled HEFAISTOS remote peer pulls command."""
+    try:
+        logger.info("Running scheduled HEFAISTOS remote pulls check...")
+        call_command('run_scheduled_hefaistos_pulls')
+        logger.info("Scheduled HEFAISTOS remote pulls check completed.")
+        return True
+    except Exception as e:
+        logger.error("Error running scheduled HEFAISTOS remote pulls: %s", e)
+        return False
+
+
 def run_scheduled_ai_tasks():
     """Execute due organization AI-assisted scheduled tasks."""
     try:
@@ -161,6 +173,9 @@ def run_loop():
             # Run scheduled pulls
             run_scheduled_pulls()
 
+            # Run scheduled instance-to-instance HEFAISTOS pulls
+            run_scheduled_hefaistos_pulls()
+
             # Run scheduled organization AI tasks
             run_scheduled_ai_tasks()
 
@@ -182,6 +197,7 @@ def run_once():
     """Run scheduler once and exit (for use with Ofelia/cron)."""
     logger.info("Hefaistos Scheduler - Single Execution Mode")
     success = run_scheduled_pulls()
+    success = run_scheduled_hefaistos_pulls() and success
     run_scheduled_ai_tasks()
     # Also attempt digest once (respects schedule window)
     maybe_send_news_digest()

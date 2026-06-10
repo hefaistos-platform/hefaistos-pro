@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 import hashlib
 import os
 import secrets
@@ -16,6 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from organizations.models import (
+    HEFAISTOS_AUTO_PULL_SCHEDULE_VALUES,
     HefaistosInboundShareKey,
     HefaistosInstanceIdentity,
     HefaistosPullJob,
@@ -40,6 +42,21 @@ def expand_scope(scope: str) -> set[str]:
     if normalized == 'ALL':
         return set(ATOMIC_SCOPES)
     return {normalized}
+
+
+def normalize_auto_pull_schedule(schedule: str | None) -> str:
+    value = str(schedule or 'DAILY').strip().upper()
+    if value not in HEFAISTOS_AUTO_PULL_SCHEDULE_VALUES:
+        raise ValueError(f"Unsupported auto pull schedule '{schedule}'.")
+    return value
+
+
+def compute_next_auto_pull_at(schedule: str, from_time=None):
+    normalized = normalize_auto_pull_schedule(schedule)
+    base = from_time or timezone.now()
+    if normalized == 'WEEKLY':
+        return base + timedelta(days=7)
+    return base + timedelta(days=1)
 
 
 def key_allows_scope(allowed_scopes: list[str] | None, requested_scope: str) -> bool:

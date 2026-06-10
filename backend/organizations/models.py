@@ -13,6 +13,11 @@ SHARING_SCOPE_CHOICES = [
     ('ALL', 'All'),
 ]
 SHARING_SCOPE_VALUES = {choice[0] for choice in SHARING_SCOPE_CHOICES}
+HEFAISTOS_AUTO_PULL_SCHEDULE_CHOICES = [
+    ('DAILY', 'Daily'),
+    ('WEEKLY', 'Weekly'),
+]
+HEFAISTOS_AUTO_PULL_SCHEDULE_VALUES = {choice[0] for choice in HEFAISTOS_AUTO_PULL_SCHEDULE_CHOICES}
 
 # ---------------------------------------------------------------------------
 # Field-level encryption helpers (same pattern as rules/models.py)
@@ -727,6 +732,21 @@ class HefaistosRemotePeer(models.Model):
         default='ALL',
         help_text='Default content range to pull from the remote instance.',
     )
+    auto_pull_enabled = models.BooleanField(
+        default=False,
+        help_text='Enable scheduled automatic PULL from this remote peer.',
+    )
+    auto_pull_schedule = models.CharField(
+        max_length=16,
+        choices=HEFAISTOS_AUTO_PULL_SCHEDULE_CHOICES,
+        default='DAILY',
+        help_text='Automatic PULL frequency when auto_pull_enabled is on.',
+    )
+    next_auto_pull_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Next scheduled automatic PULL time.',
+    )
     verify_ssl = models.BooleanField(default=True)
     allow_self_signed = models.BooleanField(default=False)
     tls_cert_fingerprint = models.CharField(
@@ -773,6 +793,8 @@ class HefaistosRemotePeer(models.Model):
     def clean(self):
         if self.default_scope not in SHARING_SCOPE_VALUES:
             raise ValidationError({'default_scope': 'Unsupported sharing scope.'})
+        if self.auto_pull_schedule not in HEFAISTOS_AUTO_PULL_SCHEDULE_VALUES:
+            raise ValidationError({'auto_pull_schedule': 'Unsupported auto pull schedule.'})
         if self.allow_self_signed and self.verify_ssl:
             raise ValidationError(
                 {'verify_ssl': 'Disable strict SSL verification when allow_self_signed is enabled.'}

@@ -133,13 +133,32 @@ class HefaistosRemotePeerAdmin(admin.ModelAdmin):
 		"remote_url",
 		"remote_instance_id",
 		"default_scope",
+		"auto_pull_enabled",
+		"auto_pull_schedule",
+		"next_auto_pull_at",
 		"enabled",
 		"last_sync_at",
 		"last_sync_status",
 	)
-	list_filter = ("organization", "enabled", "default_scope", "verify_ssl", "allow_self_signed")
+	list_filter = (
+		"organization",
+		"enabled",
+		"default_scope",
+		"auto_pull_enabled",
+		"auto_pull_schedule",
+		"verify_ssl",
+		"allow_self_signed",
+	)
 	search_fields = ("name", "remote_url", "remote_instance_id")
-	readonly_fields = ("id", "created_at", "updated_at", "last_sync_at", "last_sync_status", "last_sync_message")
+	readonly_fields = (
+		"id",
+		"created_at",
+		"updated_at",
+		"last_sync_at",
+		"last_sync_status",
+		"last_sync_message",
+		"next_auto_pull_at",
+	)
 
 
 @admin.register(HefaistosInboundShareKey)
