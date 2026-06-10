@@ -463,7 +463,7 @@ const InstanceSharing: React.FC = () => {
         type="info"
         showIcon
         message="PULL-only design"
-        description="Remote sharing endpoints are read-only. Pull operations never modify the remote HEFAISTOS instance."
+        description="Remote sharing endpoints are read-only. Pull operations never modify the remote HEFAISTOS instance. Export/PULL eligibility is restricted to DEPLOYED workbenches, rules linked to DEPLOYED workbenches, and FINISHED ACH analyses."
       />
 
       <Card loading={loading}>

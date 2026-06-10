@@ -24,6 +24,8 @@ from organizations.models import (
 )
 
 ATOMIC_SCOPES = ('WORKBENCH', 'RULES', 'ACH')
+WORKBENCH_REQUIRED_STATUS = 'DEPLOYED'
+ACH_REQUIRED_STATUS = 'FINISHED'
 
 
 def normalize_scope(scope: str | None) -> str:
@@ -64,6 +66,10 @@ def build_key_hint(raw_key: str) -> str:
 
 def generate_raw_share_key() -> str:
     return f"hefshare_{secrets.token_urlsafe(36)}"
+
+
+def _normalized_name(value: str | None) -> str:
+    return ' '.join(str(value or '').strip().split()).casefold()
 
 
 def _normalized_fingerprint(value: str) -> str:
@@ -129,6 +135,7 @@ def _workbench_payload_for_org(organization) -> list[dict[str, Any]]:
 
     graphs = PlaybookGraph.objects.filter(
         organization=organization,
+        status__iexact=WORKBENCH_REQUIRED_STATUS,
     ).select_related(
         'author',
         'mitre_technique',
@@ -136,8 +143,17 @@ def _workbench_payload_for_org(organization) -> list[dict[str, Any]]:
         'tags',
         'edges',
         'nodes__mitre_attack_mappings',
-    )
-    return [serialize_playbook_graph_hex_v2(graph) for graph in graphs]
+    ).order_by('-updated_at', '-created_at', '-id')
+
+    payload = []
+    seen_names: set[str] = set()
+    for graph in graphs:
+        key = _normalized_name(graph.title)
+        if not key or key in seen_names:
+            continue
+        seen_names.add(key)
+        payload.append(serialize_playbook_graph_hex_v2(graph))
+    return payload
 
 
 def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
@@ -145,10 +161,20 @@ def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
 
     rules = DetectionRule.objects.filter(
         organization=organization,
-    ).select_related('repository', 'playbook')
+        playbook__isnull=False,
+        playbook__status__iexact=WORKBENCH_REQUIRED_STATUS,
+    ).select_related(
+        'repository',
+        'playbook',
+    ).order_by('-updated_at', '-created_at', '-id')
 
     payload = []
+    seen_names: set[str] = set()
     for rule in rules:
+        key = _normalized_name(rule.title)
+        if not key or key in seen_names:
+            continue
+        seen_names.add(key)
         payload.append({
             'title': rule.title,
             'sigma_id': str(rule.sigma_id) if rule.sigma_id else '',
@@ -160,6 +186,7 @@ def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
             'repository_name': getattr(rule.repository, 'name', '') or '',
             'repository_url': getattr(rule.repository, 'git_url', '') or '',
             'playbook_title': getattr(rule.playbook, 'title', '') or '',
+            'playbook_status': getattr(rule.playbook, 'status', '') or '',
             'created_at': rule.created_at.isoformat() if rule.created_at else '',
             'updated_at': rule.updated_at.isoformat() if rule.updated_at else '',
         })
@@ -171,13 +198,19 @@ def _ach_payload_for_org(organization) -> list[dict[str, Any]]:
 
     analyses = ACHAnalysis.objects.filter(
         owner__organization=organization,
+        status__iexact=ACH_REQUIRED_STATUS,
     ).select_related('owner').prefetch_related(
         'hypotheses__mitre_technique',
         'evidence_items',
-    )
+    ).order_by('-updated_at', '-created_at', '-id')
 
     payload = []
+    seen_names: set[str] = set()
     for analysis in analyses:
+        key = _normalized_name(analysis.title)
+        if not key or key in seen_names:
+            continue
+        seen_names.add(key)
         hypotheses = list(analysis.hypotheses.all().order_by('sequence'))
         evidence_items = list(analysis.evidence_items.all().order_by('sequence'))
         hypothesis_index = {hyp.id: idx for idx, hyp in enumerate(hypotheses)}
@@ -267,12 +300,19 @@ def _import_workbenches(
         try:
             if not isinstance(hex_doc, dict) or hex_doc.get('hex_format') != '2.0':
                 raise ValueError('Invalid HEX payload')
-            title = ((hex_doc.get('metadata') or {}).get('name') or '').strip()
+            metadata = hex_doc.get('metadata') or {}
+            title = str(metadata.get('name') or '').strip()
             if not title:
                 raise ValueError('HEX metadata.name is required')
+            workbench_status = str(metadata.get('status') or '').strip().upper()
+            if workbench_status != WORKBENCH_REQUIRED_STATUS:
+                raise ValueError('Only DEPLOYED workbenches are allowed for PULL.')
 
             with transaction.atomic():
-                existing = PlaybookGraph.objects.filter(organization=organization, title=title).first()
+                existing = PlaybookGraph.objects.filter(
+                    organization=organization,
+                    title__iexact=title,
+                ).order_by('-updated_at', '-created_at', '-id').first()
                 if existing is not None:
                     graph = update_playbook_graph_from_hex_v2(hex_doc, existing, actor, title)
                     summary['workbenches']['updated'] += 1
@@ -332,6 +372,9 @@ def _import_rules(
             title = str(rule_data.get('title') or '').strip()
             if not title:
                 raise ValueError('Rule title is required')
+            playbook_status = str(rule_data.get('playbook_status') or '').strip().upper()
+            if playbook_status != WORKBENCH_REQUIRED_STATUS:
+                raise ValueError('Only rules from DEPLOYED workbenches are allowed for PULL.')
             format_value = str(rule_data.get('format') or 'OTHER').upper().strip()
             if format_value not in valid_formats:
                 format_value = 'OTHER'
@@ -345,16 +388,16 @@ def _import_rules(
             existing = DetectionRule.objects.filter(
                 organization=organization,
                 repository=repository,
-                title=title,
-                format=format_value,
-            ).first()
+                title__iexact=title,
+            ).order_by('-updated_at', '-created_at', '-id').first()
 
             if existing:
+                existing.format = format_value
                 existing.status = defaults['status']
                 existing.description = defaults['description']
                 existing.author = defaults['author']
                 existing.raw_content = defaults['raw_content']
-                existing.save(update_fields=['status', 'description', 'author', 'raw_content', 'updated_at'])
+                existing.save(update_fields=['format', 'status', 'description', 'author', 'raw_content', 'updated_at'])
                 summary['rules']['updated'] += 1
             else:
                 DetectionRule.objects.create(
@@ -382,7 +425,6 @@ def _import_ach(
     from ach.models import ACHAnalysis, Evidence, Hypothesis, MatrixCell
     from platform_data.models import MitreAttackTechnique
 
-    valid_statuses = {'RESEARCH', 'FINISHED', 'APPROVED'}
     valid_credibility = {'HIGH', 'MEDIUM', 'LOW'}
     valid_scores = {'CC', 'C', 'N', 'I', 'II'}
 
@@ -395,12 +437,15 @@ def _import_ach(
                 raise ValueError('ACH analysis title is required')
 
             description = str(analysis_data.get('description') or '').strip()
-            status = str(analysis_data.get('status') or 'RESEARCH').upper().strip()
-            if status not in valid_statuses:
-                status = 'RESEARCH'
+            status = str(analysis_data.get('status') or '').upper().strip()
+            if status != ACH_REQUIRED_STATUS:
+                raise ValueError('Only FINISHED ACH analyses are allowed for PULL.')
 
             with transaction.atomic():
-                analysis = ACHAnalysis.objects.filter(owner=actor, title=title).first()
+                analysis = ACHAnalysis.objects.filter(
+                    owner=actor,
+                    title__iexact=title,
+                ).order_by('-updated_at', '-created_at', '-id').first()
                 created = analysis is None
                 if analysis is None:
                     analysis = ACHAnalysis.objects.create(
