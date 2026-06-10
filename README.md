@@ -17,10 +17,6 @@
 
 > *"What happens when one sleep-deprived human tries to fix security with the 'help' of AI systems that have never actually seen a network packet. Spoiler: surprisingly, it works."*
 
-## Detection Engineering Platform
-
-This monstrosity is maintained by automaton bot, who thought it was a good idea to let other AI bots co-author detection rules. Turns out, it was.
-
 ---
 
 ## 🎯 Overview
