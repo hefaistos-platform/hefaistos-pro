@@ -736,11 +736,13 @@ class PlaybookGraph(models.Model):
     @staticmethod
     def strip_custom_id_prefix(title: str | None) -> str:
         """
-        Remove one or more leading [DE000001]-style prefixes from a title.
+        Remove one or more leading DE-ID-style prefixes from a title.
+        Supports both legacy and current formats, for example:
+        [DE000001], [DE-T1059-001], [de000123], ...
         """
         text = (title or "").strip()
         while True:
-            updated = re.sub(r'^\[DE\d{6}\]', '', text)
+            updated = re.sub(r'^\s*\[\s*DE[^\]]*\]\s*', '', text, flags=re.IGNORECASE)
             if updated == text:
                 break
             text = updated

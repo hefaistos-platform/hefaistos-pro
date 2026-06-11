@@ -180,3 +180,25 @@ class WorkbenchIdGraphQLTests(GraphQLTestCase):
         expected_title = f"[{self.graph.custom_id}]Renamed suffix"
         self.assertEqual(graph_payload["title"], expected_title)
         self.assertEqual(self.graph.title, expected_title)
+
+    def test_rename_collapses_repeated_prefixes_to_single_id(self):
+        mutation = """
+            mutation RenameWorkbench($id: UUID!, $title: String!) {
+                updatePlaybookGraphTitle(id: $id, title: $title) {
+                    playbookGraph {
+                        id
+                        title
+                        customId
+                    }
+                }
+            }
+        """
+        repeated = f"[{self.graph.custom_id}][{self.graph.custom_id}][{self.graph.custom_id}]Test"
+        response = self.query(
+            mutation,
+            variables={"id": str(self.graph.id), "title": repeated},
+        )
+        self.assertResponseNoErrors(response)
+        graph_payload = json.loads(response.content)["data"]["updatePlaybookGraphTitle"]["playbookGraph"]
+        expected_title = f"[{self.graph.custom_id}]Test"
+        self.assertEqual(graph_payload["title"], expected_title)
