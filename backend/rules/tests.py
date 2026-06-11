@@ -150,3 +150,16 @@ class SanitizeFilenameAndMitreFolderTests(TestCase):
         from playbooks.git_client import sanitize_filename
         self.assertEqual(sanitize_filename('Rule: Test/Case'), 'rule_test_case')
 
+    def test_sanitize_workbench_title_preserves_case_and_brackets(self):
+        from playbooks.git_client import sanitize_workbench_title_for_filename
+        self.assertEqual(
+            sanitize_workbench_title_for_filename('[Prod][JPH][eSeL] Kriticka manipulace s AUDIT'),
+            '[Prod][JPH][eSeL]_Kriticka_manipulace_s_AUDIT',
+        )
+
+    def test_sanitize_workbench_title_removes_path_delimiters(self):
+        from playbooks.git_client import sanitize_workbench_title_for_filename
+        self.assertEqual(
+            sanitize_workbench_title_for_filename('Blue Team / Tier\\2: Rule'),
+            'Blue_Team_Tier_2_Rule',
+        )

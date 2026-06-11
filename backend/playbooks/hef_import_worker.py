@@ -137,6 +137,7 @@ def process_import_job(task_id: str) -> None:
         selected_paths = job.selected_bundles or []
         commit_sha = job.source_commit_sha or ''
 
+        discovered_files_by_path = {}
         if not selected_paths:
             job.progress = 'Discovering HEF bundles...'
             job.save(update_fields=['progress'])
@@ -149,6 +150,11 @@ def process_import_job(task_id: str) -> None:
                 api_base_url=api_base_url,
                 verify_ssl=verify_ssl,
             )
+            discovered_files_by_path = {
+                b.get('path'): b.get('files')
+                for b in bundles
+                if isinstance(b, dict) and b.get('path') and isinstance(b.get('files'), dict)
+            }
             selected_paths = [b['path'] for b in bundles]
             if not commit_sha:
                 commit_sha = resolved_sha
@@ -198,7 +204,16 @@ def process_import_job(task_id: str) -> None:
 
                 # --- Fetch bundle YAML files ---
                 # Resolve the sibling paths from the MDR path
-                file_paths = _infer_file_paths(bundle_path, target_folder)
+                discovered_files = discovered_files_by_path.get(bundle_path) or {}
+                if discovered_files:
+                    file_paths = {
+                        'mdr': discovered_files.get('mdr') or bundle_path,
+                        'tvm': discovered_files.get('tvm'),
+                        'dom': discovered_files.get('dom'),
+                        'bdr': discovered_files.get('bdr'),
+                    }
+                else:
+                    file_paths = _infer_file_paths(bundle_path, target_folder)
                 fetched = fetch_bundle_files(
                     repo_owner,
                     repo_name,
@@ -383,6 +398,31 @@ def _infer_file_paths(
         # Fallback: use filename stem
         name = posixpath.basename(mdr_path).replace('.yaml', '')
 
+    lower_name = name.lower()
+
+    # New title-based format:
+    #   <Title>_mdr.yaml + siblings <Title>_tvm|dom|bdr.yaml
+    if lower_name.endswith('_mdr'):
+        root = name[:-4]
+        return {
+            'mdr': mdr_path,
+            'tvm': f'{prefix}Objects/Threat Vectors/{root}_tvm.yaml',
+            'dom': f'{prefix}Objects/Detection Objectives/{root}_dom.yaml',
+            'bdr': f'{prefix}Objects/Business Rules/{root}_bdr.yaml',
+        }
+
+    # Legacy heuristic format:
+    #   mdr_<x>.yaml + siblings dom_<x>.yaml / tvm_<x>.yaml / bdr_<x>.yaml
+    if lower_name.startswith('mdr_'):
+        root = name[4:]
+        return {
+            'mdr': mdr_path,
+            'tvm': f'{prefix}Objects/Threat Vectors/tvm_{root}.yaml',
+            'dom': f'{prefix}Objects/Detection Objectives/dom_{root}.yaml',
+            'bdr': f'{prefix}Objects/Business Rules/bdr_{root}.yaml',
+        }
+
+    # Generic fallback: use identical stem across object folders.
     return {
         'mdr': mdr_path,
         'tvm': f'{prefix}Objects/Threat Vectors/{name}.yaml',
@@ -422,6 +462,23 @@ def _fetch_platform_files(
     else:
         name = posixpath.basename(mdr_path).replace('.yaml', '')
 
+    name_candidates = [name]
+    lower_name = name.lower()
+    if lower_name.endswith('_mdr'):
+        name_candidates.append(name[:-4])
+    else:
+        name_candidates.append(f'{name}_mdr')
+    if lower_name.startswith('mdr_'):
+        name_candidates.append(name[4:])
+
+    # Preserve order while removing duplicates.
+    deduped_candidates = []
+    seen_candidates = set()
+    for candidate in name_candidates:
+        if candidate and candidate not in seen_candidates:
+            deduped_candidates.append(candidate)
+            seen_candidates.add(candidate)
+
     platform_files: dict = {}
     client = get_repo_client(
         repo_url=repo_url or f'https://github.com/{repo_owner}/{repo_name}',
@@ -438,14 +495,19 @@ def _fetch_platform_files(
                 continue
             if platform in ('sigma', 'wazuh') and ext not in ('.yml', '.yaml', '.xml'):
                 continue
-            path = f'{prefix}{platform}/{name}{ext}'
-            try:
-                content = client.get_file_content(path, commit_sha)
-                if content is not None:
-                    platform_files.setdefault(platform, []).append({'path': path, 'content': content})
-                    break  # found one, stop trying extensions
-            except Exception as exc:
-                logger.debug('HEF import: could not fetch platform file %s: %s', path, exc)
+            found = False
+            for candidate in deduped_candidates:
+                path = f'{prefix}{platform}/{candidate}{ext}'
+                try:
+                    content = client.get_file_content(path, commit_sha)
+                    if content is not None:
+                        platform_files.setdefault(platform, []).append({'path': path, 'content': content})
+                        found = True
+                        break
+                except Exception as exc:
+                    logger.debug('HEF import: could not fetch platform file %s: %s', path, exc)
+            if found:
+                break  # found one, stop trying extensions
 
     return platform_files
 

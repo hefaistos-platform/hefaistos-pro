@@ -1030,8 +1030,8 @@ def compile_mdr_yaml(playbook) -> Dict[str, Any]:
 
     The top-level ``name`` field is a snake_case identifier derived from the
     playbook's custom ID or title slug (e.g. ``mdr_de_t1070_001``).
-    The filename used when committing is derived separately by the caller via
-    ``sanitize_filename(mdr_data['name'])``.
+    The filename used when committing is derived separately by the caller from
+    the workbench title (``<title>_mdr.yaml``), not from this internal ``name``.
 
     Detection content is sourced from the actual ``DetectionRule`` objects saved
     to the Detection Library and linked to this playbook via

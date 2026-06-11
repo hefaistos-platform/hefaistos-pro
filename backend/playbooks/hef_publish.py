@@ -3,6 +3,35 @@ from typing import Any, Dict, List, Optional, Tuple
 from playbooks.repo_clients import RepoClient, join_repo_path, parse_repo_url
 
 
+def _append_object_suffix(base_name: str, suffix: str) -> str:
+    """Append ``_<suffix>`` unless the stem already ends with it."""
+    expected = f'_{suffix.lower()}'
+    if base_name.lower().endswith(expected):
+        return base_name
+    return f'{base_name}{expected}'
+
+
+def _resolve_workbench_title_for_paths(playbook, mdr_data: Optional[Dict[str, Any]] = None) -> str:
+    """Pick the most reliable human-readable title source for repository filenames."""
+    title = getattr(playbook, 'title', None)
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+
+    if isinstance(mdr_data, dict):
+        metadata = mdr_data.get('metadata')
+        if isinstance(metadata, dict):
+            meta_title = metadata.get('title')
+            if isinstance(meta_title, str) and meta_title.strip():
+                return meta_title.strip()
+
+        name = mdr_data.get('name')
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+
+    playbook_id = getattr(playbook, 'id', None)
+    return str(playbook_id or 'detection_rule')
+
+
 def extract_github_details(repo_url: Optional[str]) -> Optional[Tuple[str, str]]:
     parsed = parse_repo_url(repo_url or '')
     if not parsed or parsed.provider != 'GITHUB' or '/' in parsed.namespace:
@@ -25,7 +54,7 @@ def compile_opentide_bundle(
     use_ai_enrichment: bool = False,
     force_bdr_generation: bool = False,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
-    from playbooks.git_client import sanitize_filename
+    from playbooks.git_client import sanitize_workbench_title_for_filename
     from playbooks.utils.opentide_compiler import (
         compile_bdr_yaml_with_ai,
         compile_dom_yaml,
@@ -79,10 +108,24 @@ def compile_opentide_bundle(
         return None, validation_errors
 
     base_folder = (target_folder or '').strip('/')
+    title_seed = _resolve_workbench_title_for_paths(playbook, mdr_data)
+    safe_title = sanitize_workbench_title_for_filename(title_seed)
 
-    tvm_path = join_repo_path(base_folder, 'Objects/Threat Vectors', f"{sanitize_filename(tvm_data['name'])}.yaml")
-    dom_path = join_repo_path(base_folder, 'Objects/Detection Objectives', f"{sanitize_filename(dom_data['name'])}.yaml")
-    mdr_path = join_repo_path(base_folder, 'Objects/Detection Rules', f"{sanitize_filename(mdr_data['name'])}.yaml")
+    tvm_path = join_repo_path(
+        base_folder,
+        'Objects/Threat Vectors',
+        f"{_append_object_suffix(safe_title, 'tvm')}.yaml",
+    )
+    dom_path = join_repo_path(
+        base_folder,
+        'Objects/Detection Objectives',
+        f"{_append_object_suffix(safe_title, 'dom')}.yaml",
+    )
+    mdr_path = join_repo_path(
+        base_folder,
+        'Objects/Detection Rules',
+        f"{_append_object_suffix(safe_title, 'mdr')}.yaml",
+    )
 
     files: Dict[str, str] = {
         tvm_path: dump_opentide_yaml(tvm_data),
@@ -92,7 +135,11 @@ def compile_opentide_bundle(
 
     bdr_path = None
     if bdr_data:
-        bdr_path = join_repo_path(base_folder, 'Objects/Business Rules', f"{sanitize_filename(bdr_data['name'])}.yaml")
+        bdr_path = join_repo_path(
+            base_folder,
+            'Objects/Business Rules',
+            f"{_append_object_suffix(safe_title, 'bdr')}.yaml",
+        )
         files[bdr_path] = dump_opentide_yaml(bdr_data)
 
     return {
@@ -112,21 +159,19 @@ def compile_platform_rule_files(
     *,
     mdr_data: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], List[str]]:
-    from playbooks.git_client import sanitize_filename
+    from playbooks.git_client import sanitize_workbench_title_for_filename
     from playbooks.utils.opentide_compiler import compile_mdr_yaml
     from rules.utils import extract_platform_rules_from_opentide
 
     mdr_data = mdr_data or compile_mdr_yaml(playbook)
-    # Use the MDR metadata.title (= playbook title) as the filename source so
-    # all standalone platform rule files have a name that matches the OpenTide
-    # YAML.  Fall back to the snake_case name identifier if title is absent.
-    mdr_title = (mdr_data.get('metadata') or {}).get('title') or mdr_data.get('name') or str(playbook.id)
-    safe_title = sanitize_filename(mdr_title)
+    mdr_title = _resolve_workbench_title_for_paths(playbook, mdr_data)
+    safe_title = sanitize_workbench_title_for_filename(mdr_title)
+    rule_file_stem = _append_object_suffix(safe_title, 'mdr')
     base_folder = (target_folder or '').strip('/')
     files = extract_platform_rules_from_opentide(
         mdr_data,
         base_folder=base_folder,
-        sanitized_title=safe_title,
+        sanitized_title=rule_file_stem,
     )
     if not files:
         return None, ['No platform rules found in MDR YAML']

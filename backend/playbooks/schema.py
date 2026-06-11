@@ -4700,61 +4700,9 @@ class PushPlaybookToGitHub(graphene.Mutation):
 
     @staticmethod
     def _build_opentide_bundle(graph, target_folder=None):
-        from playbooks.git_client import sanitize_filename
-        from playbooks.utils.opentide_compiler import (
-            compile_dom_yaml,
-            compile_mdr_yaml,
-            compile_tvm_yaml,
-            dump_opentide_yaml,
-            _normalize_mdr_impacted_entities,
-        )
-        from playbooks.utils.opentide_validator import (
-            validate_dom_structure,
-            validate_mdr_structure,
-            validate_tvm_structure,
-        )
+        from playbooks.hef_publish import compile_opentide_bundle
 
-        tvm_data = compile_tvm_yaml(graph)
-        dom_data = compile_dom_yaml(graph)
-        mdr_data = compile_mdr_yaml(graph)
-        _normalize_mdr_impacted_entities(mdr_data)
-
-        validations = [
-            ('TVM',) + validate_tvm_structure(tvm_data),
-            ('DOM',) + validate_dom_structure(dom_data),
-            ('MDR',) + validate_mdr_structure(mdr_data),
-        ]
-        validation_errors = []
-        for label, is_valid, errors in validations:
-            if not is_valid:
-                validation_errors.extend([f'{label}: {error}' for error in errors])
-
-        if validation_errors:
-            return None, validation_errors
-
-        base_folder = (target_folder or '').strip('/')
-        files = {
-            PushPlaybookToGitHub._join_repo_path(
-                base_folder,
-                'Objects/Threat Vectors',
-                f"{sanitize_filename(tvm_data['name'])}.yaml",
-            ): dump_opentide_yaml(tvm_data),
-            PushPlaybookToGitHub._join_repo_path(
-                base_folder,
-                'Objects/Detection Objectives',
-                f"{sanitize_filename(dom_data['name'])}.yaml",
-            ): dump_opentide_yaml(dom_data),
-            PushPlaybookToGitHub._join_repo_path(
-                base_folder,
-                'Objects/Detection Rules',
-                f"{sanitize_filename(mdr_data['name'])}.yaml",
-            ): dump_opentide_yaml(mdr_data),
-        }
-
-        return {
-            'files': files,
-            'primary_path': next(path for path in files if 'Objects/Detection Rules/' in path),
-        }, []
+        return compile_opentide_bundle(graph, target_folder=target_folder)
 
     @staticmethod
     def _build_platform_rule_files(graph, target_folder=None):

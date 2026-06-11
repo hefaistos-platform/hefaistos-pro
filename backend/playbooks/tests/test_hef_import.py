@@ -221,15 +221,15 @@ class TestFetchBundleFiles(SimpleTestCase):
 
 _TREE_RESPONSE = {
     'tree': [
-        {'path': 'rules/Objects/Detection Rules/test.yaml', 'type': 'blob', 'sha': 'mdr_sha'},
-        {'path': 'rules/Objects/Threat Vectors/test.yaml', 'type': 'blob', 'sha': 'tvm_sha'},
-        {'path': 'rules/Objects/Detection Objectives/test.yaml', 'type': 'blob', 'sha': 'dom_sha'},
+        {'path': 'rules/Objects/Detection Rules/My_Playbook_mdr.yaml', 'type': 'blob', 'sha': 'mdr_sha'},
+        {'path': 'rules/Objects/Threat Vectors/My_Playbook_tvm.yaml', 'type': 'blob', 'sha': 'tvm_sha'},
+        {'path': 'rules/Objects/Detection Objectives/My_Playbook_dom.yaml', 'type': 'blob', 'sha': 'dom_sha'},
     ]
 }
 
 _INDEX_CONTENT = json.dumps([
     {
-        'path': 'rules/Objects/Detection Rules/test.yaml',
+        'path': 'rules/Objects/Detection Rules/My_Playbook_mdr.yaml',
         'mdr_uuid': '12345678-1234-5678-1234-567812345678',
         'title': 'Test Detection Rule',
         'status': 'experimental',
@@ -311,6 +311,10 @@ class TestDiscoverHefBundles(SimpleTestCase):
         self.assertEqual(sha, 'resolved_sha')
         # Tree walk should find the bundle
         self.assertEqual(len(bundles), 1)
+        self.assertEqual(
+            bundles[0]['path'],
+            'rules/Objects/Detection Rules/My_Playbook_mdr.yaml',
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -241,6 +241,31 @@ def _try_load_hef_index(
         return None
 
 
+def _strip_object_suffix(stem: str, object_type: str) -> str:
+    """Strip a trailing ``_<object_type>`` suffix from a filename stem."""
+    suffix = f'_{object_type.lower()}'
+    if stem.lower().endswith(suffix):
+        return stem[:-len(suffix)]
+    return stem
+
+
+def _bundle_key_from_stem(stem: str, object_type: str) -> str:
+    """
+    Build a grouping key that supports both legacy and title-based HEF names.
+
+    New format:
+      ``<WorkbenchTitle>_tvm|dom|mdr``  -> shared key: ``<WorkbenchTitle>``
+
+    Legacy format:
+      ``mdr_*`` / ``dom_*`` / ``tvm_*`` -> strips role prefix when present.
+    """
+    base = _strip_object_suffix(stem, object_type)
+    legacy_prefix = f'{object_type.lower()}_'
+    if base.lower().startswith(legacy_prefix):
+        return base[len(legacy_prefix):]
+    return base
+
+
 def _build_bundle_descriptors_from_tree(
     tree_items: List[Dict[str, Any]],
     base_folder: str,
@@ -264,22 +289,32 @@ def _build_bundle_descriptors_from_tree(
     dom_dir = f'{prefix}Objects/Detection Objectives/'
     bdr_dir = f'{prefix}Objects/Business Rules/'
 
-    # Map bundle_name → {tvm, dom, mdr, bdr, platform_files}
+    # Map logical bundle key → {tvm, dom, mdr, bdr, platform_files}
     bundle_map: Dict[str, Dict[str, Any]] = {}
 
     for path in blob_by_path:
         if path.startswith(mdr_dir) and path.endswith('.yaml'):
-            name = path[len(mdr_dir):].split('.yaml')[0]
-            bundle_map.setdefault(name, {})['mdr'] = path
+            stem = path[len(mdr_dir):].split('.yaml')[0]
+            key = _bundle_key_from_stem(stem, 'mdr')
+            entry = bundle_map.setdefault(key, {})
+            if 'mdr' in entry and entry.get('mdr') != path:
+                # Avoid clobbering when two unrelated files normalize to same key.
+                key = stem
+                entry = bundle_map.setdefault(key, {})
+            entry['mdr'] = path
+            entry['_mdr_stem'] = stem
         elif path.startswith(tvm_dir) and path.endswith('.yaml'):
-            name = path[len(tvm_dir):].split('.yaml')[0]
-            bundle_map.setdefault(name, {})['tvm'] = path
+            stem = path[len(tvm_dir):].split('.yaml')[0]
+            key = _bundle_key_from_stem(stem, 'tvm')
+            bundle_map.setdefault(key, {})['tvm'] = path
         elif path.startswith(dom_dir) and path.endswith('.yaml'):
-            name = path[len(dom_dir):].split('.yaml')[0]
-            bundle_map.setdefault(name, {})['dom'] = path
+            stem = path[len(dom_dir):].split('.yaml')[0]
+            key = _bundle_key_from_stem(stem, 'dom')
+            bundle_map.setdefault(key, {})['dom'] = path
         elif path.startswith(bdr_dir) and path.endswith('.yaml'):
-            name = path[len(bdr_dir):].split('.yaml')[0]
-            bundle_map.setdefault(name, {})['bdr'] = path
+            stem = path[len(bdr_dir):].split('.yaml')[0]
+            key = _bundle_key_from_stem(stem, 'bdr')
+            bundle_map.setdefault(key, {})['bdr'] = path
         else:
             # Platform rule files: <prefix>/<platform>/<filename>
             for plat in _PLATFORM_SUBDIRS:
@@ -287,16 +322,18 @@ def _build_bundle_descriptors_from_tree(
                 if path.startswith(plat_dir):
                     fname = path[len(plat_dir):]
                     # Group by base name without extension
-                    base = fname.rsplit('.', 1)[0]
-                    bundle_map.setdefault(base, {}).setdefault('platform_files', {}).setdefault(plat, []).append(path)
+                    stem = fname.rsplit('.', 1)[0]
+                    key = _bundle_key_from_stem(stem, 'mdr')
+                    bundle_map.setdefault(key, {}).setdefault('platform_files', {}).setdefault(plat, []).append(path)
 
     bundles = []
-    for name, files in bundle_map.items():
+    for key, files in bundle_map.items():
         if 'mdr' not in files:
             continue  # not a complete bundle
+        mdr_stem = files.get('_mdr_stem') or key
         bundles.append({
             'path': files['mdr'],
-            'mdr_title': name,
+            'mdr_title': mdr_stem,
             'mdr_uuid': '',
             'status': '',
             'techniques': [],

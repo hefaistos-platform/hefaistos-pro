@@ -102,10 +102,6 @@ def _bundle_patches(validation_errors=None):
             side_effect=lambda data: f"name: {data['name']}\n",
         ),
         patch(
-            'playbooks.git_client.sanitize_filename',
-            side_effect=lambda name: name.replace(' ', '_'),
-        ),
-        patch(
             'playbooks.utils.opentide_validator.validate_tvm_structure',
             return_value=(not validation_errors['tvm'], validation_errors['tvm']),
         ),
@@ -125,6 +121,7 @@ class TestCompileOpenTideBundle(SimpleTestCase):
 
     def test_returns_three_yaml_files_in_canonical_folders(self):
         playbook = MagicMock()
+        playbook.title = 'My Playbook'
 
         with contextlib.ExitStack() as stack:
             for cm in _bundle_patches():
@@ -135,19 +132,20 @@ class TestCompileOpenTideBundle(SimpleTestCase):
         self.assertIsNotNone(bundle)
         files = bundle['files']
         self.assertEqual(set(files.keys()), {
-            'content/hef/Objects/Threat Vectors/tvm_test.yaml',
-            'content/hef/Objects/Detection Objectives/dom_test.yaml',
-            'content/hef/Objects/Detection Rules/mdr_test.yaml',
+            'content/hef/Objects/Threat Vectors/My_Playbook_tvm.yaml',
+            'content/hef/Objects/Detection Objectives/My_Playbook_dom.yaml',
+            'content/hef/Objects/Detection Rules/My_Playbook_mdr.yaml',
         })
         self.assertEqual(
             bundle['primary_path'],
-            'content/hef/Objects/Detection Rules/mdr_test.yaml',
+            'content/hef/Objects/Detection Rules/My_Playbook_mdr.yaml',
         )
         self.assertEqual(bundle['mdr_yaml'], 'name: mdr_test\n')
         self.assertIsNone(bundle['bdr_path'])
 
     def test_returns_validation_errors_when_mdr_invalid(self):
         playbook = MagicMock()
+        playbook.title = 'My Playbook'
 
         with contextlib.ExitStack() as stack:
             for cm in _bundle_patches(validation_errors={
@@ -190,7 +188,7 @@ class TestCompilePlatformRuleFiles(SimpleTestCase):
         )
         # Verify sanitized_title passed to extractor was derived from metadata.title
         call_kwargs = mock_extract_platform_rules.call_args
-        self.assertEqual(call_kwargs.kwargs.get('sanitized_title') or call_kwargs.args[2], 'my_playbook')
+        self.assertEqual(call_kwargs.kwargs.get('sanitized_title') or call_kwargs.args[2], 'My_Playbook_mdr')
 
     @patch('rules.utils.extract_platform_rules_from_opentide')
     @patch('playbooks.utils.opentide_compiler.compile_mdr_yaml')
@@ -208,7 +206,7 @@ class TestCompilePlatformRuleFiles(SimpleTestCase):
         call_kwargs = mock_extract_platform_rules.call_args
         self.assertEqual(
             call_kwargs.kwargs.get('sanitized_title') or call_kwargs.args[2],
-            'mdr_fallback_rule',
+            'mdr_fallback_rule_mdr',
         )
 
 
