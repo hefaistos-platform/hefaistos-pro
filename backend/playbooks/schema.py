@@ -2954,7 +2954,7 @@ class UpdatePlaybookDetails(graphene.Mutation):
         except PlaybookGraph.DoesNotExist:
             raise Exception("Graph not found")
 
-        # 1. Handle Technique Change (Triggers ID Generation)
+        # 1. Handle Technique Change
         if 'mitre_technique_id' in kwargs:
             tid = kwargs.get('mitre_technique_id')
             if tid:
@@ -2962,9 +2962,6 @@ class UpdatePlaybookDetails(graphene.Mutation):
                     tech = MitreAttackTechnique.objects.get(technique_id=tid)
                     if graph.mitre_technique != tech:
                         graph.mitre_technique = tech
-                        # Regenerate ID because technique changed
-                        graph.custom_id = None # clear old ID
-                        graph.generate_custom_id()
                 except MitreAttackTechnique.DoesNotExist:
                     pass # Or raise error
             else:

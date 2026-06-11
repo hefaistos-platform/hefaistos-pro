@@ -20,6 +20,7 @@ const GET_ALL_GRAPHS_QUERY = gql`
   query GetAllPlaybookGraphs {
     allPlaybookGraphs {
       id
+      customId
       title
       status
       updatedAt
@@ -36,7 +37,7 @@ const GET_ALL_GRAPHS_QUERY = gql`
 const CREATE_PLAYBOOK_GRAPH_MUTATION = gql`
   mutation CreatePlaybookGraph($title: String!) {
     createPlaybookGraph(title: $title) {
-      graph { id title status updatedAt }
+      graph { id customId title status updatedAt }
     }
   }
 `;
@@ -79,6 +80,7 @@ const DELETE_GRAPH_MUTATION = gql`
 
 interface GraphRow {
   id: string;
+  customId: string | null;
   title: string;
   status: string;
   updatedAt: string;
@@ -227,6 +229,15 @@ export const PlaybooksHubPage: React.FC = () => {
 
   const graphColumns = [
     {
+      title: 'ID',
+      key: 'customId',
+      dataIndex: 'customId',
+      width: 130,
+      render: (_: any, row: GraphRow) => (
+        <Typography.Text code>{row.customId || '—'}</Typography.Text>
+      ),
+    },
+    {
       title: 'Title', dataIndex: 'title', key: 'title', render: (_: any, row: GraphRow) => (
         <Space direction="vertical" size={0}>
           <Link to={`/playbooks/${row.id}`}>{row.title}</Link>
@@ -261,8 +272,7 @@ export const PlaybooksHubPage: React.FC = () => {
     },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={statusColor[status] || 'default'}>{status}</Tag> },
     { title: 'Author', dataIndex: ['author','username'], key: 'author', render: (_: any, row: GraphRow) => row.author?.username || 'N/A' },
-    { title: 'Owner', dataIndex: 'ownerOrganizationName', key: 'owner', render: (_: any, row: GraphRow) => row.isReadOnly ? <span style={{ fontSize: 12 }}>{row.ownerOrganizationName || 'Unknown'} (Shared)</span> : <span style={{ fontSize: 12 }}>You</span> },
-    { title: 'Updated', dataIndex: 'updatedAt', key: 'updatedAt', render: (dt: string) => new Date(dt).toLocaleString() }
+    { title: 'Last Update', dataIndex: 'updatedAt', key: 'updatedAt', render: (dt: string) => new Date(dt).toLocaleString() }
   ];
 
   const handleCreateGraph = async () => {
@@ -275,6 +285,7 @@ export const PlaybooksHubPage: React.FC = () => {
           createPlaybookGraph: {
             graph: {
               id: 'temp-' + Date.now().toString(),
+              customId: null,
               title,
               status: 'IDEA',
               updatedAt: new Date().toISOString(),
@@ -319,6 +330,7 @@ export const PlaybooksHubPage: React.FC = () => {
           createPlaybookGraph: {
             graph: {
               id: 'temp-' + Date.now().toString(),
+              customId: null,
               title,
               status: 'IDEA',
               updatedAt: new Date().toISOString(),

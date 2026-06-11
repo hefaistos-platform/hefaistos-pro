@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.db.models import JSONField
+from django.db import transaction
 from organizations.models import Organization
 from identity.models import CustomUser
 from platform_data.models import MitreAttackTechnique, MitreIcsTechnique, MitreMobileTechnique
@@ -311,6 +312,32 @@ class CapabilityAbstraction(models.Model):
     def __str__(self):
         return f"{self.technique.technique_id}::{self.abstraction_layer}::{self.component_artifact}"
 
+
+class WorkbenchIdCounter(models.Model):
+    """
+    Global singleton counter for workbench IDs in the form DE000001, DE000002, ...
+    """
+    singleton_key = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    next_value = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Workbench ID Counter"
+        verbose_name_plural = "Workbench ID Counter"
+
+    @classmethod
+    def consume_next_custom_id(cls) -> str:
+        with transaction.atomic():
+            counter, _ = cls.objects.select_for_update().get_or_create(
+                singleton_key=1,
+                defaults={"next_value": 1},
+            )
+            current_value = counter.next_value
+            counter.next_value = current_value + 1
+            counter.save(update_fields=["next_value", "updated_at"])
+        return f"DE{current_value:06d}"
+
+
 class PlaybookGraph(models.Model):
     """
     The 'Playbook' Container.
@@ -405,8 +432,8 @@ class PlaybookGraph(models.Model):
     # Store the last commit hash to know if DB is ahead of Git
     last_commit_hash = models.CharField(max_length=40, blank=True)
 
-    # --- METADATA (DCG420) ---
-    # Custom Human-Readable ID: DE-${Technique}-001
+    # --- METADATA ---
+    # Stable human-readable ID (global sequence): DE000001, DE000002, ...
     custom_id = models.CharField(max_length=50, blank=True, null=True, unique=True)
     version = models.IntegerField(default=1)
     minor_version = models.IntegerField(default=0)
@@ -676,32 +703,6 @@ class PlaybookGraph(models.Model):
     )
 
     # --- AUTOMATION HELPERS ---
-    def generate_custom_id(self):
-        """
-        Generates ID format: DE-{TechniqueID}-{Sequence}
-        Example: DE-T1003.001-001
-        Fallback when no technique selected: DE-NO-TTP-{Sequence}
-        """
-        if not self.mitre_technique:
-            # Fallback base when technique is not yet selected
-            base_id = "DE-NO-TTP"
-        else:
-            tech_id = self.mitre_technique.technique_id
-            base_id = f"DE-{tech_id}"
-        
-        # Find next sequence
-        # We look for IDs that start with DE-T1003.001
-        similar_ids = PlaybookGraph.objects.filter(
-            custom_id__startswith=base_id
-        ).values_list('custom_id', flat=True)
-        
-        count = 1
-        while True:
-            candidate = f"{base_id}-{count:03d}" # Pad with zeros (001, 002)
-            if candidate not in similar_ids and candidate != self.custom_id:
-                self.custom_id = candidate
-                break
-            count += 1
 
     # --- OPENTIDE METADATA HELPERS ---
     def compile_opentide_metadata(self) -> dict:
@@ -732,9 +733,9 @@ class PlaybookGraph(models.Model):
             self.configured_platforms = list(existing_platforms.keys())
 
     def save(self, *args, **kwargs):
-        # Auto-generate ID on first save if technique exists and ID is missing
-        if self.mitre_technique and not self.custom_id:
-            self.generate_custom_id()
+        # Auto-generate ID on first save when missing.
+        if not self.custom_id:
+            self.custom_id = WorkbenchIdCounter.consume_next_custom_id()
         # Auto-refresh OpenTide metadata whenever opentide_yaml is already set.
         # auto_update_opentide_yaml() only modifies instance attributes in memory;
         # the actual DB persist happens in the super().save() call below.
