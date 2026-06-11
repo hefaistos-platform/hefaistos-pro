@@ -21,6 +21,7 @@ import {
   FileTextOutlined,
   AppstoreOutlined,
   SyncOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import { NotificationBell } from './NotificationBell';
 import { NewsIcon } from './NewsIcon';
@@ -70,6 +71,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     if (location.pathname.startsWith('/mgmt/framework-updates')) return 'framework-updates';
     if (location.pathname.startsWith('/mgmt/news')) return 'news';
     if (location.pathname.startsWith('/mgmt/config')) return 'config';
+    if (location.pathname.startsWith('/mgmt/logs')) return 'logs';
     if (location.pathname.startsWith('/mgmt/users')) return 'config';
     if (location.pathname.startsWith('/mgmt/cave')) return 'mgmt-cave';
     if (location.pathname.startsWith('/mgmt/superuser')) return 'superuser';
@@ -109,6 +111,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     items.push({ key: 'news', icon: <BulbOutlined />, label: 'News Management', onClick: () => navigate('/mgmt/news') });
     items.push({ key: 'config', icon: <AppstoreOutlined />, label: 'Configuration', onClick: () => navigate('/mgmt/config') });
     items.push({ key: 'framework-updates', icon: <SyncOutlined />, label: 'Framework Updates', onClick: () => navigate('/mgmt/framework-updates') });
+    items.push({ key: 'logs', icon: <FileSearchOutlined />, label: 'Logs', onClick: () => navigate('/mgmt/logs') });
   }
 
   // Superuser management - only for Django superusers

@@ -35,6 +35,7 @@ import PainPointsPage from './pages/PainPointsPage';
 import { ConfigurationPage } from './pages/ConfigurationPage';
 import { FrameworkUpdatesPage } from './pages/FrameworkUpdatesPage';
 import { MGMTCavePage } from './pages/MGMTCavePage';
+import { LogsPage } from './pages/LogsPage';
 
 // Layout
 import { MainLayout } from './components/MainLayout';
@@ -83,6 +84,7 @@ const AppRoutes = () => {
                 <Route path="/mgmt/config" element={<ConfigurationPage />} />
                 <Route path="/mgmt/framework-updates" element={<FrameworkUpdatesPage />} />
                 <Route path="/mgmt/cave" element={<MGMTCavePage />} />
+                <Route path="/mgmt/logs" element={<LogsPage />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/tools/dld" element={<LogicDeconstructorPage />} />
                 <Route path="/tools/ach" element={<ACHPage />} />

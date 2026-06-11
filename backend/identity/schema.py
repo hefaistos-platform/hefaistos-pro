@@ -37,6 +37,7 @@ from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 from playbooks.models import PlaybookGraph  # Safe import (models only, avoids circular schema import)
 from ach.models import ACHAnalysis
 from advops.models import ADVOPSReport
+from core.mcs_logging import emit_security_event, extract_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -429,11 +430,29 @@ class ChangePassword(graphene.Mutation):
     @staticmethod
     def mutate(root, info, current_password, new_password):
         user = info.context.user
+        source_ip = extract_client_ip(info.context)
         if user.is_anonymous:
             raise Exception("Authentication required")
         
         # Verify current password
         if not user.check_password(current_password):
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Password change denied for user '{user_name}' from IP {source_ip}: current password mismatch.",
+                event_action='user_password_change_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Current password verification failed.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=info.context,
+                http_status_code=401,
+            )
             raise Exception("Current password is incorrect")
         
         # Validate new password using Django's validators
@@ -445,6 +464,22 @@ class ChangePassword(graphene.Mutation):
         # Set the new password
         user.set_password(new_password)
         user.save(update_fields=['password'])
+        user_id, user_name = _user_identity(user)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"User '{user_name}' successfully changed their password.",
+            event_action='user_password_change_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-CHANGE-PASS-OK-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=user_id,
+            user_name=user_name,
+            source_ip=source_ip,
+            request=info.context,
+            http_status_code=200,
+        )
         
         # Send password change confirmation email
         try:
@@ -600,6 +635,13 @@ def _get_webauthn_origin():
     return "http://localhost:3000"
 
 
+def _user_identity(user):
+    if not user:
+        return "anonymous", None
+    user_id = getattr(user, 'id', None)
+    return (str(user_id) if user_id else "anonymous"), getattr(user, 'username', None)
+
+
 class StartMfaLogin(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
@@ -613,12 +655,54 @@ class StartMfaLogin(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, username, password):
-        user = authenticate(request=info.context, username=username, password=password)
+        request = info.context
+        source_ip = extract_client_ip(request)
+
+        user = authenticate(request=request, username=username, password=password)
         if not user:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=(
+                    f"Failed login attempt for user '{username}' from IP {source_ip}. "
+                    "Reason: Invalid credentials."
+                ),
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Invalid credentials provided.',
+                event_category=['authentication'],
+                event_type=['start', 'failure'],
+                user_id=username or 'anonymous',
+                user_name=username or None,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=401,
+            )
             raise Exception("Invalid credentials")
 
         mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
         if mfa_settings.is_locked():
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='error',
+                logger_name='AuthService',
+                message=(
+                    f"Account for user '{user_name}' remains locked due to repeated "
+                    "failed MFA attempts."
+                ),
+                event_action='user_account_locked',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-LOCKOUT-01',
+                event_reason='MFA verification is temporarily locked due to repeated failures.',
+                event_category=['authentication'],
+                event_type=['denied', 'failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=423,
+            )
             raise Exception("MFA verification is temporarily locked due to repeated failures")
 
         has_webauthn = WebAuthnCredential.objects.filter(user=user).exists()
@@ -626,11 +710,47 @@ class StartMfaLogin(graphene.Mutation):
         must_use_mfa = _mfa_required_for_user(user)
 
         if must_use_mfa and not (has_totp or has_webauthn):
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='error',
+                logger_name='AuthService',
+                message=(
+                    f"Administrator login blocked for '{user_name}' because no MFA method "
+                    "is enrolled."
+                ),
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='Administrator account requires MFA enrollment before login.',
+                event_category=['authentication'],
+                event_type=['denied', 'failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=403,
+            )
             raise Exception("Administrator account requires MFA, but no MFA method is enrolled")
 
         if not has_totp and not has_webauthn:
             token = get_token(user)
-            user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+            user_logged_in.send(sender=user.__class__, request=request, user=user)
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='informational',
+                logger_name='AuthService',
+                message=f"User '{user_name}' successfully logged in from IP {source_ip}.",
+                event_action='user_login_success',
+                event_outcome='success',
+                asvs_event_code='AUTHN-SUCCESS-PRIMARY-01',
+                event_category=['authentication'],
+                event_type=['end', 'success'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=200,
+            )
             return StartMfaLogin(token=token, mfa_required=False, challenge_id=None, message="Login successful", has_webauthn=False)
 
         challenge = MfaLoginChallenge.create_for_user(user=user)
@@ -638,6 +758,32 @@ class StartMfaLogin(graphene.Mutation):
             user=user,
             event=MfaAuditEvent.Event.LOGIN_CHALLENGE_CREATED,
             details={"challenge_id": challenge.challenge_id},
+        )
+        user_id, user_name = _user_identity(user)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=(
+                f"Primary authentication succeeded for user '{user_name}' from IP {source_ip}; "
+                "MFA challenge issued."
+            ),
+            event_action='user_login_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-SUCCESS-PRIMARY-01',
+            event_reason='Primary credentials accepted; MFA challenge required.',
+            event_category=['authentication'],
+            event_type=['start', 'success'],
+            user_id=user_id,
+            user_name=user_name,
+            source_ip=source_ip,
+            request=request,
+            asvs_details={
+                'authentication': {
+                    'mfa_required': True,
+                    'challenge_id': challenge.challenge_id,
+                    'available_methods': (['totp'] if has_totp else []) + (['webauthn'] if has_webauthn else []),
+                }
+            },
         )
         return StartMfaLogin(
             token=None,
@@ -660,20 +806,73 @@ class VerifyMfaLogin(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, challenge_id, otp_code=None, backup_code=None):
+        request = info.context
+        source_ip = extract_client_ip(request)
+
         try:
             challenge = MfaLoginChallenge.objects.select_related('user').get(challenge_id=challenge_id, used=False)
         except MfaLoginChallenge.DoesNotExist:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Invalid MFA challenge identifier submitted from IP {source_ip}.",
+                event_action='user_mfa_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='Invalid MFA challenge identifier.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id='anonymous',
+                source_ip=source_ip,
+                request=request,
+                http_status_code=400,
+            )
             raise Exception("Invalid MFA challenge")
 
         if challenge.is_expired():
+            user_id, user_name = _user_identity(challenge.user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"MFA challenge expired for user '{user_name}' from IP {source_ip}.",
+                event_action='user_mfa_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='MFA challenge expired.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=400,
+            )
             raise Exception("MFA challenge expired")
 
         user = challenge.user
         mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
         if mfa_settings.is_locked():
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='error',
+                logger_name='AuthService',
+                message=f"MFA verification blocked for locked account '{user_name}' from IP {source_ip}.",
+                event_action='user_account_locked',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-LOCKOUT-01',
+                event_reason='MFA verification is temporarily locked.',
+                event_category=['authentication'],
+                event_type=['denied', 'failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=423,
+            )
             raise Exception("MFA verification is temporarily locked due to repeated failures")
 
         verified = False
+        mfa_method = 'totp' if otp_code else ('backup_code' if backup_code else 'unknown')
         if otp_code:
             secret = mfa_settings.totp_secret
             if secret:
@@ -692,11 +891,52 @@ class VerifyMfaLogin(graphene.Mutation):
                     event=MfaAuditEvent.Event.LOGIN_LOCKED,
                     details={"reason": "too_many_failed_attempts"},
                 )
+                user_id, user_name = _user_identity(user)
+                emit_security_event(
+                    level='error',
+                    logger_name='AuthService',
+                    message=(
+                        f"Account for user '{user_name}' has been locked after repeated MFA failures "
+                        f"from IP {source_ip}."
+                    ),
+                    event_action='user_account_locked',
+                    event_outcome='failure',
+                    asvs_event_code='AUTHN-LOCKOUT-01',
+                    event_reason='Too many failed MFA attempts.',
+                    event_category=['authentication'],
+                    event_type=['failure'],
+                    user_id=user_id,
+                    user_name=user_name,
+                    source_ip=source_ip,
+                    request=request,
+                    http_status_code=423,
+                )
             mfa_settings.save(update_fields=['failed_attempts', 'locked_until'])
             MfaAuditEvent.objects.create(
                 user=user,
                 event=MfaAuditEvent.Event.LOGIN_FAILED,
                 details={"challenge_id": challenge_id},
+            )
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=(
+                    f"MFA challenge failed for user '{user_name}' from IP {source_ip}. "
+                    f"Method: {mfa_method}."
+                ),
+                event_action='user_mfa_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='Invalid MFA verification code.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=401,
+                asvs_details={'authentication': {'mfa_method': mfa_method}},
             )
             raise Exception("Invalid MFA code")
 
@@ -711,7 +951,27 @@ class VerifyMfaLogin(graphene.Mutation):
             details={"challenge_id": challenge_id},
         )
         token = get_token(user)
-        user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+        user_logged_in.send(sender=user.__class__, request=request, user=user)
+        user_id, user_name = _user_identity(user)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=(
+                f"User '{user_name}' successfully completed MFA challenge using '{mfa_method}' "
+                f"from IP {source_ip}."
+            ),
+            event_action='user_mfa_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-SUCCESS-MFA-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=user_id,
+            user_name=user_name,
+            source_ip=source_ip,
+            request=request,
+            http_status_code=200,
+            asvs_details={'authentication': {'mfa_method': mfa_method}},
+        )
         return VerifyMfaLogin(token=token, ok=True, message="MFA verified")
 
 
@@ -853,11 +1113,28 @@ class VerifyWebAuthnMfaAuthentication(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, login_challenge_id, webauthn_challenge_id, credential):
+        request = info.context
+        source_ip = extract_client_ip(request)
         if isinstance(credential, str):
             credential = json.loads(credential)
         try:
             login_challenge = MfaLoginChallenge.objects.select_related('user').get(challenge_id=login_challenge_id, used=False)
         except MfaLoginChallenge.DoesNotExist:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Invalid WebAuthn MFA login challenge received from IP {source_ip}.",
+                event_action='user_mfa_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='Invalid MFA login challenge.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id='anonymous',
+                source_ip=source_ip,
+                request=request,
+                http_status_code=400,
+            )
             raise Exception("Invalid MFA login challenge")
         if login_challenge.is_expired():
             raise Exception("MFA challenge expired")
@@ -895,7 +1172,24 @@ class VerifyWebAuthnMfaAuthentication(graphene.Mutation):
         login_challenge.used = True
         login_challenge.save(update_fields=['used'])
         token = get_token(login_challenge.user)
-        user_logged_in.send(sender=login_challenge.user.__class__, request=info.context, user=login_challenge.user)
+        user_logged_in.send(sender=login_challenge.user.__class__, request=request, user=login_challenge.user)
+        user_id, user_name = _user_identity(login_challenge.user)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"User '{user_name}' successfully completed MFA challenge using 'webauthn'.",
+            event_action='user_mfa_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-SUCCESS-MFA-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=user_id,
+            user_name=user_name,
+            source_ip=source_ip,
+            request=request,
+            http_status_code=200,
+            asvs_details={'authentication': {'mfa_method': 'webauthn'}},
+        )
         return VerifyWebAuthnMfaAuthentication(ok=True, token=token)
 
 
@@ -908,12 +1202,50 @@ class StartPasswordlessLogin(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, username):
+        request = info.context
+        source_ip = extract_client_ip(request)
         try:
             user = CustomUser.objects.get(username=username)
         except CustomUser.DoesNotExist:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Passwordless login failed for unknown user '{username}' from IP {source_ip}.",
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Unknown username.',
+                event_category=['authentication'],
+                event_type=['start', 'failure'],
+                user_id=username or 'anonymous',
+                user_name=username or None,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=401,
+            )
             raise Exception("Invalid credentials")
         creds = list(WebAuthnCredential.objects.filter(user=user))
         if not creds:
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=(
+                    f"Passwordless login denied for user '{user_name}' from IP {source_ip} "
+                    "because no security key is enrolled."
+                ),
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='No WebAuthn credentials enrolled.',
+                event_category=['authentication'],
+                event_type=['denied', 'failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=403,
+            )
             raise Exception("No security key enrolled for this account")
         allow = [PublicKeyCredentialDescriptor(id=base64url_to_bytes(c.credential_id)) for c in creds]
         options = generate_authentication_options(
@@ -942,6 +1274,8 @@ class VerifyPasswordlessLogin(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, webauthn_challenge_id, credential):
+        request = info.context
+        source_ip = extract_client_ip(request)
         if isinstance(credential, str):
             credential = json.loads(credential)
         try:
@@ -951,13 +1285,65 @@ class VerifyPasswordlessLogin(graphene.Mutation):
                 used=False,
             )
         except WebAuthnChallenge.DoesNotExist:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Invalid passwordless challenge received from IP {source_ip}.",
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Invalid passwordless challenge identifier.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id='anonymous',
+                source_ip=source_ip,
+                request=request,
+                http_status_code=400,
+            )
             raise Exception("Invalid passwordless challenge")
         if challenge.is_expired():
+            user_id, user_name = _user_identity(challenge.user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"Expired passwordless challenge for user '{user_name}' from IP {source_ip}.",
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Passwordless challenge expired.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=400,
+            )
             raise Exception("Passwordless challenge expired")
         user = challenge.user
         credential_id = credential.get("id")
         stored = WebAuthnCredential.objects.filter(user=user, credential_id=credential_id).first()
         if not stored:
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=(
+                    f"Passwordless login failed for user '{user_name}' from IP {source_ip}: "
+                    "security key not registered."
+                ),
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-MFA-01',
+                event_reason='Security key is not registered for this user.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=401,
+            )
             raise Exception("Security key is not registered for this user")
 
         verification = verify_authentication_response(
@@ -976,6 +1362,22 @@ class VerifyPasswordlessLogin(graphene.Mutation):
         challenge.save(update_fields=['used'])
         token = get_token(user)
         user_logged_in.send(sender=user.__class__, request=info.context, user=user)
+        user_id, user_name = _user_identity(user)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"User '{user_name}' successfully logged in with passwordless WebAuthn from IP {source_ip}.",
+            event_action='user_login_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-SUCCESS-PRIMARY-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=user_id,
+            user_name=user_name,
+            source_ip=source_ip,
+            request=request,
+            http_status_code=200,
+        )
         return VerifyPasswordlessLogin(ok=True, token=token)
 
 
@@ -1202,6 +1604,35 @@ class AdminResetUserPassword(graphene.Mutation):
 
         target.set_password(new_password)
         target.save(update_fields=['password'])
+        source_ip = extract_client_ip(info.context)
+        target_user_id, target_user_name = _user_identity(target)
+        caller_user_id, caller_user_name = _user_identity(caller)
+        emit_security_event(
+            level='informational',
+            logger_name='UserManagementService',
+            message=(
+                f"Administrator '{caller_user_name}' reset password for user "
+                f"'{target_user_name}'."
+            ),
+            event_action='user_account_updated',
+            event_outcome='success',
+            asvs_event_code='MGMT-USER-UPDATE-01',
+            event_reason='Administrator-triggered password reset.',
+            event_category=['authentication', 'authorization'],
+            event_type=['info', 'success'],
+            user_id=caller_user_id,
+            user_name=caller_user_name,
+            source_ip=source_ip,
+            request=info.context,
+            http_status_code=200,
+            asvs_details={
+                'management': {
+                    'target_user_id': target_user_id,
+                    'target_user_name': target_user_name,
+                    'changed_fields': ['password'],
+                }
+            },
+        )
 
         # Optionally send notification email
         try:
@@ -1254,6 +1685,7 @@ class RequestPasswordReset(graphene.Mutation):
     def mutate(root, info, username_or_email):
         import secrets
         from django.db.models import Q
+        source_ip = extract_client_ip(info.context)
 
         # Find user by username or email (case-insensitive)
         try:
@@ -1276,6 +1708,22 @@ class RequestPasswordReset(graphene.Mutation):
         # Generate a secure token
         token_value = secrets.token_urlsafe(32)
         PasswordResetToken.objects.create(user=target, token=token_value)
+        target_user_id, target_user_name = _user_identity(target)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"Password reset was requested for user '{target_user_name}' from IP {source_ip}.",
+            event_action='user_password_reset_requested',
+            event_outcome='success',
+            asvs_event_code='AUTHN-CHANGE-PASS-REQ-01',
+            event_category=['authentication'],
+            event_type=['start', 'success'],
+            user_id=target_user_id,
+            user_name=target_user_name,
+            source_ip=source_ip,
+            request=info.context,
+            http_status_code=200,
+        )
 
         # Try to send email with reset link
         reset_token_to_return = None
@@ -1334,6 +1782,7 @@ class ResetPassword(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, token, new_password):
+        source_ip = extract_client_ip(info.context)
         try:
             reset_token = PasswordResetToken.objects.select_related('user').get(token=token, used=False)
         except PasswordResetToken.DoesNotExist:
@@ -1357,6 +1806,22 @@ class ResetPassword(graphene.Mutation):
         reset_token.save(update_fields=['used'])
 
         logger.info(f"Password reset successfully for user '{target.username}' via token.")
+        target_user_id, target_user_name = _user_identity(target)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"User '{target_user_name}' successfully completed password reset flow.",
+            event_action='user_password_change_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-CHANGE-PASS-OK-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=target_user_id,
+            user_name=target_user_name,
+            source_ip=source_ip,
+            request=info.context,
+            http_status_code=200,
+        )
         return ResetPassword(ok=True, message="Password has been reset successfully. You can now log in.")
 
 

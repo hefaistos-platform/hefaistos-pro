@@ -325,12 +325,33 @@ USE_X_FORWARDED_HOST = True
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        },
+        'mcs_json': {
+            '()': 'core.mcs_logging.MCSJsonFormatter',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+        'security_console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'mcs_json',
+        },
+        'security_elasticsearch': {
+            '()': 'core.mcs_logging.ElasticsearchMCSHandler',
         },
     },
     'loggers': {
+        'security.mcs': {
+            'handlers': ['security_console', 'security_elasticsearch'],
+            'level': os.environ.get('HEFAISTOS_SECURITY_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
         'graphql': {
             'handlers': ['console'],
             'level': 'WARNING',

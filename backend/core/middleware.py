@@ -9,6 +9,7 @@ import logging
 from django.http import HttpResponseForbidden, HttpResponseBadRequest
 from django.conf import settings
 from django.utils.deprecation import MiddlewareMixin
+from core.mcs_logging import emit_security_event
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,31 @@ class AdminIPRestrictionMiddleware:
             
             if not self.is_ip_allowed(client_ip):
                 logger.warning(f"Restricted access DENIED for IP: {client_ip}, Path: {request.path}")
+                emit_security_event(
+                    level='warning',
+                    logger_name='AuthorizationService',
+                    message=(
+                        f"Restricted endpoint access denied for IP '{client_ip}' "
+                        f"to path '{request.path}'."
+                    ),
+                    event_action='resource_access_denied',
+                    event_outcome='failure',
+                    asvs_event_code='AUTHZ-DENY-01',
+                    event_reason='Source IP is not in allowed admin ranges.',
+                    event_category=['authorization', 'network'],
+                    event_type=['denied', 'failure'],
+                    user_id='anonymous',
+                    source_ip=client_ip,
+                    request=request,
+                    http_status_code=403,
+                    asvs_details={
+                        'authorization': {
+                            'resource_type': 'http_endpoint',
+                            'resource_id': request.path,
+                            'required_permission': 'network:admin_allowed_range',
+                        }
+                    },
+                )
                 return HttpResponseForbidden(
                     '<h1>403 Forbidden</h1>'
                     f'<p>Access to this resource is restricted to authorized networks only.</p>'

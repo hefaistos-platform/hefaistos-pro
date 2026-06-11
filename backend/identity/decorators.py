@@ -2,6 +2,7 @@ from functools import wraps
 from django.core.exceptions import PermissionDenied
 from .models import CustomUser
 import logging
+from core.mcs_logging import emit_security_event, extract_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,27 @@ def role_required(roles: list):
                 # Check 1: Is user logged in?
                 if user.is_anonymous:
                     logger.warning(f"[role_required] Anonymous user attempted to access {func.__name__}")
+                    emit_security_event(
+                        level='warning',
+                        logger_name='AuthorizationService',
+                        message=f"Anonymous request denied for '{func.__name__}' because authentication is required.",
+                        event_action='resource_access_denied',
+                        event_outcome='failure',
+                        asvs_event_code='AUTHZ-DENY-01',
+                        event_reason='Authentication required.',
+                        event_category=['authorization'],
+                        event_type=['denied', 'failure'],
+                        user_id='anonymous',
+                        source_ip=extract_client_ip(info.context),
+                        request=info.context,
+                        asvs_details={
+                            'authorization': {
+                                'resource_type': 'graphql_mutation',
+                                'resource_id': func.__name__,
+                                'required_permission': f"role:{','.join(roles)}",
+                            }
+                        },
+                    )
                     raise PermissionDenied("You must be logged in to perform this action.")
 
                 # Check 2: Allow service accounts to bypass role checks
@@ -53,6 +75,31 @@ def role_required(roles: list):
                 # Check 4: Does user have the required role?
                 if user.role not in roles:
                     logger.warning(f"[role_required] User '{user.username}' with role '{user.role}' denied access to {func.__name__} (requires {roles})")
+                    emit_security_event(
+                        level='warning',
+                        logger_name='AuthorizationService',
+                        message=(
+                            f"Access denied for user '{user.username}' to '{func.__name__}'. "
+                            f"Role '{user.role}' is not permitted."
+                        ),
+                        event_action='resource_access_denied',
+                        event_outcome='failure',
+                        asvs_event_code='AUTHZ-DENY-01',
+                        event_reason=f"Required one of: {', '.join(roles)}.",
+                        event_category=['authorization'],
+                        event_type=['denied', 'failure'],
+                        user_id=str(getattr(user, 'id', 'unknown')),
+                        user_name=getattr(user, 'username', None),
+                        source_ip=extract_client_ip(info.context),
+                        request=info.context,
+                        asvs_details={
+                            'authorization': {
+                                'resource_type': 'graphql_mutation',
+                                'resource_id': func.__name__,
+                                'required_permission': f"role:{','.join(roles)}",
+                            }
+                        },
+                    )
                     raise PermissionDenied(f"You do not have permission. Requires one of: {', '.join(roles)}")
 
                 logger.info(f"[role_required] User '{user.username}' with role '{user.role}' allowed access to {func.__name__}")

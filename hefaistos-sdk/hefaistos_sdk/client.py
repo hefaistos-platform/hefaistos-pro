@@ -2,6 +2,7 @@ import os
 import logging
 import requests
 import json
+from .mcs_logging import emit_security_event
 
 # Setup logger for the SDK
 logger = logging.getLogger(__name__)
@@ -100,6 +101,23 @@ class HefaistosApiClient:
             
             if response.status_code == 401:
                 logger.error(f"[_call_api] Authentication failed (401) - JWT token may be expired or invalid")
+                emit_security_event(
+                    level='error',
+                    logger_name='ConnectorAuthClient',
+                    message='Service account authentication failed against HEFAISTOS API (HTTP 401).',
+                    event_action='service_account_authentication_failed',
+                    event_outcome='failure',
+                    asvs_event_code='AUTHN-FAIL-SERVICE-ACCT-01',
+                    event_reason='JWT token may be expired or invalid.',
+                    user_id=os.environ.get('HEFAISTOS_SERVICE_ACCOUNT', 'connector_svc'),
+                    source_ip='unknown',
+                    asvs_details={
+                        'authentication': {
+                            'auth_method': 'bearer_jwt',
+                            'target': self.api_url,
+                        }
+                    },
+                )
             
             # For debugging: Log response text for non-2xx responses
             if response.status_code >= 400:
@@ -115,6 +133,23 @@ class HefaistosApiClient:
                 for err in response_json.get('errors', []):
                     if 'authentication' in str(err).lower() or 'credentials' in str(err).lower():
                         logger.error("[_call_api] Authentication error detected in GraphQL response")
+                        emit_security_event(
+                            level='error',
+                            logger_name='ConnectorAuthClient',
+                            message='Service account authentication failed in GraphQL response.',
+                            event_action='service_account_authentication_failed',
+                            event_outcome='failure',
+                            asvs_event_code='AUTHN-FAIL-SERVICE-ACCT-01',
+                            event_reason=str(err),
+                            user_id=os.environ.get('HEFAISTOS_SERVICE_ACCOUNT', 'connector_svc'),
+                            source_ip='unknown',
+                            asvs_details={
+                                'authentication': {
+                                    'auth_method': 'bearer_jwt',
+                                    'target': self.api_url,
+                                }
+                            },
+                        )
                 return None
 
             logger.debug(f"[_call_api] Response data: {response_json.get('data')}")
@@ -215,4 +250,3 @@ class HefaistosApiClient:
     def get_full_playbook_details(self, playbook_id):
         """Fetches the complete, detailed playbook object for YAML conversion."""
         return self._call_api(GET_FULL_PLAYBOOK_DETAILS_QUERY, {"id": playbook_id})
-
