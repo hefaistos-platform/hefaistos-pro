@@ -91,6 +91,13 @@ class CreatePainPointMutation(graphene.Mutation):
                 success=False,
                 message='User must be authenticated to create a pain point'
             )
+
+        if (getattr(user, 'role', '') or '').upper() == Roles.ELONE:
+            return CreatePainPointMutation(
+                pain_point=None,
+                success=False,
+                message='Read-only role: ElOne users cannot create pain points'
+            )
         
         # Validate priority
         if priority not in ['LOW', 'MEDIUM', 'HIGH']:
@@ -288,6 +295,13 @@ class AddPainPointCommentMutation(graphene.Mutation):
                 comment=None,
                 success=False,
                 message='User must be authenticated'
+            )
+
+        if (getattr(user, 'role', '') or '').upper() == Roles.ELONE:
+            return AddPainPointCommentMutation(
+                comment=None,
+                success=False,
+                message='Read-only role: ElOne users cannot add comments'
             )
         
         try:

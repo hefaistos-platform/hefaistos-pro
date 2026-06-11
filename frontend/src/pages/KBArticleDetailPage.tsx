@@ -9,6 +9,9 @@ import { MarkdownRenderer } from '../components/MarkdownRenderer';
 // --- GraphQL Query ---
 const GET_KB_ARTICLE_QUERY = gql`
 	query GetKBArticle($id: UUID!) {
+		me {
+			role
+		}
 		kbArticle(id: $id) {
 			id
 			title
@@ -36,6 +39,7 @@ interface KBArticleDetails {
 }
 interface GetArticleData {
 	kbArticle: KBArticleDetails | null;
+	me?: { role: string } | null;
 }
 
 export const KBArticleDetailPage: React.FC = () => {
@@ -51,6 +55,7 @@ export const KBArticleDetailPage: React.FC = () => {
 	if (!data || !data.kbArticle) return <p>Article not found.</p>;
 
 	const { kbArticle: article } = data;
+	const isElOne = (data?.me?.role || '').toUpperCase() === 'ELONE';
 
 	const handleEdit = () => {
 		navigate(`/kb/edit/${article!.id}`); // Will be implemented later
@@ -71,10 +76,12 @@ export const KBArticleDetailPage: React.FC = () => {
 							<PixelIcon name="back" className="w-5 h-5" />
 							<span style={{ marginLeft: 8 }}>Back</span>
 						</Button>
-						<Button type="primary" onClick={handleEdit}>
-							<PixelIcon name="edit" className="w-5 h-5" />
-							<span style={{ marginLeft: 8 }}>Edit</span>
-						</Button>
+						{!isElOne && (
+							<Button type="primary" onClick={handleEdit}>
+								<PixelIcon name="edit" className="w-5 h-5" />
+								<span style={{ marginLeft: 8 }}>Edit</span>
+							</Button>
+						)}
 					</Space>
 				}
 			>

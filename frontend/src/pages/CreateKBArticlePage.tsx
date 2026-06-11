@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { useMutation } from '@apollo/client/react';
@@ -46,6 +46,14 @@ const REFRESH_KB_DATA_QUERY = gql`
   }
 `;
 
+const GET_ME_ROLE_QUERY = gql`
+  query GetMeRole {
+    me {
+      role
+    }
+  }
+`;
+
 // --- TypeScript Types ---
 interface KBCategory {
   id: string;
@@ -70,6 +78,16 @@ export const CreateKBArticlePage = () => {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const navigate = useNavigate();
+  const { data: accessData, loading: accessLoading } = useQuery<{ me?: { role: string } | null }>(GET_ME_ROLE_QUERY, {
+    fetchPolicy: 'cache-first',
+  });
+  const isElOne = (accessData?.me?.role || '').toUpperCase() === 'ELONE';
+
+  useEffect(() => {
+    if (!accessLoading && isElOne) {
+      navigate('/kb', { replace: true });
+    }
+  }, [accessLoading, isElOne, navigate]);
 
   // Shared SimpleMDE options - memoized with placeholder
   const simpleMdeOptions = useMemo(() => ({
@@ -86,6 +104,10 @@ export const CreateKBArticlePage = () => {
   const { data: categoriesData, loading: categoriesLoading } = useQuery<GetCategoriesData>(GET_KB_CATEGORIES_QUERY);
 
   const [createKbArticle, { loading: createLoading, error }] = useMutation<CreateKBArticleResponse>(CREATE_KB_ARTICLE_MUTATION);
+
+  if (isElOne) {
+    return null;
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

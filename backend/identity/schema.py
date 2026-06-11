@@ -217,7 +217,7 @@ class InviteUser(graphene.Mutation):
         user = info.context.user
 
         # Validate Role
-        if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER]:
+        if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER, Roles.ELONE]:
             raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
 
         # Validate Password
@@ -1880,7 +1880,7 @@ class Mutation(graphene.ObjectType):
             target.email = email
             changed_fields.append('email')
         if role is not None:
-            if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER]:
+            if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER, Roles.ELONE]:
                 raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
             target.role = role
             changed_fields.append('role')

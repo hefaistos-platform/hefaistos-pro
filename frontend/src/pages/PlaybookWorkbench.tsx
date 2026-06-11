@@ -70,6 +70,7 @@ const GET_PLAYBOOK_GRAPH_QUERY = gql`
       id
       title
       status
+      l1PortalUrl
       tags
       isShared
       
@@ -526,6 +527,7 @@ interface PlaybookGraphData {
     id: string;
     title: string;
     status: string;
+    l1PortalUrl?: string | null;
     tags: string[];
     isShared: boolean;
     
@@ -1696,6 +1698,35 @@ export const PlaybookWorkbench = () => {
           <span className="text-sm text-gray-500 uppercase tracking-wider">
             Capability Abstraction Map
           </span>
+          {data.playbookGraph.status === 'DEPLOYED' && data.playbookGraph.l1PortalUrl && (
+            <div className="mt-2 flex items-center gap-2 text-xs">
+              <span className="px-2 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium">
+                L1 URL Ready
+              </span>
+              <button
+                type="button"
+                className="px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(data.playbookGraph.l1PortalUrl || '');
+                    message.success('L1 portal URL copied');
+                  } catch {
+                    message.error('Failed to copy L1 portal URL');
+                  }
+                }}
+              >
+                Copy URL
+              </button>
+              <a
+                href={data.playbookGraph.l1PortalUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="px-2 py-1 rounded border border-gray-300 bg-white text-blue-700 hover:bg-blue-50"
+              >
+                Open
+              </a>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Clone Button - Icon only */}

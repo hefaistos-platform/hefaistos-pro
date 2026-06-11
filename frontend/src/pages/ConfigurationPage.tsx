@@ -1736,6 +1736,7 @@ export const ConfigurationPage: React.FC = () => {
                   <option value="ANALYST">ANALYST</option>
                   <option value="REVIEWER">REVIEWER</option>
                   <option value="VIEWER">VIEWER</option>
+                  <option value="ELONE">ELONE</option>
                 </select>
               </div>
               <div>

@@ -36,6 +36,8 @@ import { ConfigurationPage } from './pages/ConfigurationPage';
 import { FrameworkUpdatesPage } from './pages/FrameworkUpdatesPage';
 import { MGMTCavePage } from './pages/MGMTCavePage';
 import { LogsPage } from './pages/LogsPage';
+import { L1PortalPage } from './pages/L1PortalPage';
+import { L1PortalDetailPage } from './pages/L1PortalDetailPage';
 
 // Layout
 import { MainLayout } from './components/MainLayout';
@@ -90,6 +92,8 @@ const AppRoutes = () => {
                 <Route path="/tools/ach" element={<ACHPage />} />
                 <Route path="/tools/ach/:id" element={<ACHDetailPage />} />
                 <Route path="/pain-points" element={<PainPointsPage />} />
+                <Route path="/l1-portal" element={<L1PortalPage />} />
+                <Route path="/l1-portal/:token" element={<L1PortalDetailPage />} />
                 <Route path="/advops" element={<Navigate to="/playbooks?tab=advops" />} />
                 <Route path="/advops/:id" element={<Navigate to={`/playbooks?tab=advops&id=${new URLSearchParams(window.location.search).get('id') || window.location.pathname.split('/').pop()}`} />} />
               </Routes>

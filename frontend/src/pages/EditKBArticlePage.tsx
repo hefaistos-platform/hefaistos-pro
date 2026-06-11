@@ -60,6 +60,14 @@ const REFRESH_KB_DATA_QUERY = gql`
   }
 `;
 
+const GET_ME_ROLE_QUERY = gql`
+  query GetMeRole {
+    me {
+      role
+    }
+  }
+`;
+
 // Mutation to delete the article
 const DELETE_KB_ARTICLE_MUTATION = gql`
   mutation DeleteKBArticle($id: UUID!) {
@@ -99,6 +107,10 @@ interface UpdateKBArticleResponse {
 export const EditKBArticlePage: React.FC = () => {
   const { articleId } = useParams<{ articleId: string }>();
   const navigate = useNavigate();
+  const { data: accessData, loading: accessLoading } = useQuery<{ me?: { role: string } | null }>(GET_ME_ROLE_QUERY, {
+    fetchPolicy: 'cache-first',
+  });
+  const isElOne = (accessData?.me?.role || '').toUpperCase() === 'ELONE';
 
   // Form State
   const [title, setTitle] = useState('');
@@ -117,6 +129,12 @@ export const EditKBArticlePage: React.FC = () => {
   );
 
   const [deleteArticle, { loading: deleteLoading, error: deleteError }] = useMutation(DELETE_KB_ARTICLE_MUTATION);
+
+  useEffect(() => {
+    if (!accessLoading && isElOne) {
+      navigate('/kb', { replace: true });
+    }
+  }, [accessLoading, isElOne, navigate]);
 
   // Shared SimpleMDE options - memoized with placeholder
   const simpleMdeOptions = useMemo(() => ({
@@ -138,6 +156,10 @@ export const EditKBArticlePage: React.FC = () => {
       setCategoryId(articleData.kbArticle.category?.id || null);
     }
   }, [articleData]);
+
+  if (isElOne) {
+    return null;
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

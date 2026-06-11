@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { gql } from '@apollo/client';
@@ -65,6 +65,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   const isSuperuser = meData?.me?.isSuperuser;
   const username = meData?.me?.username;
   const email = meData?.me?.email;
+  const isElOne = currentRole === 'ELONE' && !isSuperuser;
 
   // Map route prefixes to menu keys
   const selectedKey = useMemo(() => {
@@ -78,6 +79,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     if (location.pathname.startsWith('/coverage')) return 'coverage';
     if (location.pathname.startsWith('/catalog')) return 'catalog';
     if (location.pathname.startsWith('/playbooks')) return 'playbooks';
+    if (location.pathname.startsWith('/l1-portal')) return 'l1-portal';
     if (location.pathname.startsWith('/rules')) return 'rules';
     if (location.pathname.startsWith('/repos')) return 'config';
     if (location.pathname.startsWith('/kb')) return 'kb';
@@ -88,26 +90,34 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     return 'board';
   }, [location.pathname]);
 
-  const items = [
-    { key: 'board', icon: <RadarChartOutlined />, label: 'Lifecycle Hub', onClick: () => navigate('/') },
-    { key: 'tools-ach', icon: <TableOutlined />, label: 'ACH Matrix', onClick: () => navigate('/tools/ach') },
-    { key: 'playbooks', icon: <DeploymentUnitOutlined />, label: 'Workbench Hub', onClick: () => navigate('/playbooks') },
-    { key: 'rules', icon: <ApartmentOutlined />, label: 'Rule Hub', onClick: () => navigate('/rules') },
-    { key: 'catalog', icon: <DatabaseOutlined />, label: 'Data Catalog', onClick: () => navigate('/catalog') },
-    { key: 'coverage', icon: <HeatMapOutlined />, label: 'Coverage Map', onClick: () => navigate('/coverage') },
-    { key: 'tools-dld', icon: <RadarChartOutlined />, label: 'Logic Deconstructor', onClick: () => navigate('/tools/dld') },
-    { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
-    { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
-    ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' || isSuperuser ? [{
-      key: 'mgmt-cave',
-      icon: <CrownOutlined />,
-      label: 'MGMT Cave',
-      onClick: () => navigate('/mgmt/cave')
-    }] : []),
-    { key: 'profile', icon: <TeamOutlined />, label: 'My Profile', onClick: () => navigate('/profile') },
-  ];
+  const items = isElOne
+    ? [
+      { key: 'l1-portal', icon: <DeploymentUnitOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
+      { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
+      { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
+      { key: 'profile', icon: <TeamOutlined />, label: 'My Profile', onClick: () => navigate('/profile') },
+    ]
+    : [
+      { key: 'board', icon: <RadarChartOutlined />, label: 'Lifecycle Hub', onClick: () => navigate('/') },
+      { key: 'tools-ach', icon: <TableOutlined />, label: 'ACH Matrix', onClick: () => navigate('/tools/ach') },
+      { key: 'playbooks', icon: <DeploymentUnitOutlined />, label: 'Workbench Hub', onClick: () => navigate('/playbooks') },
+      { key: 'l1-portal', icon: <DeploymentUnitOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
+      { key: 'rules', icon: <ApartmentOutlined />, label: 'Rule Hub', onClick: () => navigate('/rules') },
+      { key: 'catalog', icon: <DatabaseOutlined />, label: 'Data Catalog', onClick: () => navigate('/catalog') },
+      { key: 'coverage', icon: <HeatMapOutlined />, label: 'Coverage Map', onClick: () => navigate('/coverage') },
+      { key: 'tools-dld', icon: <RadarChartOutlined />, label: 'Logic Deconstructor', onClick: () => navigate('/tools/dld') },
+      { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
+      { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
+      ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' || isSuperuser ? [{
+        key: 'mgmt-cave',
+        icon: <CrownOutlined />,
+        label: 'MGMT Cave',
+        onClick: () => navigate('/mgmt/cave')
+      }] : []),
+      { key: 'profile', icon: <TeamOutlined />, label: 'My Profile', onClick: () => navigate('/profile') },
+    ];
 
-  if (currentRole === 'ADMIN' || isSuperuser) {
+  if (!isElOne && (currentRole === 'ADMIN' || isSuperuser)) {
     items.push({ key: 'news', icon: <BulbOutlined />, label: 'News Management', onClick: () => navigate('/mgmt/news') });
     items.push({ key: 'config', icon: <AppstoreOutlined />, label: 'Configuration', onClick: () => navigate('/mgmt/config') });
     items.push({ key: 'framework-updates', icon: <SyncOutlined />, label: 'Framework Updates', onClick: () => navigate('/mgmt/framework-updates') });
@@ -115,9 +125,78 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   }
 
   // Superuser management - only for Django superusers
-  if (isSuperuser) {
+  if (!isElOne && isSuperuser) {
     items.push({ key: 'superuser', icon: <CrownOutlined />, label: 'Superuser Mgmt', onClick: () => navigate('/mgmt/superuser') });
   }
+
+  useEffect(() => {
+    if (!isElOne) return;
+
+    const path = location.pathname;
+    const allowed =
+      path === '/l1-portal' ||
+      /^\/l1-portal\/[^/]+$/.test(path) ||
+      path === '/kb' ||
+      path.startsWith('/kb/article/') ||
+      path === '/pain-points' ||
+      path.startsWith('/pain-points/') ||
+      path === '/profile' ||
+      path.startsWith('/profile/');
+
+    if (!allowed) {
+      navigate('/l1-portal', { replace: true });
+    }
+  }, [isElOne, location.pathname, navigate]);
+
+  const userMenuItems = isElOne
+    ? [
+      {
+        key: 'profile',
+        icon: <UserOutlined />,
+        label: 'My Profile',
+        onClick: () => navigate('/profile')
+      },
+      {
+        type: 'divider'
+      },
+      {
+        key: 'logout',
+        icon: <LogoutOutlined />,
+        label: 'Log Out',
+        onClick: logout,
+        danger: true
+      }
+    ]
+    : [
+      {
+        key: 'profile',
+        icon: <UserOutlined />,
+        label: 'My Profile',
+        onClick: () => navigate('/profile')
+      },
+      {
+        key: 'my-rules',
+        icon: <FileTextOutlined />,
+        label: 'My Rules',
+        onClick: () => navigate(`/rules?author=${encodeURIComponent(username || '')}`)
+      },
+      {
+        key: 'my-workbench',
+        icon: <AppstoreOutlined />,
+        label: 'My Workbench',
+        onClick: () => navigate(`/playbooks?author=${encodeURIComponent(username || '')}`)
+      },
+      {
+        type: 'divider'
+      },
+      {
+        key: 'logout',
+        icon: <LogoutOutlined />,
+        label: 'Log Out',
+        onClick: logout,
+        danger: true
+      }
+    ];
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -149,36 +228,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
             {/* User Dropdown Menu */}
             <Dropdown
               menu={{
-                items: [
-                  {
-                    key: 'profile',
-                    icon: <UserOutlined />,
-                    label: 'My Account',
-                    onClick: () => navigate('/profile')
-                  },
-                  {
-                    key: 'my-rules',
-                    icon: <FileTextOutlined />,
-                    label: 'My Rules',
-                    onClick: () => navigate(`/rules?author=${encodeURIComponent(username || '')}`)
-                  },
-                  {
-                    key: 'my-workbench',
-                    icon: <AppstoreOutlined />,
-                    label: 'My Workbench',
-                    onClick: () => navigate(`/playbooks?author=${encodeURIComponent(username || '')}`)
-                  },
-                  {
-                    type: 'divider'
-                  },
-                  {
-                    key: 'logout',
-                    icon: <LogoutOutlined />,
-                    label: 'Log Out',
-                    onClick: logout,
-                    danger: true
-                  }
-                ]
+                items: userMenuItems
               }}
               trigger={['click']}
             >

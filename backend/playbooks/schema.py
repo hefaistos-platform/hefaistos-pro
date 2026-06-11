@@ -11,6 +11,8 @@ import requests
 from graphene.types.generic import GenericScalar
 from graphene_file_upload.scalars import Upload
 from django.db.models import Count, Q, Prefetch
+from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from playbooks.models import DetectionPlaybook
 from platform_data.models import MitreAttackTechnique
 import graphene
@@ -24,6 +26,7 @@ from .models import (
     ActivityLog,
     PlaybookComment,
     CapabilityAbstraction,
+    L1PortalEntry,
 )
 from review.models import ReviewRequest as CanonReviewRequest, ReviewComment as CanonReviewComment
 from tags.schema import TagType
@@ -59,6 +62,62 @@ def generate_copy_title(base_title: str, existing_titles) -> str:
         if candidate not in existing_titles:
             return candidate
         counter += 1
+
+
+def _build_l1_portal_title(graph: PlaybookGraph) -> str:
+    base = (getattr(graph, 'title', '') or 'Workbench').strip()
+    return f"{base} + PB"
+
+
+def _build_l1_portal_share_url(token) -> str:
+    token_value = str(token)
+    frontend_base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
+    if frontend_base:
+        return f"{frontend_base}/l1-portal/{token_value}"
+    return f"/l1-portal/{token_value}"
+
+
+def _upsert_l1_portal_snapshot(graph: PlaybookGraph) -> L1PortalEntry | None:
+    if graph is None:
+        return None
+
+    if (getattr(graph, 'status', '') or '').upper() != str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
+        return None
+
+    defaults = {
+        'organization': graph.organization,
+        'title': _build_l1_portal_title(graph),
+        'response_playbook': graph.response_playbook or '',
+        'known_false_positives': graph.false_positives or '',
+        'blind_spots_coverage_gaps': graph.blind_spots or '',
+    }
+
+    entry, created = L1PortalEntry.objects.get_or_create(
+        graph=graph,
+        defaults=defaults,
+    )
+    if created:
+        return entry
+
+    changed = False
+    for field, value in defaults.items():
+        if getattr(entry, field) != value:
+            setattr(entry, field, value)
+            changed = True
+
+    if changed:
+        entry.save(
+            update_fields=[
+                'organization',
+                'title',
+                'response_playbook',
+                'known_false_positives',
+                'blind_spots_coverage_gaps',
+                'updated_at',
+            ]
+        )
+
+    return entry
 
 
 def _notify_dac_automation_failure(graph, actor, error_message: str) -> None:
@@ -519,6 +578,33 @@ class PlaybookEdgeType(DjangoObjectType):
     def resolve_target(self, info):
         return self.target_node_id
 
+
+class L1PortalEntryType(DjangoObjectType):
+    source_graph = graphene.Field(lambda: PlaybookGraphType)
+    share_url = graphene.String()
+
+    class Meta:
+        model = L1PortalEntry
+        fields = (
+            "id",
+            "graph",
+            "organization",
+            "title",
+            "url_token",
+            "response_playbook",
+            "known_false_positives",
+            "blind_spots_coverage_gaps",
+            "created_at",
+            "updated_at",
+        )
+
+    def resolve_source_graph(self, info):
+        return self.graph
+
+    def resolve_share_url(self, info):
+        return _build_l1_portal_share_url(self.url_token)
+
+
 class PlaybookGraphType(DjangoObjectType):
     nodes = graphene.List(PlaybookNodeType)
     edges = graphene.List(PlaybookEdgeType)
@@ -526,6 +612,7 @@ class PlaybookGraphType(DjangoObjectType):
     owner_organization_name = graphene.String()
     organization = graphene.Field(OrganizationType)
     is_read_only = graphene.Boolean()
+    l1_portal_url = graphene.String()
 
     # Notes, attached playbooks, and PNG snapshot URL
     notes = graphene.String()
@@ -671,6 +758,17 @@ class PlaybookGraphType(DjangoObjectType):
         user = info.context.user
         return self.organization != user.organization
 
+    def resolve_l1_portal_url(self, info):
+        if (self.status or '').upper() != str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
+            return None
+        try:
+            entry = self.l1_portal_entry
+        except ObjectDoesNotExist:
+            return None
+        if not entry:
+            return None
+        return _build_l1_portal_share_url(entry.url_token)
+
     def resolve_notes(self, info):
         return self.notes
 
@@ -758,6 +856,18 @@ class Query(graphene.ObjectType):
     all_playbook_graphs = graphene.List(
         PlaybookGraphType,
         description="Retrieves all v2 playbook graphs for the user's organization."
+    )
+    l1_portal_entries = graphene.List(
+        L1PortalEntryType,
+        search=graphene.String(),
+        limit=graphene.Int(default_value=50),
+        offset=graphene.Int(default_value=0),
+        description="Read-only L1 portal entries generated from DEPLOYED workbenches.",
+    )
+    l1_portal_entry_by_token = graphene.Field(
+        L1PortalEntryType,
+        token=graphene.UUID(required=True),
+        description="Read-only L1 portal entry by share token (authenticated users only).",
     )
     capability_abstractions = graphene.List(
         CapabilityAbstractionType,
@@ -933,6 +1043,51 @@ class Query(graphene.ObjectType):
         return PlaybookGraph.objects.filter(
             my_org_graphs | shared_graphs
         ).distinct().select_related('organization')
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER, Roles.ELONE])
+    def resolve_l1_portal_entries(self, info, search=None, limit=50, offset=0):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        limit = max(1, min(limit or 50, 200))
+        offset = max(0, offset or 0)
+
+        qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
+            graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED
+        )
+
+        if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
+            qs = qs.filter(organization=user.organization)
+
+        if search:
+            raw = search.strip()
+            if raw:
+                tokens = [t for t in re.split(r'\s+', raw) if t]
+                for token in tokens:
+                    qs = qs.filter(
+                        Q(title__icontains=token)
+                        | Q(graph__title__icontains=token)
+                        | Q(response_playbook__icontains=token)
+                        | Q(known_false_positives__icontains=token)
+                        | Q(blind_spots_coverage_gaps__icontains=token)
+                    )
+
+        return qs.order_by('-updated_at')[offset: offset + limit]
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER, Roles.ELONE])
+    def resolve_l1_portal_entry_by_token(self, info, token):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
+            url_token=token,
+            graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+        )
+        if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
+            qs = qs.filter(organization=user.organization)
+        return qs.first()
 
     @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])
     def resolve_capability_abstractions(self, info, technique_id=None, include_baseline=True):
@@ -1342,6 +1497,9 @@ class UpdatePlaybookGraphStatus(graphene.Mutation):
 
         graph.status = status
         graph.save(update_fields=["status", "updated_at"])
+        l1_entry = None
+        if status == DetectionPlaybook.PlaybookStatus.DEPLOYED:
+            l1_entry = _upsert_l1_portal_snapshot(graph)
 
         # Create Activity Log
         ActivityLog.objects.create(
@@ -1399,13 +1557,17 @@ The HEFAISTOS Team""",
         # Publish status change event for notifications
         try:
             publisher = get_publisher()
-            publisher.publish_message('playbook.graph.status.changed', {
+            payload = {
                 'graph_id': str(graph.id),
                 'status': status,
                 'organization_id': str(user.organization.id),
                 'actor_id': str(user.id),
                 'creator_id': str(getattr(graph.author, 'id', '')),
-            })
+            }
+            if l1_entry:
+                payload['l1_portal_token'] = str(l1_entry.url_token)
+                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token)
+            publisher.publish_message('playbook.graph.status.changed', payload)
         except Exception:
             pass
 
@@ -1623,17 +1785,22 @@ class AdminApproveDeployment(graphene.Mutation):
 
         graph.status = DetectionPlaybook.PlaybookStatus.DEPLOYED
         graph.save(update_fields=["status", "updated_at"])
+        l1_entry = _upsert_l1_portal_snapshot(graph)
 
         # Publish deployment event via existing connector key
         try:
             publisher = get_publisher()
-            publisher.publish_message('playbook.graph.status.changed', {
+            payload = {
                 'graph_id': str(graph.id),
                 'status': str(graph.status),
                 'organization_id': str(user.organization.id),
                 'actor_id': str(user.id),
                 'creator_id': str(getattr(graph.author, 'id', '')),
-            })
+            }
+            if l1_entry:
+                payload['l1_portal_token'] = str(l1_entry.url_token)
+                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token)
+            publisher.publish_message('playbook.graph.status.changed', payload)
         except Exception:
             pass
 
@@ -3783,6 +3950,9 @@ def deserialize_playbook_graph_hex_v2(data: dict, organization, author) -> Playb
     tags = metadata.get("tags", [])
     if tags:
         graph.tags.add(*tags)
+
+    if (graph.status or '').upper() == str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
+        _upsert_l1_portal_snapshot(graph)
     
     # Create node ID mapping (old ID -> new node)
     node_id_map = {}
@@ -3943,6 +4113,8 @@ def update_playbook_graph_from_hex_v2(data: dict, graph: PlaybookGraph, author, 
 
     graph.notes = audit_trail.get("notes", "")
     graph.save()
+    if (graph.status or '').upper() == str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
+        _upsert_l1_portal_snapshot(graph)
 
     graph.tags.set(metadata.get("tags", []))
 

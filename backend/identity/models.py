@@ -61,6 +61,7 @@ class CustomUser(AbstractUser):
         ANALYST = 'ANALYST', 'Analyst'
         REVIEWER = 'REVIEWER', 'Reviewer'
         VIEWER = 'VIEWER', 'Viewer'
+        ELONE = 'ELONE', 'ElOne'
 
     role = models.CharField(
         max_length=10,

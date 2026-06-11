@@ -746,6 +746,44 @@ class PlaybookGraph(models.Model):
     def __str__(self):
         return self.title
 
+
+class L1PortalEntry(models.Model):
+    """
+    Read-only L1-facing snapshot materialized from a deployed Workbench.
+
+    A single Workbench has at most one L1 portal entry. The share token is
+    stable so downstream automation can keep using the same URL.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    graph = models.OneToOneField(
+        PlaybookGraph,
+        on_delete=models.CASCADE,
+        related_name='l1_portal_entry',
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='l1_portal_entries',
+    )
+    title = models.CharField(max_length=300)
+    url_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    response_playbook = models.TextField(blank=True, default='')
+    known_false_positives = models.TextField(blank=True, default='')
+    blind_spots_coverage_gaps = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['organization', 'updated_at']),
+            models.Index(fields=['url_token']),
+        ]
+
+    def __str__(self):
+        return self.title
+
+
 class ActivityLog(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     playbook = models.ForeignKey(PlaybookGraph, on_delete=models.CASCADE, related_name='activities')

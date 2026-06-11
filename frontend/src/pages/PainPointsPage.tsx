@@ -140,6 +140,7 @@ const GET_OPEN_PAIN_POINTS_COUNT = gql`
 const GET_ME_QUERY = gql`
   query GetMe {
     me {
+      role
       isSuperuser
       isStaff
     }
@@ -230,7 +231,9 @@ const PainPointsPage = () => {
   });
 
   const { data: countData } = useQuery<GetOpenPainPointsCountData>(GET_OPEN_PAIN_POINTS_COUNT);
-  const { data: meData } = useQuery<{ me: { isSuperuser: boolean; isStaff: boolean } }>(GET_ME_QUERY, { fetchPolicy: 'cache-first' });
+  const { data: meData } = useQuery<{ me: { role: string; isSuperuser: boolean; isStaff: boolean } }>(GET_ME_QUERY, { fetchPolicy: 'cache-first' });
+  const userRole = (meData?.me?.role || '').toUpperCase();
+  const isElOne = userRole === 'ELONE';
   const canResolve = meData?.me?.isSuperuser || meData?.me?.isStaff || false;
 
   const [resolvePainPoint] = useMutation<ResolvePainPointData>(RESOLVE_PAIN_POINT_MUTATION, {
@@ -376,12 +379,14 @@ const PainPointsPage = () => {
       </div>
 
       <div className="pain-points-controls">
-        <Button 
-          className="btn-new-pain"
-          onClick={() => setShowNewModal(true)}
-        >
-          <span>+ NEW PAIN</span>
-        </Button>
+        {!isElOne && (
+          <Button
+            className="btn-new-pain"
+            onClick={() => setShowNewModal(true)}
+          >
+            <span>+ NEW PAIN</span>
+          </Button>
+        )}
         
         <div className="filters">
           <Select
@@ -441,14 +446,16 @@ const PainPointsPage = () => {
       )}
 
       {/* New Pain Modal */}
-      <NewPainPointModal
-        visible={showNewModal}
-        onClose={() => setShowNewModal(false)}
-        onSuccess={() => {
-          setShowNewModal(false);
-          refetch();
-        }}
-      />
+      {!isElOne && (
+        <NewPainPointModal
+          visible={showNewModal}
+          onClose={() => setShowNewModal(false)}
+          onSuccess={() => {
+            setShowNewModal(false);
+            refetch();
+          }}
+        />
+      )}
 
       {/* Details/Resolution Modal */}
       {selectedPain && (
@@ -507,12 +514,14 @@ const PainPointsPage = () => {
                           </div>
                           <p>{comment.content}</p>
                           <div className="comment-actions">
-                            <Button
-                              onClick={() => setReplyingTo(comment.id)}
-                              style={{ color: '#1890ff', padding: '0', fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer' }}
-                            >
-                              💬 Reply
-                            </Button>
+                            {!isElOne && (
+                              <Button
+                                onClick={() => setReplyingTo(comment.id)}
+                                style={{ color: '#1890ff', padding: '0', fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer' }}
+                              >
+                                💬 Reply
+                              </Button>
+                            )}
                             {comment.replyCount > 0 && (
                               <span className="reply-count">{comment.replyCount} {comment.replyCount === 1 ? 'reply' : 'replies'}</span>
                             )}
@@ -547,7 +556,7 @@ const PainPointsPage = () => {
               </div>
             )}
 
-            {!selectedPain.isSolved && (
+            {!selectedPain.isSolved && !isElOne && (
               <div className="new-comment-section">
                 <h4>Add Comment</h4>
                 {replyingTo && (

@@ -107,6 +107,8 @@ export const KnowledgeBasePage = () => {
   });
 
   const categories = useMemo(() => data?.allKbCategories || [], [data]);
+  const meRole = (data?.me?.role || '').toUpperCase();
+  const isElOne = meRole === 'ELONE';
 
   // Ensure a category is selected when data loads
   useEffect(() => {
@@ -207,7 +209,7 @@ export const KnowledgeBasePage = () => {
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <Typography.Title level={4} style={{ margin: 0 }}>Categories</Typography.Title>
-            {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && (
+            {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && !isElOne && (
             <Button type="dashed" onClick={() => setIsCreateCatOpen(true)}>
               <PixelIcon name="add" className="w-4 h-4" />
               <span style={{ marginLeft: 8 }}>New Category</span>
@@ -258,7 +260,7 @@ export const KnowledgeBasePage = () => {
                   {/* Bottom buttons */}
                   <div style={{ marginTop: 'auto', paddingTop: 12 }}>
                     <Space>
-                      {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && (
+                      {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && !isElOne && (
                       <Button
                         size="small"
                         loading={updatingCat}
@@ -270,7 +272,7 @@ export const KnowledgeBasePage = () => {
                         Edit
                       </Button>
                       )}
-                      {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && (
+                      {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && !isElOne && (
                       <Button
                         danger
                         size="small"
@@ -335,7 +337,7 @@ export const KnowledgeBasePage = () => {
                 <Button onClick={markAllRead}>
                   Mark all read
                 </Button>
-                {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && (
+                {(data?.me?.role === 'ADMIN' || data?.me?.role === 'VIEWER') && !isElOne && (
                 <Button type="primary" onClick={() => navigate('/kb/new')}>
                   <PixelIcon name="add" className="w-5 h-5" />
                   <span style={{ marginLeft: 8 }}>New Article</span>
@@ -356,11 +358,14 @@ export const KnowledgeBasePage = () => {
                 renderItem={(article: KBArticle) => (
                   <List.Item
                     key={article.id}
-                    actions={[
-                      <Button size="small" onClick={() => navigate(`/kb/edit/${article.id}`)} key="edit">
-                        Edit
-                      </Button>,
-                    ]}
+                    actions={isElOne
+                      ? []
+                      : [
+                          <Button size="small" onClick={() => navigate(`/kb/edit/${article.id}`)} key="edit">
+                            Edit
+                          </Button>,
+                        ]
+                    }
                   >
                     <List.Item.Meta
                       title={<Link to={`/kb/article/${article.id}`}>{article.title}</Link>}
