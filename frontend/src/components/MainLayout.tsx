@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { Layout, Menu, Button, Typography, App, Space, Dropdown } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   DatabaseOutlined,
   DeploymentUnitOutlined,
@@ -148,7 +149,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     }
   }, [isElOne, location.pathname, navigate]);
 
-  const userMenuItems = isElOne
+  const userMenuItems: MenuProps['items'] = isElOne
     ? [
       {
         key: 'profile',
@@ -163,7 +164,9 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
         key: 'logout',
         icon: <LogoutOutlined />,
         label: 'Log Out',
-        onClick: logout,
+        onClick: () => {
+          void logout();
+        },
         danger: true
       }
     ]
@@ -193,7 +196,9 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
         key: 'logout',
         icon: <LogoutOutlined />,
         label: 'Log Out',
-        onClick: logout,
+        onClick: () => {
+          void logout();
+        },
         danger: true
       }
     ];
@@ -209,7 +214,15 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
           style={{ borderInlineEnd: 'none' }}
         />
           <div style={{ position: 'absolute', bottom: 0, width: '100%', padding: 12, borderTop: '1px solid #f0f0f0' }}>
-          <Button type="text" icon={<LogoutOutlined />} block onClick={logout} style={{ textAlign: 'left' }}>
+          <Button
+            type="text"
+            icon={<LogoutOutlined />}
+            block
+            onClick={() => {
+              void logout();
+            }}
+            style={{ textAlign: 'left' }}
+          >
             Logout
           </Button>
         </div>
