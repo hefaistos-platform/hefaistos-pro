@@ -682,6 +682,8 @@ class CreatePlaybookGraphFromHypothesis(graphene.Mutation):
             mitre_technique=hypothesis.mitre_technique,
             goal=f"Investigate and detect: {hypothesis.content}"
         )
+        graph.title = PlaybookGraph.compose_title_with_custom_id(hypothesis.content, graph.custom_id)
+        graph.save(update_fields=["title", "updated_at"])
 
         return CreatePlaybookGraphFromHypothesis(playbook_graph=graph, ok=True)
 

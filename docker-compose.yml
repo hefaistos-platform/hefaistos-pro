@@ -4,8 +4,8 @@ services:
     image: nginx:alpine
     container_name: hefaistos-proxy
     ports:
-      - "8080:8080"   # HTTP (mapped to external 8080)
-      - "8443:8443"   # HTTPS (mapped to external 8443)
+      - "80:8080"     # HTTP (external 80 -> internal 8080)
+      - "443:8443"    # HTTPS (external 443 -> internal 8443)
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - ./nginx/certs:/etc/nginx/certs
@@ -58,7 +58,7 @@ services:
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-detect.hefaistos.org}
       - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://detect.hefaistos.org}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
-      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost:8443,http://localhost:8080}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost}
       - ADMIN_ALLOWED_IP_RANGES=${ADMIN_ALLOWED_IP_RANGES:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12}
       # LSP Configuration
       - ENABLE_LSP_SERVERS=true
@@ -283,7 +283,7 @@ services:
       - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
       - DIGEST_DAY=MONDAY
       - DIGEST_HOUR=8
-      - FRONTEND_URL=${FRONTEND_URL:-https://localhost:8443}
+      - FRONTEND_URL=${FRONTEND_URL:-https://localhost}
       - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
     secrets:
       - db_password

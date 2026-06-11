@@ -64,6 +64,10 @@ def generate_copy_title(base_title: str, existing_titles) -> str:
         counter += 1
 
 
+def _normalize_workbench_title(title: str | None, graph: PlaybookGraph) -> str:
+    return PlaybookGraph.compose_title_with_custom_id(title, getattr(graph, 'custom_id', None))
+
+
 def _build_l1_portal_title(graph: PlaybookGraph) -> str:
     base = (getattr(graph, 'title', '') or 'Workbench').strip()
     return f"{base} + PB"
@@ -1714,7 +1718,7 @@ class UpdatePlaybookGraphTitle(graphene.Mutation):
             raise Exception("Only the owner can rename this workbench.")
 
         old = graph.title
-        graph.title = title[:255]
+        graph.title = _normalize_workbench_title(title, graph)
         graph.save(update_fields=["title", "updated_at"])
 
         ActivityLog.objects.create(
@@ -2326,7 +2330,9 @@ class CreatePlaybookGraph(graphene.Mutation):
     @staticmethod
     @role_required([Roles.ADMIN, Roles.ANALYST])
     def mutate(root, info, **kwargs):
-        title = kwargs.get('title')
+        title = (kwargs.get('title') or '').strip()
+        if not title:
+            raise Exception("Title cannot be empty")
         user = info.context.user
         graph = PlaybookGraph.objects.create(
             title=title,
@@ -2334,6 +2340,8 @@ class CreatePlaybookGraph(graphene.Mutation):
             author=user,
             status='IDEA'
         )
+        graph.title = _normalize_workbench_title(title, graph)
+        graph.save(update_fields=["title", "updated_at"])
 
         # Create Activity Log
         ActivityLog.objects.create(
@@ -2707,8 +2715,12 @@ class ClonePlaybookGraph(graphene.Mutation):
         except PlaybookGraph.DoesNotExist:
             raise Exception("Workbench not found or you do not have permission")
 
-        existing_titles = set(PlaybookGraph.objects.filter(organization=user.organization).values_list('title', flat=True))
-        new_title = generate_copy_title(graph.title, existing_titles)
+        source_suffix_title = PlaybookGraph.strip_custom_id_prefix(graph.title)
+        existing_suffix_titles = {
+            PlaybookGraph.strip_custom_id_prefix(t)
+            for t in PlaybookGraph.objects.filter(organization=user.organization).values_list('title', flat=True)
+        }
+        new_title = generate_copy_title(source_suffix_title, existing_suffix_titles)
 
         new_graph = PlaybookGraph.objects.create(
             title=new_title,
@@ -2742,6 +2754,8 @@ class ClonePlaybookGraph(graphene.Mutation):
             notification_steps=graph.notification_steps,
             downstream_correlation_requirements=graph.downstream_correlation_requirements,
         )
+        new_graph.title = _normalize_workbench_title(new_title, new_graph)
+        new_graph.save(update_fields=["title", "updated_at"])
 
         new_graph.tags.set(graph.tags.all())
         new_graph.playbooks.set(graph.playbooks.all())
@@ -3577,6 +3591,8 @@ def deserialize_playbook_graph(data: dict, organization, author) -> PlaybookGrap
         # Notes
         notes=playbook_data.get("notes", "")
     )
+    graph.title = _normalize_workbench_title(playbook_data.get("title", "Imported Playbook"), graph)
+    graph.save(update_fields=["title", "updated_at"])
     
     # Add tags
     tags = playbook_data.get("tags", [])
@@ -3685,7 +3701,7 @@ def update_playbook_graph_from_v1(data: dict, graph: PlaybookGraph, author, new_
             technique_id=playbook_data["mitre_technique_id"]
         ).first()
 
-    graph.title = playbook_data.get("title", graph.title)
+    graph.title = _normalize_workbench_title(playbook_data.get("title", graph.title), graph)
     graph.mitre_technique = mitre_technique
     graph.selected_strategy = playbook_data.get("selected_strategy", {})
     graph.detection_rule = playbook_data.get("detection_rule", "")
@@ -3955,6 +3971,8 @@ def deserialize_playbook_graph_hex_v2(data: dict, organization, author) -> Playb
         # Notes
         notes=audit_trail.get("notes", "")
     )
+    graph.title = _normalize_workbench_title(metadata.get("name", "Imported Playbook"), graph)
+    graph.save(update_fields=["title", "updated_at"])
     
     # Add tags
     tags = metadata.get("tags", [])
@@ -4094,7 +4112,7 @@ def update_playbook_graph_from_hex_v2(data: dict, graph: PlaybookGraph, author, 
         ]
     }
 
-    graph.title = metadata.get("name", graph.title)
+    graph.title = _normalize_workbench_title(metadata.get("name", graph.title), graph)
     graph.status = metadata.get("status", graph.status or "DEVELOPMENT")
     graph.mitre_technique = mitre_technique
     graph.selected_strategy = json.dumps(selected_strategy)
@@ -4696,6 +4714,8 @@ def deserialize_playbook_graph_from_opentide(
         threat_surface=threat_surface,
         threat_actors=threat_actors,
     )
+    graph.title = _normalize_workbench_title(title, graph)
+    graph.save(update_fields=["title", "updated_at"])
 
     # ------------------------------------------------------------------
     # Detection Rules – one per platform configuration in the MDR

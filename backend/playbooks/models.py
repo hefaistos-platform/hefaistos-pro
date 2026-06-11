@@ -1,4 +1,5 @@
 import uuid
+import re
 from django.db import models
 from django.db.models import JSONField
 from django.db import transaction
@@ -731,6 +732,29 @@ class PlaybookGraph(models.Model):
 
         if existing_platforms:
             self.configured_platforms = list(existing_platforms.keys())
+
+    @staticmethod
+    def strip_custom_id_prefix(title: str | None) -> str:
+        """
+        Remove one or more leading [DE000001]-style prefixes from a title.
+        """
+        text = (title or "").strip()
+        while True:
+            updated = re.sub(r'^\[DE\d{6}\]', '', text)
+            if updated == text:
+                break
+            text = updated
+        return text
+
+    @classmethod
+    def compose_title_with_custom_id(cls, title: str | None, custom_id: str | None) -> str:
+        """
+        Force title prefix format: [DE000001]suffix (no added space).
+        """
+        base = cls.strip_custom_id_prefix(title)
+        if not custom_id:
+            return base[:255]
+        return f"[{custom_id}]{base}"[:255]
 
     def save(self, *args, **kwargs):
         # Auto-generate ID on first save when missing.

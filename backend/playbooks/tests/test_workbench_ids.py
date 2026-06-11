@@ -128,3 +128,55 @@ class WorkbenchIdGraphQLTests(GraphQLTestCase):
         self.assertEqual(payload["customId"], initial_id)
         self.assertEqual(self.graph.custom_id, initial_id)
         self.assertEqual(self.graph.mitre_technique_id, self.technique_b.id)
+
+    def test_create_workbench_auto_prefixes_title_with_custom_id(self):
+        mutation = """
+            mutation CreateWorkbench($title: String!) {
+                createPlaybookGraph(title: $title) {
+                    graph {
+                        id
+                        title
+                        customId
+                    }
+                }
+            }
+        """
+        response = self.query(
+            mutation,
+            variables={"title": "[esel][app] This is test rule"},
+        )
+        self.assertResponseNoErrors(response)
+        graph_payload = json.loads(response.content)["data"]["createPlaybookGraph"]["graph"]
+        expected_prefix = f"[{graph_payload['customId']}]"
+        self.assertTrue(graph_payload["title"].startswith(expected_prefix))
+        self.assertEqual(
+            graph_payload["title"],
+            f"{expected_prefix}[esel][app] This is test rule",
+        )
+
+    def test_rename_keeps_custom_id_prefix_non_editable(self):
+        mutation = """
+            mutation RenameWorkbench($id: UUID!, $title: String!) {
+                updatePlaybookGraphTitle(id: $id, title: $title) {
+                    playbookGraph {
+                        id
+                        title
+                        customId
+                    }
+                }
+            }
+        """
+        response = self.query(
+            mutation,
+            variables={
+                "id": str(self.graph.id),
+                "title": "[DE999999]Renamed suffix",
+            },
+        )
+        self.assertResponseNoErrors(response)
+        graph_payload = json.loads(response.content)["data"]["updatePlaybookGraphTitle"]["playbookGraph"]
+
+        self.graph.refresh_from_db()
+        expected_title = f"[{self.graph.custom_id}]Renamed suffix"
+        self.assertEqual(graph_payload["title"], expected_title)
+        self.assertEqual(self.graph.title, expected_title)
