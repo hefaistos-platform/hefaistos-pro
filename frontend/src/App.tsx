@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Page components
@@ -44,12 +44,26 @@ import { MainLayout } from './components/MainLayout';
 
 const AppRoutes = () => {
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
+  const locationForRedirect = React.useMemo(
+    () => ({ pathname: location.pathname, search: location.search, hash: location.hash }),
+    [location.pathname, location.search, location.hash]
+  );
+
+  const redirectAfterLogin = React.useMemo(() => {
+    const from = (location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+    const target = `${from?.pathname || ''}${from?.search || ''}${from?.hash || ''}`;
+    if (!target || !target.startsWith('/') || target.startsWith('//') || target === '/login') {
+      return '/';
+    }
+    return target;
+  }, [location.state]);
 
   return (
     <Routes>
       <Route
         path="/login"
-        element={!isAuthenticated ? <LoginPage /> : <Navigate to="/" />}
+        element={!isAuthenticated ? <LoginPage /> : <Navigate to={redirectAfterLogin} replace />}
       />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -93,13 +107,14 @@ const AppRoutes = () => {
                 <Route path="/tools/ach/:id" element={<ACHDetailPage />} />
                 <Route path="/pain-points" element={<PainPointsPage />} />
                 <Route path="/l1-portal" element={<L1PortalPage />} />
-                <Route path="/l1-portal/:token" element={<L1PortalDetailPage />} />
+                <Route path="/l1-portal/:token/*" element={<L1PortalDetailPage />} />
                 <Route path="/advops" element={<Navigate to="/playbooks?tab=advops" />} />
                 <Route path="/advops/:id" element={<Navigate to={`/playbooks?tab=advops&id=${new URLSearchParams(window.location.search).get('id') || window.location.pathname.split('/').pop()}`} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </MainLayout>
           ) : (
-            <Navigate to="/login" />
+            <Navigate to="/login" state={{ from: locationForRedirect }} replace />
           )
         }
       />

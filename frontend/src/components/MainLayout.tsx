@@ -137,7 +137,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     const path = location.pathname;
     const allowed =
       path === '/l1-portal' ||
-      /^\/l1-portal\/[^/]+$/.test(path) ||
+      /^\/l1-portal\/[^/]+\/?$/.test(path) ||
       path === '/kb' ||
       path.startsWith('/kb/article/') ||
       path === '/pain-points' ||
