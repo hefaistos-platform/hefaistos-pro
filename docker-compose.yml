@@ -54,6 +54,7 @@ services:
       - MAILGUN_DOMAIN=${MAILGUN_DOMAIN:-}
       - MAILGUN_FROM_EMAIL=${MAILGUN_FROM_EMAIL:-}
       - FRONTEND_URL=${FRONTEND_URL:-https://detect.hefaistos.org}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://detect.hefaistos.org}
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-detect.hefaistos.org}
       - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://detect.hefaistos.org}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}

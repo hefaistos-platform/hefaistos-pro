@@ -69,12 +69,25 @@ def _build_l1_portal_title(graph: PlaybookGraph) -> str:
     return f"{base} + PB"
 
 
-def _build_l1_portal_share_url(token) -> str:
+def _build_l1_portal_share_url(token, request=None) -> str:
     token_value = str(token)
+    relative_path = f"/l1-portal/{token_value}"
+
+    public_base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').rstrip('/')
+    if public_base:
+        return f"{public_base}{relative_path}"
+
+    if request is not None:
+        try:
+            return request.build_absolute_uri(relative_path)
+        except Exception:
+            pass
+
     frontend_base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
     if frontend_base:
-        return f"{frontend_base}/l1-portal/{token_value}"
-    return f"/l1-portal/{token_value}"
+        return f"{frontend_base}{relative_path}"
+
+    return relative_path
 
 
 def _upsert_l1_portal_snapshot(graph: PlaybookGraph) -> L1PortalEntry | None:
@@ -602,7 +615,7 @@ class L1PortalEntryType(DjangoObjectType):
         return self.graph
 
     def resolve_share_url(self, info):
-        return _build_l1_portal_share_url(self.url_token)
+        return _build_l1_portal_share_url(self.url_token, getattr(info, 'context', None))
 
 
 class PlaybookGraphType(DjangoObjectType):
@@ -767,7 +780,7 @@ class PlaybookGraphType(DjangoObjectType):
             return None
         if not entry:
             return None
-        return _build_l1_portal_share_url(entry.url_token)
+        return _build_l1_portal_share_url(entry.url_token, getattr(info, 'context', None))
 
     def resolve_notes(self, info):
         return self.notes
@@ -1566,7 +1579,7 @@ The HEFAISTOS Team""",
             }
             if l1_entry:
                 payload['l1_portal_token'] = str(l1_entry.url_token)
-                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token)
+                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token, info.context)
             publisher.publish_message('playbook.graph.status.changed', payload)
         except Exception:
             pass
@@ -1799,7 +1812,7 @@ class AdminApproveDeployment(graphene.Mutation):
             }
             if l1_entry:
                 payload['l1_portal_token'] = str(l1_entry.url_token)
-                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token)
+                payload['l1_portal_url'] = _build_l1_portal_share_url(l1_entry.url_token, info.context)
             publisher.publish_message('playbook.graph.status.changed', payload)
         except Exception:
             pass

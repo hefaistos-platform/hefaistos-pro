@@ -315,6 +315,7 @@ docker compose exec backend python manage.py import_mitre_universal --mitre-vers
 | `SECRET_KEY` | Django secret key | Yes (auto-generated if empty) |
 | `SERVER_DOMAIN` | Your domain or IP | Yes |
 | `FRONTEND_URL` | Frontend base URL for emails | No (default: https://localhost:8443) |
+| `PUBLIC_BASE_URL` | Canonical external base URL for shareable links (for multi-proxy deployments) | No (default: unset; backend tries request host, then FRONTEND_URL) |
 | `WEBAUTHN_RP_ID` | WebAuthn relying party ID (public host) | Yes for security-key MFA/passwordless |
 | `WEBAUTHN_ORIGIN` | WebAuthn origin (must be HTTPS in production) | Yes for security-key MFA/passwordless |
 | `CORS_ALLOWED_ORIGINS` | Additional allowed CORS origins (comma-separated). `mitre-attack.github.io` is always included automatically. | No |
@@ -385,9 +386,12 @@ services:
   backend:
     environment:
       - FRONTEND_URL=https://detect.hefaistos.org
+      - PUBLIC_BASE_URL=https://detect.hefaistos.org
       - WEBAUTHN_RP_ID=detect.hefaistos.org
       - WEBAUTHN_ORIGIN=https://detect.hefaistos.org
 ```
+
+`PUBLIC_BASE_URL` is recommended when your deployment has multiple proxy layers (for example: External LB/Proxy -> Nginx -> frontend/backend containers). It ensures generated share URLs use the real externally reachable origin.
 
 Also set your CORS/CSRF values in the same backend environment section (for example, `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`).
 

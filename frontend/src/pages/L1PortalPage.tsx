@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
-import { Button, Card, Input, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Input, Modal, Space, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useNavigate } from 'react-router-dom';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 const GET_L1_PORTAL_ENTRIES = gql`
   query GetL1PortalEntries($search: String, $limit: Int, $offset: Int) {
@@ -46,9 +46,9 @@ interface L1PortalEntriesData {
 }
 
 export const L1PortalPage: React.FC = () => {
-  const navigate = useNavigate();
   const [searchText, setSearchText] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
+  const [selectedEntry, setSelectedEntry] = useState<L1PortalRow | null>(null);
 
   const { data, loading, refetch } = useQuery<L1PortalEntriesData>(GET_L1_PORTAL_ENTRIES, {
     variables: { search: appliedSearch || undefined, limit: 200, offset: 0 },
@@ -66,7 +66,7 @@ export const L1PortalPage: React.FC = () => {
         key: 'title',
         render: (_: unknown, row: L1PortalRow) => (
           <Space direction="vertical" size={2}>
-            <Typography.Link onClick={() => navigate(`/l1-portal/${row.urlToken}`)}>
+            <Typography.Link onClick={() => setSelectedEntry(row)}>
               {row.title}
             </Typography.Link>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -99,7 +99,7 @@ export const L1PortalPage: React.FC = () => {
         width: 210,
         render: (_: unknown, row: L1PortalRow) => (
           <Space>
-            <Button size="small" onClick={() => navigate(`/l1-portal/${row.urlToken}`)}>
+            <Button size="small" onClick={() => setSelectedEntry(row)}>
               Open
             </Button>
             <Button
@@ -119,7 +119,7 @@ export const L1PortalPage: React.FC = () => {
         ),
       },
     ],
-    [navigate]
+    [setSelectedEntry]
   );
 
   return (
@@ -151,6 +151,60 @@ export const L1PortalPage: React.FC = () => {
           pagination={{ pageSize: 20 }}
         />
       </Card>
+
+      <Modal
+        title={selectedEntry?.title || 'L1 Portal Detail'}
+        open={!!selectedEntry}
+        onCancel={() => setSelectedEntry(null)}
+        width={1050}
+        footer={
+          <Space>
+            <Button onClick={() => setSelectedEntry(null)}>Close</Button>
+            <Button
+              type="primary"
+              onClick={async () => {
+                if (!selectedEntry) return;
+                try {
+                  await navigator.clipboard.writeText(selectedEntry.shareUrl);
+                  message.success('Share URL copied');
+                } catch {
+                  message.error('Failed to copy share URL');
+                }
+              }}
+            >
+              Copy URL
+            </Button>
+          </Space>
+        }
+      >
+        {selectedEntry && (
+          <>
+            <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
+              <Typography.Text type="secondary">
+                Source Workbench: {selectedEntry.sourceGraph?.title || 'N/A'}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                Last Updated: {new Date(selectedEntry.updatedAt).toLocaleString()}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                Share URL: {selectedEntry.shareUrl}
+              </Typography.Text>
+            </Space>
+
+            <Card size="small" title="Response Playbook" style={{ marginBottom: 12 }}>
+              <MarkdownRenderer content={selectedEntry.responsePlaybook || 'N/A'} variant="default" />
+            </Card>
+
+            <Card size="small" title="Known False Positives" style={{ marginBottom: 12 }}>
+              <MarkdownRenderer content={selectedEntry.knownFalsePositives || 'N/A'} variant="default" />
+            </Card>
+
+            <Card size="small" title="Blind Spots & Coverage Gaps">
+              <MarkdownRenderer content={selectedEntry.blindSpotsCoverageGaps || 'N/A'} variant="default" />
+            </Card>
+          </>
+        )}
+      </Modal>
     </div>
   );
 };

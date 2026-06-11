@@ -440,6 +440,10 @@ MISP_ENABLED = bool(MISP_URL and MISP_API_KEY)
 # Frontend URL used in emails (login links etc.)
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://localhost:8443')
 
+# Public canonical base URL used for externally shareable links when running
+# behind one or more reverse proxies/load balancers.
+PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
+
 # WebAuthn / FIDO2 settings (required for security-key MFA/passwordless)
 WEBAUTHN_RP_ID = os.environ.get('WEBAUTHN_RP_ID', 'localhost')
 WEBAUTHN_ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', FRONTEND_URL.rstrip('/'))

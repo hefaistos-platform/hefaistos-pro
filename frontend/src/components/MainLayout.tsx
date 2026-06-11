@@ -20,6 +20,7 @@ import {
   ExclamationCircleOutlined,
   UserOutlined,
   FileTextOutlined,
+  ReadOutlined,
   AppstoreOutlined,
   SyncOutlined,
   FileSearchOutlined,
@@ -93,7 +94,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const items = isElOne
     ? [
-      { key: 'l1-portal', icon: <DeploymentUnitOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
+      { key: 'l1-portal', icon: <ReadOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
       { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
       { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
       { key: 'profile', icon: <TeamOutlined />, label: 'My Profile', onClick: () => navigate('/profile') },
@@ -102,7 +103,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       { key: 'board', icon: <RadarChartOutlined />, label: 'Lifecycle Hub', onClick: () => navigate('/') },
       { key: 'tools-ach', icon: <TableOutlined />, label: 'ACH Matrix', onClick: () => navigate('/tools/ach') },
       { key: 'playbooks', icon: <DeploymentUnitOutlined />, label: 'Workbench Hub', onClick: () => navigate('/playbooks') },
-      { key: 'l1-portal', icon: <DeploymentUnitOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
+      { key: 'l1-portal', icon: <ReadOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
       { key: 'rules', icon: <ApartmentOutlined />, label: 'Rule Hub', onClick: () => navigate('/rules') },
       { key: 'catalog', icon: <DatabaseOutlined />, label: 'Data Catalog', onClick: () => navigate('/catalog') },
       { key: 'coverage', icon: <HeatMapOutlined />, label: 'Coverage Map', onClick: () => navigate('/coverage') },
