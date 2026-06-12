@@ -71,6 +71,19 @@ def _normalize_workbench_title(title: str | None, graph: PlaybookGraph) -> str:
     return PlaybookGraph.compose_title_with_custom_id(title, getattr(graph, 'custom_id', None))
 
 
+def _is_admin_user(user) -> bool:
+    return bool(
+        getattr(user, 'role', None) == Roles.ADMIN
+        or getattr(user, 'is_superuser', False)
+        or getattr(user, 'is_staff', False)
+    )
+
+
+def _can_clear_workbench_notes(user, graph: PlaybookGraph) -> bool:
+    is_author = getattr(graph, 'author_id', None) == getattr(user, 'id', None)
+    return is_author or _is_admin_user(user)
+
+
 def _notify_dac_automation_failure(graph, actor, error_message: str) -> None:
     try:
         from django.contrib.contenttypes.models import ContentType
@@ -1873,6 +1886,11 @@ class UpdatePlaybookGraphMetadata(graphene.Mutation):
             raise Exception("Graph not found or you do not have permission")
 
         if notes is not None:
+            current_notes = (graph.notes or '').strip()
+            incoming_notes = (notes or '').strip()
+            is_clear_transition = current_notes != '' and incoming_notes == ''
+            if is_clear_transition and not _can_clear_workbench_notes(user, graph):
+                raise Exception("Only the workbench author or an admin can clear notes.")
             graph.notes = notes
 
         if playbook_ids is not None:
@@ -2847,6 +2865,7 @@ class UpdatePlaybookDetails(graphene.Mutation):
         false_positives = graphene.String()
         response_playbook = graphene.String()
         target_file_path = graphene.String()
+        notes = graphene.String()
         
         # Valuation
         robustness_level = graphene.Int()
@@ -2924,7 +2943,7 @@ class UpdatePlaybookDetails(graphene.Mutation):
             'alert_trigger', 'default_severity', 'enrichment_steps',
             'containment_steps', 'notification_steps', 'downstream_correlation_requirements', 'tags',
             'goal', 'technical_context', 'blind_spots', 'triage_guidance',
-            'false_positives', 'response_playbook', 'target_file_path',
+            'false_positives', 'response_playbook', 'target_file_path', 'notes',
             'data_source_robustness', 'test_scenario', 'test_expected_output',
             'selected_capability_abstraction_ids', 'detection_focus_layer',
             'tlp_classification', 'public_references', 'internal_references', 'threat_actors', 'threat_surface',
@@ -2989,6 +3008,14 @@ class UpdatePlaybookDetails(graphene.Mutation):
         if 'false_positives' in kwargs: graph.false_positives = kwargs['false_positives']
         if 'response_playbook' in kwargs: graph.response_playbook = kwargs['response_playbook']
         if 'target_file_path' in kwargs: graph.target_file_path = kwargs['target_file_path']
+        if 'notes' in kwargs:
+            incoming_notes = kwargs['notes']
+            current_notes = (graph.notes or '').strip()
+            next_notes = (incoming_notes or '').strip()
+            is_clear_transition = current_notes != '' and next_notes == ''
+            if is_clear_transition and not _can_clear_workbench_notes(user, graph):
+                raise Exception("Only the workbench author or an admin can clear notes.")
+            graph.notes = incoming_notes
         if 'robustness_level' in kwargs: graph.robustness_level = kwargs['robustness_level']
         if 'data_source_robustness' in kwargs: graph.data_source_robustness = kwargs['data_source_robustness']
         
@@ -3130,7 +3157,7 @@ class UpdatePlaybookDetails(graphene.Mutation):
         strategy_context_fields = {
             'detection_rule', 'selected_strategy', 'goal', 'technical_context', 'blind_spots',
             'triage_guidance', 'false_positives', 'response_playbook', 'target_file_path',
-            'robustness_level', 'data_source_robustness', 'data_source_maturity',
+            'notes', 'robustness_level', 'data_source_robustness', 'data_source_maturity',
             'test_scenario', 'test_expected_output', 'tags', 'mitre_technique_id',
             'conversation_history', 'required_data_source_ids', 'd3fend_technique_ids',
             'selected_capability_abstraction_ids', 'detection_focus_layer',

@@ -73,6 +73,7 @@ const GET_PLAYBOOK_GRAPH_QUERY = gql`
       l1PortalUrl
       tags
       isShared
+      notes
       
       # --- Strategy & Context ---
       mitreTechnique { id techniqueId name }
@@ -149,13 +150,6 @@ const GET_PLAYBOOK_GRAPH_QUERY = gql`
         timestamp
       }
 
-      comments {
-        id
-        message
-        createdAt
-        user { id username }
-      }
-
       activeReview {
         id
         status
@@ -218,6 +212,7 @@ const UPDATE_PLAYBOOK_DETAILS_MUTATION = gql`
     $falsePositives: String,
     $responsePlaybook: String,
     $targetFilePath: String,
+    $notes: String,
     $robustnessLevel: Int,
     $dataSourceRobustness: String,
     $dataSourceMaturity: String,
@@ -250,6 +245,7 @@ const UPDATE_PLAYBOOK_DETAILS_MUTATION = gql`
       falsePositives: $falsePositives,
       responsePlaybook: $responsePlaybook,
       targetFilePath: $targetFilePath,
+      notes: $notes,
       robustnessLevel: $robustnessLevel,
       dataSourceRobustness: $dataSourceRobustness,
       dataSourceMaturity: $dataSourceMaturity,
@@ -282,6 +278,7 @@ const UPDATE_PLAYBOOK_DETAILS_MUTATION = gql`
         falsePositives
         responsePlaybook
         targetFilePath
+        notes
         customId
         version
         minorVersion
@@ -563,6 +560,7 @@ interface PlaybookGraphData {
     falsePositives: string;
     responsePlaybook: string;
     targetFilePath: string;
+    notes: string | null;
     testScenario: string;
     testExpectedOutput: string;
 
@@ -600,13 +598,6 @@ interface PlaybookGraphData {
         action: string;
         details: string;
         timestamp: string;
-    }>;
-
-    comments: Array<{
-      id: string;
-      message: string;
-      createdAt: string;
-      user: { id: string; username: string } | null;
     }>;
 
     activeReview: {
@@ -753,7 +744,7 @@ export const PlaybookWorkbench = () => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   
   // --- Local State for Sidebar Tab ---
-  const [sidebarTab, setSidebarTab] = useState<'DETAILS' | 'CHAT'>('DETAILS');
+  const [sidebarTab, setSidebarTab] = useState<'DETAILS' | 'NOTES'>('DETAILS');
 
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [isAutoMode, setIsAutoMode] = useState(true);
@@ -2224,16 +2215,14 @@ export const PlaybookWorkbench = () => {
 
         {/* RIGHT: Sidebar (Fixed) */}
         <PlaybookSidebar 
-            playbookId={playbookId || ''}
             playbook={{
               ...data.playbookGraph,
               tags: data.playbookGraph.tags || []
             }}
-            currentUser={data.me?.username || ''}
             onUpdate={handleSidebarUpdate}
             onUpdateNodeMappings={handleUpdateNodeMappings}
             selectedNodeId={selectedNodeId}
-            refetch={refetch}
+            canClearNotes={isAuthor || data.me?.role === 'ADMIN'}
             activeTab={sidebarTab}
             onTabChange={setSidebarTab}
         />

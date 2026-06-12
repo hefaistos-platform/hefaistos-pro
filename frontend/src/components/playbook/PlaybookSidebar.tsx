@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { PlaybookChat } from './PlaybookChat';
+import { PlaybookNotes } from './PlaybookNotes';
 
 interface SidebarProps {
-  playbookId: string;
-    playbook: {
+  playbook: {
     customId: string;
     version: number;
     minorVersion: number;
@@ -11,22 +10,21 @@ interface SidebarProps {
     author: { username: string };
     robustnessLevel: number;
     dataSourceRobustness: string;
-                selectedStrategy?: string;
-        tags: string[];
+    selectedStrategy?: string;
+    tags: string[];
     createdAt: string;
-    comments?: any[];
-        nodes?: Array<{ id: string; mitreAttackMappings?: Array<{ id: string; techniqueId: string; name: string }> }>;
+    notes?: string | null;
+    nodes?: Array<{ id: string; mitreAttackMappings?: Array<{ id: string; techniqueId: string; name: string }> }>;
   };
-  currentUser: string;
   onUpdate: (field: string, value: any) => void;
-    onUpdateNodeMappings?: (techniqueIds: string[]) => void;
-    selectedNodeId?: string | null;
-  refetch: () => void;
-  activeTab: 'DETAILS' | 'CHAT';
-  onTabChange: (tab: 'DETAILS' | 'CHAT') => void;
+  onUpdateNodeMappings?: (techniqueIds: string[]) => void;
+  selectedNodeId?: string | null;
+  canClearNotes: boolean;
+  activeTab: 'DETAILS' | 'NOTES';
+  onTabChange: (tab: 'DETAILS' | 'NOTES') => void;
 }
 
-export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbookId, playbook, currentUser, onUpdate, onUpdateNodeMappings, selectedNodeId, refetch, activeTab, onTabChange }) => {
+export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbook, onUpdate, onUpdateNodeMappings, selectedNodeId, canClearNotes, activeTab, onTabChange }) => {
     // Local state for the tag input field
     const [tagInput, setTagInput] = useState("");
     // Collapse state – starts expanded
@@ -95,13 +93,13 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbookId, playbook, 
           className="text-[10px] font-bold text-gray-400 uppercase tracking-widest select-none mt-4"
           style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
         >
-          {activeTab === 'CHAT' ? 'Discussion' : 'Details'}
+          {activeTab === 'NOTES' ? 'Notes' : 'Details'}
         </span>
 
-        {/* Comment badge (if chat has messages) */}
-        {activeTab === 'CHAT' && playbook.comments && playbook.comments.length > 0 && (
+        {/* Notes indicator */}
+        {activeTab === 'NOTES' && (playbook.notes || '').trim().length > 0 && (
           <span className="mt-2 bg-blue-500 text-white text-[9px] px-1 py-0.5 rounded-full">
-            {playbook.comments.length}
+            •
           </span>
         )}
       </div>
@@ -120,13 +118,13 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbookId, playbook, 
              Details
           </button>
           <button 
-             className={`flex-1 py-3 text-sm font-bold text-center flex items-center justify-center gap-2 ${activeTab === 'CHAT' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-             onClick={() => onTabChange('CHAT')}
+             className={`flex-1 py-3 text-sm font-bold text-center flex items-center justify-center gap-2 ${activeTab === 'NOTES' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+             onClick={() => onTabChange('NOTES')}
           >
-             Discussion
-             {playbook.comments && playbook.comments.length > 0 && (
+             Notes
+             {(playbook.notes || '').trim().length > 0 && (
                  <span className="bg-gray-200 text-gray-700 text-[9px] px-1.5 py-0.5 rounded-full">
-                     {playbook.comments.length}
+                     •
                  </span>
              )}
           </button>
@@ -391,12 +389,12 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbookId, playbook, 
                   </div>
               </div>
           ) : (
-              // --- NEW CONTENT (Chat) ---
-              <PlaybookChat 
-                  playbookId={playbookId}
-                  comments={playbook.comments || []}
-                  currentUser={currentUser}
-                  refetch={refetch}
+              <PlaybookNotes
+                  notes={playbook.notes || ''}
+                  canClearNotes={canClearNotes}
+                  onSave={async (nextNotes: string) => {
+                    await onUpdate('notes', nextNotes);
+                  }}
               />
           )}
 

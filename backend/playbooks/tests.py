@@ -11,6 +11,7 @@ from rules.models import DetectionRule, RuleRepository
 from data_catalog.models import DataSource
 from platform_data.models import PlatformDataVersion
 from playbooks.models import PlaybookGraph
+from identity.decorators import Roles
 
 class PlaybookAPITests(GraphQLTestCase):
     def setUp(self):
@@ -116,6 +117,73 @@ class PlaybookAPITests(GraphQLTestCase):
 
         content = json.loads(response.content)
         self.assertIn("not found or you do not have permission", content['errors'][0]['message'])
+
+
+class WorkbenchNotesPermissionsTests(GraphQLTestCase):
+    def setUp(self):
+        super().setUp()
+        User = get_user_model()
+        self.org = Organization.objects.create(name="Notes Org")
+        self.author = User.objects.create_user(
+            username="notes_author",
+            password="password",
+            organization=self.org,
+            role=Roles.ANALYST,
+        )
+        self.other_analyst = User.objects.create_user(
+            username="notes_other",
+            password="password",
+            organization=self.org,
+            role=Roles.ANALYST,
+        )
+        self.admin = User.objects.create_user(
+            username="notes_admin",
+            password="password",
+            organization=self.org,
+            role=Roles.ADMIN,
+        )
+        self.graph = PlaybookGraph.objects.create(
+            title="Notes Graph",
+            organization=self.org,
+            author=self.author,
+            notes="Initial investigation notes",
+        )
+
+    def _update_notes(self, notes_value):
+        mutation = """
+            mutation UpdateWorkbenchNotes($graphId: UUID!, $notes: String) {
+                updatePlaybookDetails(graphId: $graphId, notes: $notes) {
+                    graph { id notes }
+                }
+            }
+        """
+        return self.query(
+            mutation,
+            variables={"graphId": str(self.graph.id), "notes": notes_value},
+        )
+
+    def test_non_author_analyst_cannot_clear_existing_notes(self):
+        self.client.force_login(self.other_analyst)
+        response = self._update_notes("")
+        self.assertResponseHasErrors(response)
+        content = json.loads(response.content)
+        self.assertIn("Only the workbench author or an admin can clear notes.", content['errors'][0]['message'])
+        self.graph.refresh_from_db()
+        self.assertEqual(self.graph.notes, "Initial investigation notes")
+
+    def test_author_can_clear_existing_notes(self):
+        self.client.force_login(self.author)
+        response = self._update_notes("")
+        self.assertResponseNoErrors(response)
+        self.graph.refresh_from_db()
+        self.assertEqual(self.graph.notes, "")
+
+    def test_admin_can_clear_existing_notes(self):
+        self.client.force_login(self.admin)
+        response = self._update_notes("")
+        self.assertResponseNoErrors(response)
+        self.graph.refresh_from_db()
+        self.assertEqual(self.graph.notes, "")
 
 
 class CoverageLayerJsonViewTests(TestCase):
