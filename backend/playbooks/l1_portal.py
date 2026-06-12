@@ -9,7 +9,7 @@ from playbooks.models import DetectionPlaybook, L1PortalEntry, PlaybookGraph
 
 def build_l1_portal_title(graph: PlaybookGraph) -> str:
     base = (getattr(graph, 'title', '') or 'Workbench').strip()
-    return f"{base} + PB"
+    return f"{base} PB"
 
 
 def build_l1_portal_share_url(token, request=None) -> str:
