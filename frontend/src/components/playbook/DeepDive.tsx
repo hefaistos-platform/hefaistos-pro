@@ -19,6 +19,19 @@ interface DeepDiveProps {
   onLinkRules?: (ruleIds: string[]) => void;
 }
 
+type DeepDiveFormData = DeepDiveProps['data'];
+
+const DEEP_DIVE_FIELDS: Array<keyof DeepDiveFormData> = [
+  'goal',
+  'technicalContext',
+  'blindSpots',
+  'response',
+  'falsePositives',
+];
+
+const isSameDeepDiveData = (left: DeepDiveFormData, right: DeepDiveFormData) =>
+  DEEP_DIVE_FIELDS.every((field) => left[field] === right[field]);
+
 const RULES_CONNECTION_QUERY = gql`
   query RulesConnection($text: String, $first: Int!, $after: String, $repositoryId: ID) {
     rulesConnection(text: $text, first: $first, after: $after, repositoryId: $repositoryId) {
@@ -59,10 +72,19 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
   const [searchRules, { data: rulesData }] = useLazyQuery<RulesConnData, RulesConnVars>(RULES_CONNECTION_QUERY);
   const [generateResponsePlaybook] = useMutation(GENERATE_RESPONSE_PLAYBOOK_MUTATION);
 
-  // Sync local state with props, but only when not editing (handled by the fact we only save on blur)
+  const backendSnapshot = useMemo<DeepDiveFormData>(() => ({
+    goal: data.goal,
+    technicalContext: data.technicalContext,
+    blindSpots: data.blindSpots,
+    response: data.response,
+    falsePositives: data.falsePositives,
+  }), [data.goal, data.technicalContext, data.blindSpots, data.response, data.falsePositives]);
+
+  // Sync from backend only when values actually changed. This avoids resetting editor/caret state
+  // on parent rerenders where the data object identity changes but content is the same.
   useEffect(() => {
-    setLocalData(data);
-  }, [data]);
+    setLocalData((previous) => (isSameDeepDiveData(previous, backendSnapshot) ? previous : backendSnapshot));
+  }, [backendSnapshot]);
 
   const handleChange = (field: string, value: string) => {
     setLocalData(prev => ({ ...prev, [field]: value }));
