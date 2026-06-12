@@ -41,7 +41,7 @@ HEFAISTOS is a comprehensive **Detection Engineering Platform** designed for sec
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              NGINX (Reverse Proxy)                      │
-│                            Ports: 8080 (HTTP) / 8443 (HTTPS)            │
+│                            Ports: 80 (HTTP) / 443 (HTTPS)               │
 └─────────────────────────────────────────────────────────────────────────┘
                     │                                    │
                     ▼                                    ▼
@@ -314,12 +314,12 @@ docker compose exec backend python manage.py import_mitre_universal --mitre-vers
 | `DEBUG` | Enable debug mode | No (default: False) |
 | `SECRET_KEY` | Django secret key | Yes (auto-generated if empty) |
 | `SERVER_DOMAIN` | Your domain or IP | Yes |
-| `FRONTEND_URL` | Frontend base URL for emails | No (default: https://localhost:8443) |
+| `FRONTEND_URL` | Frontend base URL for emails | No (default: https://localhost) |
 | `PUBLIC_BASE_URL` | Canonical external base URL for shareable links (for multi-proxy deployments) | No (default: unset; backend tries request host, then FRONTEND_URL) |
 | `WEBAUTHN_RP_ID` | WebAuthn relying party ID (public host) | Yes for security-key MFA/passwordless |
 | `WEBAUTHN_ORIGIN` | WebAuthn origin (must be HTTPS in production) | Yes for security-key MFA/passwordless |
 | `CORS_ALLOWED_ORIGINS` | Additional allowed CORS origins (comma-separated). `mitre-attack.github.io` is always included automatically. | No |
-| `CSRF_TRUSTED_ORIGINS` | Trusted CSRF origins (comma-separated, must include your public URL) | No (default: https://localhost:8443,http://localhost:8080) |
+| `CSRF_TRUSTED_ORIGINS` | Trusted CSRF origins (comma-separated, must include your public URL) | No (default: https://localhost,http://localhost) |
 | `ADMIN_ALLOWED_IP_RANGES` | IP ranges allowed to access /admin/ (comma-separated CIDR) | No (default: localhost + Docker networks) |
 | `DB_HOST` | PostgreSQL host | No (default: db) |
 | `DB_PORT` | PostgreSQL port | No (default: 5432) |
@@ -540,7 +540,7 @@ SIGMA/Sigma YAML is no longer supported as a detection rule format in HEFAISTOS.
 **Authentication:** Bearer token (JWT)
 
 ```bash
-curl -X POST https://localhost:8443/graphql \
+curl -X POST https://localhost/graphql \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"query": "{ me { id username role } }"}'
@@ -696,7 +696,7 @@ python manage.py showmigrations
 
 Interactive GraphQL playground:
 
-- Via NGINX proxy (Compose): `http://localhost:8080/graphql` or `https://localhost:8443/graphql`
+- Via NGINX proxy (Compose): `http://localhost/graphql` or `https://localhost/graphql`
 - Direct backend (when running `manage.py runserver`): `http://localhost:8000/graphql`
 
 See [DEBUG_GRAPHQL.md](Docs/DEBUG_GRAPHQL.md) for detailed query examples.
@@ -804,8 +804,8 @@ Configure UFW firewall:
 sudo ufw status verbose
 
 # Manual rule examples (NGINX public ports)
-sudo ufw allow from 192.168.0.0/16 to any port 8443
-sudo ufw allow from 192.168.0.0/16 to any port 8080
+sudo ufw allow from 192.168.0.0/16 to any port 443
+sudo ufw allow from 192.168.0.0/16 to any port 80
 ```
 
 **See:** [scripts/setup-firewall.sh](scripts/setup-firewall.sh)

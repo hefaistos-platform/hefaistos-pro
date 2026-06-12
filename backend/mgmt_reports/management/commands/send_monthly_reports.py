@@ -68,7 +68,7 @@ class Command(BaseCommand):
             year, month = prev.year, prev.month
 
         month_label = f'{calendar.month_name[month]} {year}'
-        frontend_url = getattr(django_settings, 'FRONTEND_URL', 'https://localhost:8443')
+        frontend_url = getattr(django_settings, 'FRONTEND_URL', 'https://localhost')
 
         subscribed = ReportMailingList.objects.filter(
             is_subscribed=True

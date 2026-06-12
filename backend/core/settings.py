@@ -223,7 +223,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Media files (user uploads / generated snapshots)
 # MEDIA_URL is set dynamically below, after CSRF_TRUSTED_ORIGINS is defined,
-# to ensure the correct port (e.g., 8443) is included in avatar URLs.
+# to ensure generated URLs stay correct behind reverse proxies.
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
@@ -276,7 +276,7 @@ ELASTICSEARCH_DSL = {
 # mitre-attack.github.io is always allowed so the ATT&CK Navigator can fetch
 # coverage layer JSON from /api/coverage/ regardless of deployment domain.
 # Add deployment-specific origins via the CORS_ALLOWED_ORIGINS env var
-# (comma-separated list, e.g. "https://app.example.com:8443,https://app.example.com").
+# (comma-separated list, e.g. "https://app.example.com,http://app.example.com").
 _cors_env = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 CORS_ALLOWED_ORIGINS = ["https://mitre-attack.github.io"] + [
     o.strip() for o in _cors_env.split(',') if o.strip()
@@ -299,7 +299,7 @@ CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 # --- CSRF / Proxy settings for HTTPS behind Nginx ---
 # Trust origins specified via the CSRF_TRUSTED_ORIGINS env var (comma-separated).
 # Default covers localhost only; set this to your server's public URL in production.
-_csrf_env = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://localhost:8443,http://localhost:8080')
+_csrf_env = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://localhost,http://localhost')
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_env.split(',') if o.strip()]
 
 # Media files are served by Nginx from the /media/ path on whatever host/port the
@@ -438,7 +438,7 @@ MISP_VERIFY_SSL = os.environ.get('MISP_VERIFY_SSL', 'true').lower() == 'true'
 MISP_ENABLED = bool(MISP_URL and MISP_API_KEY)
 
 # Frontend URL used in emails (login links etc.)
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://localhost:8443')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://localhost')
 
 # Public canonical base URL used for externally shareable links when running
 # behind one or more reverse proxies/load balancers.

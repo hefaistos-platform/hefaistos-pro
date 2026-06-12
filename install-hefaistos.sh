@@ -343,8 +343,8 @@ collect_user_inputs() {
     echo ""
     log "CORS Configuration (Frontend Origins):"
     echo "Separate multiple origins with commas"
-    echo "Examples: http://localhost:8080, https://app.example.com:8443"
-    DEFAULT_CORS="http://localhost:8080,https://localhost:8443,http://${SERVER_DOMAIN}:8080,https://${SERVER_DOMAIN}:8443"
+    echo "Examples: http://localhost, https://app.example.com"
+    DEFAULT_CORS="http://localhost,https://localhost,http://${SERVER_DOMAIN},https://${SERVER_DOMAIN}"
     CORS_ORIGINS=$(read_input "Enter CORS origins" "$DEFAULT_CORS")
     
     # Admin IP Restrictions
@@ -598,7 +598,7 @@ update_configuration_files() {
         sed -i "s|SERVER_DOMAIN=.*|SERVER_DOMAIN=${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|ALLOWED_HOSTS=.*|ALLOWED_HOSTS=${SERVER_DOMAIN},localhost,127.0.0.1|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}|g" "${HEFAISTOS_DIR}/.env"
-        sed -i "s|CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=https://${SERVER_DOMAIN}:8443,https://${SERVER_DOMAIN},http://${SERVER_DOMAIN}:8080|g" "${HEFAISTOS_DIR}/.env"
+        sed -i "s|CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=https://${SERVER_DOMAIN},http://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=https://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|ADMIN_ALLOWED_IP_RANGES=.*|ADMIN_ALLOWED_IP_RANGES=${ADMIN_IP_RANGES}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|DB_NAME=.*|DB_NAME=${DB_NAME}|g" "${HEFAISTOS_DIR}/.env"
@@ -741,10 +741,10 @@ perform_health_checks() {
     
     # Check backend
     log "Checking backend API via NGINX proxy..."
-    if curl -sk https://localhost:8443/graphql -H 'Content-Type: application/json' -d '{"query":"{__typename}"}' >/dev/null; then
-        log_success "Backend API responding on https://localhost:8443/graphql"
-    elif curl -s http://localhost:8080/graphql -H 'Content-Type: application/json' -d '{"query":"{__typename}"}' >/dev/null; then
-        log_success "Backend API responding on http://localhost:8080/graphql"
+    if curl -sk https://localhost/graphql -H 'Content-Type: application/json' -d '{"query":"{__typename}"}' >/dev/null; then
+        log_success "Backend API responding on https://localhost/graphql"
+    elif curl -s http://localhost/graphql -H 'Content-Type: application/json' -d '{"query":"{__typename}"}' >/dev/null; then
+        log_success "Backend API responding on http://localhost/graphql"
     else
         log_warning "Backend API not responding yet"
         HEALTH_STATUS="DEGRADED"
@@ -874,9 +874,9 @@ setup_firewall() {
     log_success "SSH access allowed (port 22)"
     
     # Allow NGINX public ports
-    ufw allow 8080/tcp comment "HTTP (NGINX)" &> /dev/null
-    ufw allow 8443/tcp comment "HTTPS (NGINX)" &> /dev/null
-    log_success "Web access allowed (ports 8080, 8443)"
+    ufw allow 80/tcp comment "HTTP (NGINX)" &> /dev/null
+    ufw allow 443/tcp comment "HTTPS (NGINX)" &> /dev/null
+    log_success "Web access allowed (ports 80, 443)"
     
     # Allow backend if not behind proxy
     if [ "$BACKEND_PORT" != "8000" ]; then
@@ -1022,7 +1022,7 @@ RabbitMQ Configuration:
   Password:   Stored in .secrets/rabbitmq_pass
 
 API & CORS Configuration:
-    Backend GraphQL:     https://localhost:8443/graphql
+    Backend GraphQL:     https://localhost/graphql
   CORS Origins:        $CORS_ORIGINS
   Admin IP Whitelist:  $ADMIN_IP_RANGES
 

@@ -103,8 +103,8 @@ docker-compose exec backend python manage.py import_frameworks /tmp/frameworks
 ### 6. Access Application
 
 HEFAISTOS UI: http://<your-server-ip>:3000
-Backend (API via NGINX): https://<your-server-ip>:8443/graphql (or http://<your-server-ip>:8080)
-Django Admin: https://<your-server-ip>:8443/admin
+Backend (API via NGINX): https://<your-server-ip>/graphql (or http://<your-server-ip>/graphql)
+Django Admin: https://<your-server-ip>/admin
 RabbitMQ UI: http://<your-server-ip>:15672
 
 🐍 Building a New Connector

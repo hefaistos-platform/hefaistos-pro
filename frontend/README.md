@@ -51,7 +51,7 @@ The Coverage page embeds the MITRE ATT&CK Navigator and loads a live coverage la
 
 ### Backend base URL
 
-Set the environment variable `REACT_APP_API_URL` to the base URL of your backend (for example, your reverse proxy origin `https://localhost:8443` or `http://localhost:8080`; use `http://localhost:8000` only when running Django directly). The Coverage page builds the layer URL as:
+Set the environment variable `REACT_APP_API_URL` to the base URL of your backend (for example, your reverse proxy origin `https://localhost` or `http://localhost`; use `http://localhost:8000` only when running Django directly). The Coverage page builds the layer URL as:
 
 ```
 ${REACT_APP_API_URL}/api/coverage/layer.json
