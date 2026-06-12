@@ -4,8 +4,8 @@ services:
     image: nginx:alpine
     container_name: hefaistos-proxy
     ports:
-      - "80:80"       # HTTP (external 80 -> internal 80)
-      - "443:443"     # HTTPS (external 443 -> internal 443)
+      - "80:8080"     # HTTP (external 80 -> internal 8080)
+      - "443:8443"    # HTTPS (external 443 -> internal 8443)
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - ./nginx/certs:/etc/nginx/certs
