@@ -600,6 +600,10 @@ update_configuration_files() {
         sed -i "s|CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=${CORS_ORIGINS}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=https://${SERVER_DOMAIN},http://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|FRONTEND_URL=.*|FRONTEND_URL=https://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
+        sed -i "s|PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
+        sed -i "s|REACT_APP_API_URL=.*|REACT_APP_API_URL=https://${SERVER_DOMAIN}/graphql|g" "${HEFAISTOS_DIR}/.env"
+        sed -i "s|WEBAUTHN_RP_ID=.*|WEBAUTHN_RP_ID=${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
+        sed -i "s|WEBAUTHN_ORIGIN=.*|WEBAUTHN_ORIGIN=https://${SERVER_DOMAIN}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|ADMIN_ALLOWED_IP_RANGES=.*|ADMIN_ALLOWED_IP_RANGES=${ADMIN_IP_RANGES}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|DB_NAME=.*|DB_NAME=${DB_NAME}|g" "${HEFAISTOS_DIR}/.env"
         sed -i "s|DB_USER=.*|DB_USER=${DB_USER}|g" "${HEFAISTOS_DIR}/.env"
@@ -1068,10 +1072,11 @@ NEXT STEPS & ACCESS INFORMATION
     - Test API: curl -sk https://${SERVER_DOMAIN}/graphql -H 'Content-Type: application/json' -d '{"query":"{__typename}"}' | head -c 100
 
 3. IMPORT ATT&CK DATA (if not already done):
-   docker-compose exec backend python manage.py import_mitre_universal --mitre-version 19.0 --mode remote
+   $COMPOSE_CMD exec backend python manage.py import_mitre_universal --mitre-version 19.0 --mode remote
 
 4. CONFIGURE OPTIONAL FEATURES:
-   - MISP Integration: Update .env with MISP_URL and MISP_KEY
+   - MISP Integration: Update .env with MISP_URL and store API key in .secrets/misp_key
+   - L1 Portal share links: set PUBLIC_BASE_URL in .env when using extra proxy layers
    - Email Notifications: Configure SMTP settings in .env
    - Backup Schedule: Edit cron with: crontab -e
 
@@ -1096,6 +1101,7 @@ Configuration:
   .env                                 Environment variables
   .secrets/                            Secrets directory (DO NOT COMMIT!)
   docker-compose.yml                   Main docker-compose configuration
+  docker-compose.override.yml          Optional host-port and local overrides
   nginx/nginx.conf                     Nginx reverse proxy configuration
 
 Documentation:
@@ -1166,8 +1172,12 @@ SSL certificate errors:
   - For Let's Encrypt: Ensure domain DNS resolves correctly
 
 Port conflicts:
-  If ports 80, 443, 8000, 3000 are in use:
-  Edit docker-compose.yml ports section
+  If ports 80 or 443 are in use:
+  Create/edit docker-compose.override.yml and remap host ports (keep container ports 8080/8443), example:
+    nginx:
+      ports:
+        - "8080:8080"
+        - "4443:8443"
 
 Out of disk space:
   docker system prune -a
@@ -1183,7 +1193,7 @@ If installation failed or you need to rollback:
     $COMPOSE_CMD down
 
 2. Restore from backup:
-   docker-compose exec db psql -U $DB_USER -d $DB_NAME < backups/hefaistos_backup_YYYYMMDD_HHMMSS.sql
+   $COMPOSE_CMD exec db psql -U $DB_USER -d $DB_NAME < backups/hefaistos_backup_YYYYMMDD_HHMMSS.sql
 
 3. Or completely remove and reinstall:
    cd $HEFAISTOS_DIR

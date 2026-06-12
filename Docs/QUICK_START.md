@@ -165,8 +165,15 @@ sudo usermod -aG docker $USER
 
 **"Port already in use"**
 ```bash
-# Edit docker-compose.yml and change ports
-# Then restart: docker-compose up -d --force-recreate
+# Keep container ports as-is and remap host ports in docker-compose.override.yml
+# Example:
+# services:
+#   nginx:
+#     ports:
+#       - "8080:8080"
+#       - "4443:8443"
+# Then recreate:
+docker compose up -d --force-recreate
 ```
 
 **Containers won't start**

@@ -121,7 +121,7 @@ SSL Certificate Type:
 #### **CORS Configuration (Frontend Origins)**
 
 ```
-CORS Origins: https://app.example.com:8443, https://app.example.com
+CORS Origins: https://app.example.com, http://app.example.com
   - Comma-separated list of additional origins that can access the API
   - Since the frontend and backend share the same Nginx origin, this is
     mainly needed for external tools (e.g. the ATT&CK Navigator)
@@ -280,7 +280,6 @@ docker-compose restart backend
 Edit `.env` file:
 
 ```bash
-MISP_ENABLED=True
 MISP_URL=https://misp.example.com
 # Store API key in .secrets/misp_key
 echo "your-api-key" > .secrets/misp_key
@@ -308,9 +307,13 @@ sudo certbot renew --force-renewal
 # Find what's using port 80
 sudo lsof -i :80
 
-# Change port in docker-compose.yml or docker-compose.override.yml
-ports:
-  - "8080:80"  # Use 8080 instead of 80
+# Keep container ports unchanged and remap host ports in docker-compose.override.yml
+# Example:
+# services:
+#   nginx:
+#     ports:
+#       - "8080:8080"
+#       - "4443:8443"
 ```
 
 ### Out of Disk Space
@@ -385,9 +388,9 @@ sudo certbot renew --force-renewal
 grep CORS_ALLOWED_ORIGINS .env
 
 # Verify backend is running via NGINX proxy
-curl -s https://localhost:8443/graphql
+curl -s https://localhost/graphql
 # Or if using HTTP
-curl -s http://localhost:8080/graphql
+curl -s http://localhost/graphql
 
 # Check nginx proxy configuration
 docker-compose exec nginx cat /etc/nginx/conf.d/default.conf
@@ -617,7 +620,7 @@ After installation, ensure you have:
 
 - [ ] Changed admin password
 - [ ] Updated `SECRET_KEY` in `.env`
-- [ ] Set `FRONTEND_URL` in `.env` to your public domain
+- [ ] Set `FRONTEND_URL` and `PUBLIC_BASE_URL` in `.env` to your public domain
 - [ ] Set `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` in `.env`
 - [ ] Configured SSL certificates (not self-signed for production)
 - [ ] Set up firewall rules (UFW)

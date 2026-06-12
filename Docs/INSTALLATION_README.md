@@ -94,7 +94,7 @@ sudo ./install-hefaistos.sh
 - `INSTALLATION_REPORT.txt` - Complete setup summary
 - `installation.log` - Detailed installation log
 - `.secrets/` - Generated secrets directory
-- `docker-compose.yml` - Updated with your config
+- `.env` - Generated from template with your deployment config
 
 ---
 
@@ -166,7 +166,7 @@ sudo ./scripts/setup-firewall.sh
 - SSH (22) - Always allowed
 - HTTP (80) - Allowed
 - HTTPS (443) - Allowed
-- Public API via NGINX (8080/8443) - Allowed
+- Public API via NGINX (80/443) - Allowed
 - Internal backend (8000) - Restricted to container network
 - Private networks - Allowed
 - Docker bridge - Allowed

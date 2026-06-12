@@ -1,3 +1,20 @@
+## Shared env/runtime blocks to keep compose maintainable.
+x-backend-runtime: &backend-runtime
+  env_file:
+    - .env
+  environment: &backend-common-env
+    DB_PASSWORD_FILE: ${DB_PASSWORD_FILE:-/run/secrets/db_password}
+    RABBITMQ_PASS_FILE: ${RABBITMQ_PASS_FILE:-/run/secrets/rabbitmq_pass}
+    FIELD_ENCRYPTION_KEY_FILE: ${FIELD_ENCRYPTION_KEY_FILE:-/run/secrets/field_key}
+
+x-connector-runtime: &connector-runtime
+  env_file:
+    - .env
+  environment: &connector-common-env
+    HEFAISTOS_API_URL: ${HEFAISTOS_API_URL:-http://backend:8000/graphql}
+    HEFAISTOS_API_TOKEN_FILE: ${HEFAISTOS_API_TOKEN_FILE:-/run/connector/token.jwt}
+    RABBITMQ_PASS_FILE: ${RABBITMQ_PASS_FILE:-/run/secrets/rabbitmq_pass}
+
 services:
   # --- PROXY SERVICE (Entry Point) ---
   nginx:
@@ -31,6 +48,7 @@ services:
   backend:
     build: ./backend
     container_name: hefaistos-backend
+    <<: *backend-runtime
     ports:
       - "7000:7000"  # KQL LSP Server
       - "7001:7001"  # SPL LSP Server
@@ -40,30 +58,10 @@ services:
       - media_data:/app/media
       - navigator_data:/navigator-data
     environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - CONNECTOR_TOKEN_FILE=/run/connector/token.jwt
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
-      - MAILGUN_API_BASE=${MAILGUN_API_BASE:-https://api.eu.mailgun.net}
-      - MAILGUN_DOMAIN=${MAILGUN_DOMAIN:-}
-      - MAILGUN_FROM_EMAIL=${MAILGUN_FROM_EMAIL:-}
-      - FRONTEND_URL=${FRONTEND_URL:-https://detect.hefaistos.org}
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://detect.hefaistos.org}
-      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-detect.hefaistos.org}
-      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://detect.hefaistos.org}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
-      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-https://localhost,http://localhost}
-      - ADMIN_ALLOWED_IP_RANGES=${ADMIN_ALLOWED_IP_RANGES:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12}
-      # LSP Configuration
-      - ENABLE_LSP_SERVERS=true
-      # OPENTIDE Configuration
-      - OPENTIDE_ENABLED=True
+      <<: *backend-common-env
+      CONNECTOR_TOKEN_FILE: ${CONNECTOR_TOKEN_FILE:-/run/connector/token.jwt}
+      ENABLE_LSP_SERVERS: ${ENABLE_LSP_SERVERS:-true}
+      OPENTIDE_ENABLED: ${OPENTIDE_ENABLED:-True}
     secrets:
       - db_password
       - rabbitmq_pass
@@ -91,12 +89,14 @@ services:
   db:
     image: postgres:14
     container_name: hefaistos-db
+    env_file:
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
-      - POSTGRES_DB=hefaistos_db
-      - POSTGRES_USER=hefaistos_user
-      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+      POSTGRES_DB: ${DB_NAME:-hefaistos_db}
+      POSTGRES_USER: ${DB_USER:-hefaistos_user}
+      POSTGRES_PASSWORD_FILE: ${DB_PASSWORD_FILE:-/run/secrets/db_password}
     secrets:
       - db_password
     healthcheck:
@@ -126,8 +126,10 @@ services:
     image: rabbitmq:3.13-management-alpine
     hostname: rabbitmq
     container_name: hefaistos-rabbitmq
+    env_file:
+      - .env
     environment:
-      - RABBITMQ_DEFAULT_USER=hefaistos_mq
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-hefaistos_mq}
     # Exposing management UI directly for debugging if needed, otherwise access via Nginx
     ports:
       - "15672:15672" 
@@ -152,16 +154,12 @@ services:
       context: .
       dockerfile: ./deploy_connector/Dockerfile
     command: python connector.py
+    <<: *connector-runtime
     volumes:
       - ./deploy_connector:/app/deploy_connector
       - connector-token:/run/connector:ro
     environment:
-      - HEFAISTOS_API_URL=http://backend:8000/graphql
-      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
+      <<: *connector-common-env
     secrets:
       - rabbitmq_pass
     depends_on:
@@ -175,18 +173,9 @@ services:
   listener:
     build: ./backend
     command: python services/listener.py
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
-    environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
     secrets:
       - db_password
       - rabbitmq_pass
@@ -205,18 +194,9 @@ services:
   ai_generation_worker:
     build: ./backend
     command: python services/ai_generation_worker.py
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
-    environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
     secrets:
       - db_password
       - rabbitmq_pass
@@ -237,18 +217,9 @@ services:
   opentide_enrichment_worker:
     build: ./backend
     command: python services/opentide_enrichment_worker.py
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
-    environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
     secrets:
       - db_password
       - rabbitmq_pass
@@ -270,21 +241,13 @@ services:
     build: ./backend
     container_name: hefaistos-scheduler
     command: python run_scheduler.py
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - DIGEST_DAY=MONDAY
-      - DIGEST_HOUR=8
-      - FRONTEND_URL=${FRONTEND_URL:-https://localhost}
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
+      <<: *backend-common-env
+      DIGEST_DAY: ${DIGEST_DAY:-MONDAY}
+      DIGEST_HOUR: ${DIGEST_HOUR:-8}
     secrets:
       - db_password
       - rabbitmq_pass
@@ -305,19 +268,12 @@ services:
     build: ./backend
     container_name: hefaistos-opentide-hef-publish-worker
     command: python manage.py run_opentide_hef_publish_worker
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
-      - OPENTIDE_ENABLED=True
+      <<: *backend-common-env
+      OPENTIDE_ENABLED: ${OPENTIDE_ENABLED:-True}
     depends_on:
       db:
         condition: service_healthy
@@ -337,19 +293,12 @@ services:
     build: ./backend
     container_name: hefaistos-opentide-hef-import-worker
     command: python manage.py run_opentide_hef_import_worker
+    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
-      - DB_NAME=hefaistos_db
-      - DB_USER=hefaistos_user
-      - DB_HOST=db
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - FIELD_ENCRYPTION_KEY_FILE=/run/secrets/field_key
-      - OPENTIDE_ENABLED=True
+      <<: *backend-common-env
+      OPENTIDE_ENABLED: ${OPENTIDE_ENABLED:-True}
     depends_on:
       db:
         condition: service_healthy
@@ -370,17 +319,13 @@ services:
       context: .
       dockerfile: ./notification_connector/Dockerfile
     command: python notifier.py
+    <<: *connector-runtime
     volumes:
       - ./notification_connector:/app/notification_connector
       - connector-token:/run/connector:ro
     environment:
-      - HEFAISTOS_API_URL=http://backend:8000/graphql
-      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - RABBITMQ_CONNECT_MAX_ATTEMPTS=25
+      <<: *connector-common-env
+      RABBITMQ_CONNECT_MAX_ATTEMPTS: ${RABBITMQ_CONNECT_MAX_ATTEMPTS:-25}
     secrets:
       - rabbitmq_pass
     depends_on:
@@ -396,17 +341,15 @@ services:
       context: .
       dockerfile: ./threat_intel_connector/Dockerfile
     command: python connector.py
+    <<: *connector-runtime
     volumes:
       - ./threat_intel_connector:/app/threat_intel_connector
       - connector-token:/run/connector:ro
     environment:
-      - HEFAISTOS_API_URL=http://backend:8000/graphql
-      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
-      - MISP_VERIFY_SSL=false
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - MISP_URL=https://misp.counterintel.cz
+      <<: *connector-common-env
+      MISP_VERIFY_SSL: ${MISP_VERIFY_SSL:-false}
+      MISP_URL: ${MISP_URL:-https://misp.counterintel.cz}
+      PULL_INTERVAL_SECONDS: ${PULL_INTERVAL_SECONDS:-3600}
     secrets:
       - rabbitmq_pass
       - misp_key
@@ -423,16 +366,13 @@ services:
       context: .
       dockerfile: ./rule_connector/Dockerfile
     command: python connector.py
+    <<: *connector-runtime
     volumes:
       - ./rule_connector:/app/rule_connector
       - ./hefaistos-sdk:/app/hefaistos-sdk
       - connector-token:/run/connector:ro
     environment:
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - HEFAISTOS_API_URL=http://backend:8000/graphql
-      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+      <<: *connector-common-env
     secrets:
       - rabbitmq_pass
     depends_on:
@@ -449,16 +389,13 @@ services:
       context: .
       dockerfile: ./git_push_connector/Dockerfile
     command: python connector.py
+    <<: *connector-runtime
     volumes:
       - ./git_push_connector:/app/git_push_connector
       - ./hefaistos-sdk:/app/hefaistos-sdk
       - connector-token:/run/connector:ro
     environment:
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_USER=hefaistos_mq
-      - RABBITMQ_PASS_FILE=/run/secrets/rabbitmq_pass
-      - HEFAISTOS_API_URL=http://backend:8000/graphql
-      - HEFAISTOS_API_TOKEN_FILE=/run/connector/token.jwt
+      <<: *connector-common-env
     secrets:
       - rabbitmq_pass
     depends_on:

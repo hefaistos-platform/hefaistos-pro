@@ -154,17 +154,18 @@ All network-specific settings (CORS, CSRF, admin IP restrictions) are configured
 # Domain your browser uses to access the platform
 SERVER_DOMAIN=app.example.com
 
-# Public URL (used in email links and as the FRONTEND_URL)
+# Public URL (used in email links)
 FRONTEND_URL=https://app.example.com
+PUBLIC_BASE_URL=https://app.example.com
 
 # Trusted CSRF origins — must match the URL the browser sends requests from.
 # Comma-separated list.
-CSRF_TRUSTED_ORIGINS=https://app.example.com:8443,https://app.example.com
+CSRF_TRUSTED_ORIGINS=https://app.example.com,http://app.example.com
 
 # Additional CORS origins (mitre-attack.github.io is always included automatically).
 # Only needed for external tools that fetch data from the API.
 # Leave empty for a standard single-domain deployment.
-CORS_ALLOWED_ORIGINS=https://app.example.com:8443,https://app.example.com
+CORS_ALLOWED_ORIGINS=https://app.example.com,http://app.example.com
 
 # IP ranges (CIDR) allowed to access /admin/.
 # Defaults to localhost and Docker internal networks.
@@ -200,7 +201,7 @@ server {
 location /media/ {
     alias /var/www/media/;
     # Restrict to your domain instead of "*":
-    add_header Access-Control-Allow-Origin "https://app.example.com:8443" always;
+    add_header Access-Control-Allow-Origin "https://app.example.com" always;
 }
 ```
 
@@ -300,7 +301,7 @@ EOF
 ```
 
 ### Verify Superuser Login
-1. Navigate to `https://your-server:8443/admin/` (or your configured URL)
+1. Navigate to `https://your-server/admin/` (or your configured URL)
 2. Login with your superuser credentials
 3. You should see the Django admin interface
 
@@ -315,7 +316,7 @@ HEFAISTOS has application-level roles that control access to certain features. B
 - **ADMIN**: Full access including User Management and News Management menus
 
 ### Method 1: Via Django Admin
-1. Navigate to `https://your-server:8443/admin/`
+1. Navigate to `https://your-server/admin/`
 2. Go to **Identity > Custom users**
 3. Click on your user
 4. Change the **Role** field to `ADMIN`
@@ -419,7 +420,7 @@ docker compose exec backend python manage.py import_mitre_universal --mitre-vers
 
 ### Verify Import
 After import, verify the data in Django admin:
-1. Go to `https://your-server:8443/admin/`
+1. Go to `https://your-server/admin/`
 2. Navigate to **Platform_data > Mitre attack techniques**
 3. You should see techniques like T1001, T1002, etc.
 
@@ -472,23 +473,24 @@ docker compose exec backend python manage.py import_d3fend
 This imports ~267 defensive techniques and creates ATT&CK → D3FEND mappings for gap analysis. Use `--verbose` for detailed output.
 
 ### 5. Access the Platform
-- **Frontend**: `https://your-server:8443` (or your configured URL)
-- **Backend API**: `https://your-server:8443/graphql`
-- **Admin Panel**: `https://your-server:8443/admin/`
+- **Frontend**: `https://your-server` (or your configured URL)
+- **Backend API**: `https://your-server/graphql`
+- **Admin Panel**: `https://your-server/admin/`
 
 ### 6. Configure Backups
 See `backups/BACKUP_README.md` or `scripts/BACKUP_SETUP.md` for backup configuration.
 
 ### 7. Configure Email URLs
 
-Email notification links use the `FRONTEND_URL` environment variable. Set it in `.env` to match your deployment domain:
+Email notification links use `FRONTEND_URL`. Shareable links (for example L1 Portal URLs embedded into OpenTIDE outputs) use `PUBLIC_BASE_URL` first. Set both in `.env` to your external domain:
 
 ```bash
 # In .env
 FRONTEND_URL=https://your-domain.com
+PUBLIC_BASE_URL=https://your-domain.com
 ```
 
-The install script sets this automatically from the `SERVER_DOMAIN` you provide. If you need to change it later, update `.env` and restart the backend:
+The install script sets both automatically from `SERVER_DOMAIN`. If you need to change them later, update `.env` and restart the backend:
 
 ```bash
 docker compose restart backend
@@ -556,11 +558,12 @@ sudo chmod 600 .secrets/*
 
 ### Port Already in Use
 ```bash
-# Check what's using the port
-sudo lsof -i :8443
-sudo lsof -i :3000
+# Check what's using the public ports
+sudo lsof -i :443
+sudo lsof -i :80
 
-# Change ports in docker-compose.yml if needed
+# If needed, remap host ports in docker-compose.override.yml
+# while keeping container ports 8080/8443 unchanged.
 ```
 
 ### Elasticsearch Issues

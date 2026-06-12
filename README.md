@@ -244,7 +244,18 @@ cp .env.template .env
 cp docker-compose.override.yml.template docker-compose.override.yml
 ```
 
-Alternatively, configure environment values directly in [docker-compose.yml](docker-compose.yml) under `services.backend.environment` (recommended for production) and use Docker secrets under `/run/secrets`.
+`docker-compose.yml` now loads `.env` via `env_file` for backend/workers/connectors, so `.env` is the single source of truth for non-secret runtime configuration.
+
+By default, Nginx is published as host `80 -> 8080` and `443 -> 8443`.
+If those host ports are occupied, remap only in `docker-compose.override.yml` (keep container ports `8080/8443` unchanged), for example:
+
+```yaml
+services:
+  nginx:
+    ports:
+      - "8080:8080"
+      - "4443:8443"
+```
 
 ### 3. Generate secrets
 
@@ -264,16 +275,19 @@ If `.secrets/field_key` already exists but is empty, regenerate it before starti
 ./setup_field_encryption_key.sh --force
 ```
 
-### 4. Configure environment (choose one)
+### 4. Configure environment
 
-- **Option A:** Edit [.env](.env) from [.env.template](.env.template)
-- **Option B (recommended for production):** Set values directly in [docker-compose.yml](docker-compose.yml) under `services.backend.environment` with Docker secrets at `/run/secrets/*`
-- **Option C:** Export environment variables before `docker compose up`
+- **Recommended:** Edit [.env](.env) from [.env.template](.env.template)
+- Optional: export environment variables in your shell to override `.env` values for a single run
+- Keep secrets in Docker secrets under `/run/secrets/*` (do not put secrets in `.env`)
 
 Key variables:
 
 ```bash
-CORS_ALLOWED_ORIGINS=http://localhost:3000,https://your.domain.com
+PUBLIC_BASE_URL=https://your.domain.com
+FRONTEND_URL=https://your.domain.com
+CORS_ALLOWED_ORIGINS=https://your.domain.com
+CSRF_TRUSTED_ORIGINS=https://your.domain.com
 SERVER_DOMAIN=your.domain.com
 ADMIN_ALLOWED_IP_RANGES=192.168.1.0/24
 ```
@@ -325,12 +339,18 @@ docker compose exec backend python manage.py import_mitre_universal --mitre-vers
 | `DB_PORT` | PostgreSQL port | No (default: 5432) |
 | `DB_NAME` | Database name | No (default: hefaistos_db) |
 | `DB_USER` | Database user | No (default: hefaistos_user) |
+| `DB_PASSWORD_FILE` | Docker secret file path for DB password | No (default: /run/secrets/db_password) |
 | `RABBITMQ_HOST` | RabbitMQ host | No (default: rabbitmq) |
 | `RABBITMQ_PORT` | RabbitMQ port | No (default: 5672) |
+| `RABBITMQ_USER` | RabbitMQ username | No (default: hefaistos_mq) |
+| `RABBITMQ_PASS_FILE` | Docker secret file path for RabbitMQ password | No (default: /run/secrets/rabbitmq_pass) |
 | `ELASTICSEARCH_HOST` | Elasticsearch host | No (default: elasticsearch) |
 | `ELASTICSEARCH_PORT` | Elasticsearch port | No (default: 9200) |
 | `FIELD_ENCRYPTION_KEY_PATH` | Path to Fernet key | No (default: /run/secrets/field_key) |
+| `FIELD_ENCRYPTION_KEY_FILE` | Docker secret file path for Fernet key | No (default: /run/secrets/field_key) |
 | `MISP_URL` | MISP URL for **threat_intel_connector** only (ADVOPS push uses per-org instances configured via UI) | No |
+| `HEFAISTOS_API_URL` | API base URL used by connector containers | No (default: http://backend:8000/graphql) |
+| `HEFAISTOS_API_TOKEN_FILE` | Connector service token file path | No (default: /run/connector/token.jwt) |
 | `EMAIL_ENABLED` | Enable email notifications | No (default: False) |
 | `EMAIL_HOST` | SMTP host | No |
 | `EMAIL_PORT` | SMTP port | No |
@@ -361,7 +381,7 @@ secrets:
 
 ### CORS & Security Key (YubiKey/WebAuthn) Setup
 
-CORS/CSRF and WebAuthn are configured through backend environment variables. In production, use Docker Compose service environment values as the operational path. `.env.template` is a template/example file.
+CORS/CSRF and WebAuthn are configured through `.env` values (loaded by Compose via `env_file`). `.env.template` is the starter template.
 
 #### For users
 
@@ -379,25 +399,22 @@ Users do **not** need to edit `.env`, Docker Compose, or any server-side setting
 
 #### For administrators/operators (one-time platform setup)
 
-Configure backend environment values in `docker-compose.yml`:
+Configure these values in `.env`:
 
-```yaml
-services:
-  backend:
-    environment:
-      - FRONTEND_URL=https://detect.hefaistos.org
-      - PUBLIC_BASE_URL=https://detect.hefaistos.org
-      - WEBAUTHN_RP_ID=detect.hefaistos.org
-      - WEBAUTHN_ORIGIN=https://detect.hefaistos.org
+```bash
+FRONTEND_URL=https://detect.hefaistos.org
+PUBLIC_BASE_URL=https://detect.hefaistos.org
+WEBAUTHN_RP_ID=detect.hefaistos.org
+WEBAUTHN_ORIGIN=https://detect.hefaistos.org
 ```
 
 `PUBLIC_BASE_URL` is recommended when your deployment has multiple proxy layers (for example: External LB/Proxy -> Nginx -> frontend/backend containers). It ensures generated share URLs use the real externally reachable origin.
 
-Also set your CORS/CSRF values in the same backend environment section (for example, `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`).
+Also set CORS/CSRF values in `.env` (`CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`).
 
-After updating backend environment variables, restart the backend:
+After updating `.env`, restart the services that consume these values:
 ```bash
-docker compose restart backend
+docker compose up -d --force-recreate backend scheduler opentide-hef-publish-worker opentide-hef-import-worker listener ai_generation_worker opentide_enrichment_worker
 ```
 
 > **Note:** Since the frontend and backend are both served by the same Nginx proxy on the same origin, CORS between them is not required. `CORS_ALLOWED_ORIGINS` is only needed for external tools (such as the ATT&CK Navigator at `mitre-attack.github.io`) that need to fetch data from the API.

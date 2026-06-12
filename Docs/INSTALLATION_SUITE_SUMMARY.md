@@ -38,10 +38,8 @@ Complete automated installation and deployment system for Hefaistos platform on 
   - Let's Encrypt: Free, auto-renewal via cron
 - ✅ Configuration file updates:
   - `.env` from template with user values
-  - `django settings.py` with CORS, ALLOWED_HOSTS, SECRET_KEY
-  - `middleware.py` with admin IP restrictions
   - `nginx.conf` with domain/SSL paths
-  - `docker-compose.yml` with secrets mounting
+  - Optional `docker-compose.override.yml` for host-port/local overrides
 - ✅ Docker build and container startup
 - ✅ Health checks (API responding, DB connected, RabbitMQ running)
 - ✅ Database migrations
@@ -160,7 +158,7 @@ sudo ./scripts/uninstall-hefaistos.sh --full-cleanup
   - Deny incoming, Allow outgoing
   - Always allows SSH (port 22)
   - Allows HTTP (80), HTTPS (443)
-  - Allows public API via NGINX (8080/8443)
+  - Publishes NGINX publicly on host 80/443
   - Internal backend (8000) is restricted to container network
   - Allows private networks (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
   - Allows Docker bridge (172.17.x.x)
@@ -258,8 +256,6 @@ User runs: sudo ./install-hefaistos.sh
     ↓
 [Configuration Updates]
   - Update .env with user values
-  - Update django settings.py (CORS, ALLOWED_HOSTS)
-  - Update middleware.py (admin IP restrictions)
   - Update nginx.conf (domain, SSL paths)
     ↓
 [Docker Build & Start]
@@ -316,8 +312,8 @@ hefaistos/
 │   └── BACKUP_SETUP.md              (existing docs)
 ├── backend/
 │   ├── core/
-│   │   ├── settings.py              (Existing - CORS, ALLOWED_HOSTS updated by install script)
-│   │   └── middleware.py            (Existing - Admin IP restrictions updated by install script)
+│   │   ├── settings.py              (Existing - reads runtime values from environment)
+│   │   └── middleware.py            (Existing - enforces runtime security controls)
 │   └── Dockerfile
 ├── frontend/
 │   ├── Dockerfile
@@ -429,7 +425,7 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 docker-compose up -d
 
 # Access: http://localhost:3000 (frontend)
-#         https://localhost:8443 (backend via NGINX) or http://localhost:8080
+#         https://localhost/graphql (backend via NGINX) or http://localhost/graphql
 #         (use http://localhost:8000 only when running Django directly via runserver in dev)
 ```
 
