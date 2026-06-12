@@ -1325,14 +1325,32 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
           <ModeBadge />
         </div>
       }
-      width="80vw"
-      style={{ top: '5vh' }}
+      width="100vw"
+      style={{ top: 0, paddingBottom: 0 }}
+      className="fullscreen-modal"
       styles={{
+        content: {
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: 0,
+        },
+        header: {
+          marginBottom: 0,
+          padding: '16px 24px',
+          borderBottom: '1px solid #f0f0f0',
+        },
         body: { 
-          height: '80vh', 
+          flex: 1,
           overflow: 'hidden',
           padding: 0,
-        }
+          minHeight: 0,
+        },
+        footer: {
+          marginTop: 0,
+          padding: '12px 24px',
+          borderTop: '1px solid #f0f0f0',
+        },
       }}
       footer={
         <div className="flex flex-col gap-2">

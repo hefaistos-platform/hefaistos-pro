@@ -652,6 +652,10 @@ interface CreateEdgeData {
 }
 
 export const PlaybookWorkbench = () => {
+  const SIDEBAR_DEFAULT_WIDTH = 320;
+  const SIDEBAR_COLLAPSED_WIDTH = 40;
+  const SIDEBAR_MIN_WIDTH = 280;
+
   const { playbookId } = useParams<{ playbookId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -745,6 +749,11 @@ export const PlaybookWorkbench = () => {
   
   // --- Local State for Sidebar Tab ---
   const [sidebarTab, setSidebarTab] = useState<'DETAILS' | 'NOTES'>('DETAILS');
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const [layoutWidth, setLayoutWidth] = useState(0);
+  const workbenchLayoutRef = useRef<HTMLDivElement | null>(null);
 
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [isAutoMode, setIsAutoMode] = useState(true);
@@ -910,6 +919,77 @@ export const PlaybookWorkbench = () => {
     }),
     []
   );
+
+  const getClampedSidebarWidth = useCallback((requestedWidth: number, containerWidth: number) => {
+    if (containerWidth <= 0) {
+      return requestedWidth;
+    }
+
+    const maxWidth = Math.max(Math.floor(containerWidth / 3), SIDEBAR_COLLAPSED_WIDTH);
+    const minWidth = Math.min(SIDEBAR_MIN_WIDTH, maxWidth);
+    return Math.min(Math.max(requestedWidth, minWidth), maxWidth);
+  }, [SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_MIN_WIDTH]);
+
+  const effectiveSidebarWidth = isSidebarCollapsed
+    ? SIDEBAR_COLLAPSED_WIDTH
+    : getClampedSidebarWidth(sidebarWidth, layoutWidth);
+
+  const handleSidebarResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsSidebarResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const layoutElement = workbenchLayoutRef.current;
+    if (!layoutElement) return;
+
+    const updateLayoutWidth = () => {
+      setLayoutWidth(layoutElement.getBoundingClientRect().width);
+    };
+
+    updateLayoutWidth();
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setLayoutWidth(entry.contentRect.width);
+      }
+    });
+
+    resizeObserver.observe(layoutElement);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (layoutWidth <= 0 || isSidebarCollapsed) return;
+    setSidebarWidth((previousWidth) => getClampedSidebarWidth(previousWidth, layoutWidth));
+  }, [getClampedSidebarWidth, isSidebarCollapsed, layoutWidth]);
+
+  useEffect(() => {
+    if (!isSidebarResizing) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const layoutElement = workbenchLayoutRef.current;
+      if (!layoutElement) return;
+      const bounds = layoutElement.getBoundingClientRect();
+      const nextWidth = bounds.right - event.clientX;
+      setSidebarWidth(getClampedSidebarWidth(nextWidth, bounds.width));
+    };
+
+    const handleMouseUp = () => setIsSidebarResizing(false);
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [getClampedSidebarWidth, isSidebarResizing]);
 
   // Sync local state when data loads from server
   useEffect(() => {
@@ -1817,7 +1897,10 @@ export const PlaybookWorkbench = () => {
       </div>
 
       {/* Main Content Area (Flex Row) */}
-      <div className="flex flex-1 overflow-hidden">
+      <div
+        ref={workbenchLayoutRef}
+        className={`flex flex-1 overflow-hidden ${isSidebarResizing ? 'cursor-col-resize select-none' : ''}`}
+      >
         
         {/* CENTER: Graph + Forms */}
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
@@ -2213,19 +2296,41 @@ export const PlaybookWorkbench = () => {
       </div>
       </div>
 
-        {/* RIGHT: Sidebar (Fixed) */}
-        <PlaybookSidebar 
-            playbook={{
-              ...data.playbookGraph,
-              tags: data.playbookGraph.tags || []
-            }}
-            onUpdate={handleSidebarUpdate}
-            onUpdateNodeMappings={handleUpdateNodeMappings}
-            selectedNodeId={selectedNodeId}
-            canClearNotes={isAuthor || data.me?.role === 'ADMIN'}
-            activeTab={sidebarTab}
-            onTabChange={setSidebarTab}
-        />
+        {!isSidebarCollapsed && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize notes panel"
+            onMouseDown={handleSidebarResizeStart}
+            className={`relative w-2 shrink-0 cursor-col-resize ${
+              isSidebarResizing ? 'bg-blue-100' : 'hover:bg-blue-50'
+            }`}
+          >
+            <div
+              className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 ${
+                isSidebarResizing ? 'bg-blue-400' : 'bg-gray-200'
+              }`}
+            />
+          </div>
+        )}
+
+        {/* RIGHT: Sidebar (Resizable) */}
+        <div className="h-full shrink-0" style={{ width: `${effectiveSidebarWidth}px` }}>
+          <PlaybookSidebar 
+              playbook={{
+                ...data.playbookGraph,
+                tags: data.playbookGraph.tags || []
+              }}
+              onUpdate={handleSidebarUpdate}
+              onUpdateNodeMappings={handleUpdateNodeMappings}
+              selectedNodeId={selectedNodeId}
+              canClearNotes={isAuthor || data.me?.role === 'ADMIN'}
+              activeTab={sidebarTab}
+              onTabChange={setSidebarTab}
+              collapsed={isSidebarCollapsed}
+              onCollapsedChange={setIsSidebarCollapsed}
+          />
+        </div>
 
       </div>
 

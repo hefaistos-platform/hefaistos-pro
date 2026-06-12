@@ -22,13 +22,23 @@ interface SidebarProps {
   canClearNotes: boolean;
   activeTab: 'DETAILS' | 'NOTES';
   onTabChange: (tab: 'DETAILS' | 'NOTES') => void;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
-export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbook, onUpdate, onUpdateNodeMappings, selectedNodeId, canClearNotes, activeTab, onTabChange }) => {
+export const PlaybookSidebar: React.FC<SidebarProps> = ({
+  playbook,
+  onUpdate,
+  onUpdateNodeMappings,
+  selectedNodeId,
+  canClearNotes,
+  activeTab,
+  onTabChange,
+  collapsed,
+  onCollapsedChange,
+}) => {
     // Local state for the tag input field
     const [tagInput, setTagInput] = useState("");
-    // Collapse state – starts expanded
-    const [collapsed, setCollapsed] = useState(false);
   
     // Handler: Add Tag
     const handleAddTag = (e: React.KeyboardEvent) => {
@@ -74,10 +84,10 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbook, onUpdate, on
   /* ── Collapsed strip ── */
   if (collapsed) {
     return (
-      <div className="relative flex flex-col items-center bg-white border-l border-gray-200 shadow-lg h-full" style={{ width: '2.5rem' }}>
+      <div className="relative flex flex-col items-center bg-white border-l border-gray-200 shadow-lg h-full" style={{ width: '100%' }}>
         {/* Toggle button at top */}
         <button
-          onClick={() => setCollapsed(false)}
+          onClick={() => onCollapsedChange(false)}
           title="Expand sidebar"
           className="mt-3 mb-2 p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
         >
@@ -107,7 +117,7 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbook, onUpdate, on
   }
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full shadow-lg">
+    <div className="w-full bg-white border-l border-gray-200 flex flex-col h-full shadow-lg">
       
       {/* 1. Tab Switcher + Collapse button */}
       <div className="flex border-b border-gray-200">
@@ -130,7 +140,7 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({ playbook, onUpdate, on
           </button>
           {/* Collapse button */}
           <button
-            onClick={() => setCollapsed(true)}
+            onClick={() => onCollapsedChange(true)}
             title="Collapse sidebar"
             className="px-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors border-l border-gray-200"
           >

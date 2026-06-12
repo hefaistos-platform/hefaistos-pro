@@ -86,6 +86,7 @@ The visual workbench provides a complete detection engineering environment:
 - **SOAR Configuration** - Alert triggers, enrichment, containment, notifications
 - **Peer Review** - Built-in review request and approval workflow
 - **Activity Tracking** - Persistent markdown investigation notes (formatting toolbar included) and activity log per workbench; note clearing is restricted to workbench author/admin
+- **Adaptive Workspace Layout** - Right-side metadata/notes panel is collapsible and draggable (up to one-third of the page width), and the Multi-Platform Editor opens fullscreen for maximum editing space
 - **Detection Editor Multi-Format Actions** - `GENERATE ALL` supports all registry formats with skip-by-default for non-empty targets, plus an optional **Overwrite all content** toggle; per-format `SAVE {FORMAT}` and `SAVE ALL` are also available in the modal
 
 ### 🤖 AI-Powered Detection Engineering
