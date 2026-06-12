@@ -36,6 +36,7 @@ class OrgAITaskDefinition:
     key: str
     title: str
     description: str
+    default_enabled: bool = False
     default_schedule: str = OrganizationAITaskConfig.Schedule.WEEKLY
     default_day_of_week: int = 0
     default_day_of_month: int = 1
@@ -75,6 +76,15 @@ _TASK_DEFINITIONS: List[OrgAITaskDefinition] = [
         default_schedule=OrganizationAITaskConfig.Schedule.WEEKLY,
         default_day_of_week=0,
         default_run_hour=8,
+        ai_required=False,
+    ),
+    OrgAITaskDefinition(
+        key='sync_deployed_l1_portal',
+        title='Sync deployed L1 portal snapshots',
+        description='Reconcile DEPLOYED workbenches to keep L1 portal entries and share links current.',
+        default_enabled=True,
+        default_schedule=OrganizationAITaskConfig.Schedule.DAILY,
+        default_run_hour=6,
         ai_required=False,
     ),
     OrgAITaskDefinition(
@@ -413,6 +423,56 @@ def _task_push_rules_workbenches_to_git(
             metadata={'queued': queued, 'errors': [], 'provider': provider},
         )
     return _ok(summary, {'queued': queued, 'errors': errors[:25], 'provider': provider})
+
+
+def _task_sync_deployed_l1_portal(
+    organization: Organization,
+    _actor: Optional[CustomUser],
+) -> TaskExecutionResult:
+    deployed_qs = PlaybookGraph.objects.filter(
+        organization=organization,
+        status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+    ).order_by('-updated_at')
+
+    total = deployed_qs.count()
+    if total == 0:
+        return _skip('No DEPLOYED workbenches found; nothing to sync for L1 portal.')
+
+    from playbooks.l1_portal import upsert_l1_portal_snapshot  # pylint: disable=import-outside-toplevel
+
+    synced = 0
+    errors: List[str] = []
+    for graph in deployed_qs.iterator(chunk_size=200):
+        try:
+            entry = upsert_l1_portal_snapshot(graph)
+            if entry:
+                synced += 1
+        except Exception as exc:
+            errors.append(f'{graph.title} ({graph.id}): {exc}')
+
+    summary = (
+        f'L1 portal sync completed. Deployed scanned: {total}. '
+        f'Entries synced: {synced}. Errors: {len(errors)}.'
+    )
+    metadata = {
+        'scanned': total,
+        'synced': synced,
+        'errors': errors[:25],
+    }
+    if errors and synced == 0:
+        return TaskExecutionResult(
+            status=OrganizationAITaskRun.Status.FAILED,
+            summary=_truncate(summary + '\n\nFirst errors:\n' + '\n'.join(f'- {e}' for e in errors[:5])),
+            metadata=metadata,
+        )
+    if synced == 0:
+        return _skip(summary, metadata)
+    if errors:
+        return _ok(
+            _truncate(summary + '\n\nFirst errors:\n' + '\n'.join(f'- {e}' for e in errors[:5])),
+            metadata,
+        )
+    return _ok(summary, metadata)
 
 
 def _task_pull_all_rule_repositories(
@@ -765,6 +825,7 @@ def _task_program_review_digest(
 
 _TASK_HANDLERS: Dict[str, Callable[[Organization, Optional[CustomUser]], TaskExecutionResult]] = {
     'push_rules_workbenches_to_git': _task_push_rules_workbenches_to_git,
+    'sync_deployed_l1_portal': _task_sync_deployed_l1_portal,
     'pull_all_rule_repositories': _task_pull_all_rule_repositories,
     'ai_review_changed_rules': _task_ai_review_changed_rules,
     'ai_similar_rule_recommendations': _task_ai_similar_rule_recommendations,
@@ -788,7 +849,7 @@ def ensure_org_task_configs(
             organization=organization,
             task_key=definition.key,
             defaults={
-                'enabled': False,
+                'enabled': definition.default_enabled,
                 'schedule': definition.default_schedule,
                 'day_of_week': definition.default_day_of_week,
                 'day_of_month': definition.default_day_of_month,
@@ -817,7 +878,7 @@ def get_or_create_task_config(
         organization=organization,
         task_key=definition.key,
         defaults={
-            'enabled': False,
+            'enabled': definition.default_enabled,
             'schedule': definition.default_schedule,
             'day_of_week': definition.default_day_of_week,
             'day_of_month': definition.default_day_of_month,
@@ -989,4 +1050,3 @@ def run_due_ai_tasks() -> Dict[str, int]:
         'initialized': initialized,
         'failed': failed,
     }
-

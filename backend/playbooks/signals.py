@@ -2,7 +2,7 @@
 
 import logging
 
-from django.db.models.signals import pre_save
+from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 
 logger = logging.getLogger(__name__)
@@ -54,3 +54,19 @@ def auto_update_opentide_metadata(sender, instance, **kwargs):
             instance.pk,
         )
         instance.auto_update_opentide_yaml()
+
+
+@receiver(post_save, sender='playbooks.PlaybookGraph')
+def sync_l1_portal_snapshot(sender, instance, **kwargs):
+    """Keep L1 portal snapshot current whenever a DEPLOYED workbench is saved."""
+    if (getattr(instance, 'status', '') or '').upper() != 'DEPLOYED':
+        return
+
+    try:
+        from playbooks.l1_portal import upsert_l1_portal_snapshot
+        upsert_l1_portal_snapshot(instance)
+    except Exception:
+        logger.exception(
+            "Failed to sync L1 portal snapshot for deployed playbook %s",
+            getattr(instance, 'pk', None),
+        )

@@ -17,6 +17,10 @@ import uuid
 import yaml
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from playbooks.l1_portal import (
+    build_l1_portal_share_url,
+    upsert_l1_portal_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1126,6 +1130,21 @@ def compile_mdr_yaml(playbook) -> Dict[str, Any]:
     triage_guidance_text = getattr(playbook, 'triage_guidance', None)
     if triage_guidance_text:
         response['triage_guidance'] = triage_guidance_text
+
+    # L1 portal link for downstream SOAR/Ticketing automation.
+    # Added only for DEPLOYED workbenches because L1 entries are valid there.
+    try:
+        if (getattr(playbook, 'status', '') or '').upper() == 'DEPLOYED':
+            l1_entry = upsert_l1_portal_snapshot(playbook)
+            if l1_entry:
+                response['l1_portal_url'] = build_l1_portal_share_url(l1_entry.url_token)
+                response['l1_portal_token'] = str(l1_entry.url_token)
+    except Exception as exc:
+        logger.warning(
+            "Could not attach L1 portal response fields for playbook %s: %s",
+            getattr(playbook, 'id', 'unknown'),
+            exc,
+        )
 
     # Workbench Testing tab — preserve scenario & expected output verbatim.
     # Nested inside ``response`` (rather than a top-level ``testing`` block)

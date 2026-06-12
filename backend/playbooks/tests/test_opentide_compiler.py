@@ -433,6 +433,44 @@ class TestCompileMdrYaml(TestCase):
         self.assertIn('response', result)
         self.assertEqual(result['response']['alert_severity'], 'High')
 
+    @patch('playbooks.utils.opentide_compiler.build_l1_portal_share_url')
+    @patch('playbooks.utils.opentide_compiler.upsert_l1_portal_snapshot')
+    def test_response_includes_l1_portal_fields_for_deployed(
+        self,
+        mock_upsert_l1_portal_snapshot,
+        mock_build_l1_portal_share_url,
+    ):
+        playbook = _make_playbook(status='DEPLOYED', linked_rules=[])
+        entry = MagicMock()
+        entry.url_token = uuid.UUID("00000000-0000-0000-0000-000000000099")
+        mock_upsert_l1_portal_snapshot.return_value = entry
+        mock_build_l1_portal_share_url.return_value = (
+            "https://detect.example.org/l1-portal/00000000-0000-0000-0000-000000000099"
+        )
+
+        result = compile_mdr_yaml(playbook)
+
+        self.assertEqual(
+            result['response']['l1_portal_url'],
+            "https://detect.example.org/l1-portal/00000000-0000-0000-0000-000000000099",
+        )
+        self.assertEqual(
+            result['response']['l1_portal_token'],
+            "00000000-0000-0000-0000-000000000099",
+        )
+        mock_upsert_l1_portal_snapshot.assert_called_once_with(playbook)
+        mock_build_l1_portal_share_url.assert_called_once_with(entry.url_token)
+
+    @patch('playbooks.utils.opentide_compiler.upsert_l1_portal_snapshot')
+    def test_response_omits_l1_portal_fields_for_non_deployed(self, mock_upsert_l1_portal_snapshot):
+        playbook = _make_playbook(status='APPROVED', linked_rules=[])
+
+        result = compile_mdr_yaml(playbook)
+
+        self.assertNotIn('l1_portal_url', result['response'])
+        self.assertNotIn('l1_portal_token', result['response'])
+        mock_upsert_l1_portal_snapshot.assert_not_called()
+
     def test_response_always_present_without_severity(self):
         playbook = _make_playbook(linked_rules=[])
         playbook.default_severity = None

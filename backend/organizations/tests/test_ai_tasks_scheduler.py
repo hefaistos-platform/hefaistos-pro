@@ -14,7 +14,11 @@ class TestAiTaskDefinitions(SimpleTestCase):
         self.assertGreaterEqual(len(definitions), 12)
         keys = {item.key for item in definitions}
         self.assertIn('push_rules_workbenches_to_git', keys)
+        self.assertIn('sync_deployed_l1_portal', keys)
         self.assertIn('program_review_digest', keys)
+
+        l1_sync = next(item for item in definitions if item.key == 'sync_deployed_l1_portal')
+        self.assertTrue(l1_sync.default_enabled)
 
 
 class TestComputeNextRunAt(SimpleTestCase):

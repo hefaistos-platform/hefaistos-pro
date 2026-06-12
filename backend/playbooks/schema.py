@@ -11,9 +11,12 @@ import requests
 from graphene.types.generic import GenericScalar
 from graphene_file_upload.scalars import Upload
 from django.db.models import Count, Q, Prefetch
-from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from playbooks.models import DetectionPlaybook
+from playbooks.l1_portal import (
+    build_l1_portal_share_url as _build_l1_portal_share_url,
+    upsert_l1_portal_snapshot as _upsert_l1_portal_snapshot,
+)
 from platform_data.models import MitreAttackTechnique
 import graphene
 from graphene_django import DjangoObjectType
@@ -66,75 +69,6 @@ def generate_copy_title(base_title: str, existing_titles) -> str:
 
 def _normalize_workbench_title(title: str | None, graph: PlaybookGraph) -> str:
     return PlaybookGraph.compose_title_with_custom_id(title, getattr(graph, 'custom_id', None))
-
-
-def _build_l1_portal_title(graph: PlaybookGraph) -> str:
-    base = (getattr(graph, 'title', '') or 'Workbench').strip()
-    return f"{base} + PB"
-
-
-def _build_l1_portal_share_url(token, request=None) -> str:
-    token_value = str(token)
-    relative_path = f"/l1-portal/{token_value}"
-
-    public_base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').rstrip('/')
-    if public_base:
-        return f"{public_base}{relative_path}"
-
-    if request is not None:
-        try:
-            return request.build_absolute_uri(relative_path)
-        except Exception:
-            pass
-
-    frontend_base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
-    if frontend_base:
-        return f"{frontend_base}{relative_path}"
-
-    return relative_path
-
-
-def _upsert_l1_portal_snapshot(graph: PlaybookGraph) -> L1PortalEntry | None:
-    if graph is None:
-        return None
-
-    if (getattr(graph, 'status', '') or '').upper() != str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
-        return None
-
-    defaults = {
-        'organization': graph.organization,
-        'title': _build_l1_portal_title(graph),
-        'response_playbook': graph.response_playbook or '',
-        'known_false_positives': graph.false_positives or '',
-        'blind_spots_coverage_gaps': graph.blind_spots or '',
-    }
-
-    entry, created = L1PortalEntry.objects.get_or_create(
-        graph=graph,
-        defaults=defaults,
-    )
-    if created:
-        return entry
-
-    changed = False
-    for field, value in defaults.items():
-        if getattr(entry, field) != value:
-            setattr(entry, field, value)
-            changed = True
-
-    if changed:
-        entry.save(
-            update_fields=[
-                'organization',
-                'title',
-                'response_playbook',
-                'known_false_positives',
-                'blind_spots_coverage_gaps',
-                'updated_at',
-            ]
-        )
-
-    return entry
 
 
 def _notify_dac_automation_failure(graph, actor, error_message: str) -> None:
