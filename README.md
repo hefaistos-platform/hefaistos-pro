@@ -323,6 +323,8 @@ docker compose exec backend python manage.py import_mitre_universal --mitre-vers
 
 ### Environment Variables
 
+For the complete, up-to-date variable catalog (including advanced/optional keys), see [Docs/ENVIRONMENT_VARIABLES.md](Docs/ENVIRONMENT_VARIABLES.md).
+
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `DEBUG` | Enable debug mode | No (default: False) |
