@@ -647,7 +647,7 @@ class PlaybookGraphType(DjangoObjectType):
     class Meta:
         model = PlaybookGraph
         fields = (
-            "id", "title", "status", "is_shared", "author", "organization", "updated_at", "created_at",
+            "id", "title", "status", "is_shared", "allow_remote_pull", "author", "organization", "updated_at", "created_at",
             "nodes", "edges", "notes", "playbooks", "png_snapshot",
             "mitre_technique", "selected_strategy", "detection_rule",
              "goal", "technical_context", "blind_spots", "triage_guidance",
@@ -2644,6 +2644,61 @@ class SharePlaybookGraph(graphene.Mutation):
             graph=graph, 
             success=True, 
             message=f"Workbench {'shared' if share else 'unshared'} successfully"
+        )
+
+
+class SetPlaybookGraphRemotePull(graphene.Mutation):
+    class Arguments:
+        graph_id = graphene.UUID(required=True)
+        enabled = graphene.Boolean(required=True)
+
+    graph = graphene.Field(PlaybookGraphType)
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    class Meta:
+        description = 'Enable or disable remote PULL export eligibility for a workbench.'
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, graph_id, enabled, **kwargs):
+        user = info.context.user
+        if user.is_anonymous:
+            return SetPlaybookGraphRemotePull(graph=None, success=False, message='Authentication required')
+
+        graph = PlaybookGraph.objects.filter(
+            pk=graph_id,
+            organization=user.organization,
+        ).first()
+        if graph is None:
+            return SetPlaybookGraphRemotePull(graph=None, success=False, message='Workbench not found')
+
+        is_admin = bool(
+            user.role == 'ADMIN'
+            or getattr(user, 'is_superuser', False)
+            or getattr(user, 'is_staff', False)
+        )
+        if getattr(graph, 'author_id', None) != getattr(user, 'id', None) and not is_admin:
+            return SetPlaybookGraphRemotePull(
+                graph=None,
+                success=False,
+                message='Only the author or an admin can change remote pull access',
+            )
+
+        graph.allow_remote_pull = bool(enabled)
+        graph.save(update_fields=['allow_remote_pull', 'updated_at'])
+
+        ActivityLog.objects.create(
+            playbook=graph,
+            user=user,
+            action='Remote Pull Enabled' if graph.allow_remote_pull else 'Remote Pull Disabled',
+            details='Workbench export eligibility changed for instance-to-instance PULL.',
+        )
+
+        return SetPlaybookGraphRemotePull(
+            graph=graph,
+            success=True,
+            message='Remote pull enabled for this workbench' if graph.allow_remote_pull else 'Remote pull disabled for this workbench',
         )
 
 
@@ -5339,6 +5394,7 @@ class Mutation(graphene.ObjectType):
     # Sharing & cloning
     share_playbook = SharePlaybook.Field()
     share_playbook_graph = SharePlaybookGraph.Field()
+    set_playbook_graph_remote_pull = SetPlaybookGraphRemotePull.Field()
     clone_playbook_graph = ClonePlaybookGraph.Field()
     clone_playbook = ClonePlaybook.Field()
 

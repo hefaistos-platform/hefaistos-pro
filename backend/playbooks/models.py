@@ -632,6 +632,10 @@ class PlaybookGraph(models.Model):
 
     # Standard Metadata
     is_shared = models.BooleanField(default=False)
+    allow_remote_pull = models.BooleanField(
+        default=False,
+        help_text='If enabled, this workbench can be exported to trusted remote HEFAISTOS peers.',
+    )
     notes = models.TextField(blank=True, null=True)
     playbooks = models.ManyToManyField(DetectionPlaybook, related_name="graphs", blank=True)
     tags = TaggableManager(through=TaggedGraph, blank=True)

@@ -73,6 +73,7 @@ const GET_PLAYBOOK_GRAPH_QUERY = gql`
       l1PortalUrl
       tags
       isShared
+      allowRemotePull
       notes
       
       # --- Strategy & Context ---
@@ -386,6 +387,16 @@ const SHARE_PLAYBOOK_GRAPH_MUTATION = gql`
   }
 `;
 
+const SET_PLAYBOOK_GRAPH_REMOTE_PULL_MUTATION = gql`
+  mutation SetPlaybookGraphRemotePull($graphId: UUID!, $enabled: Boolean!) {
+    setPlaybookGraphRemotePull(graphId: $graphId, enabled: $enabled) {
+      success
+      message
+      graph { id allowRemotePull }
+    }
+  }
+`;
+
 const CLONE_PLAYBOOK_GRAPH_MUTATION = gql`
   mutation ClonePlaybookGraph($graphId: UUID!) {
     clonePlaybookGraph(graphId: $graphId) {
@@ -408,6 +419,14 @@ interface SharePlaybookGraphResponse {
     success: boolean;
     message: string;
     graph: { id: string; isShared: boolean } | null;
+  };
+}
+
+interface SetPlaybookGraphRemotePullResponse {
+  setPlaybookGraphRemotePull: {
+    success: boolean;
+    message: string;
+    graph: { id: string; allowRemotePull: boolean } | null;
   };
 }
 
@@ -527,6 +546,7 @@ interface PlaybookGraphData {
     l1PortalUrl?: string | null;
     tags: string[];
     isShared: boolean;
+    allowRemotePull: boolean;
     
     mitreTechnique: { id: string, techniqueId: string, name: string } | null;
     selectedCapabilityAbstractions: Array<{
@@ -712,6 +732,7 @@ export const PlaybookWorkbench = () => {
   const [updateNodeLayerName] = useMutation(UPDATE_NODE_LAYER_NAME_MUTATION);
   const [updateNodeAttackMappings] = useMutation(UPDATE_NODE_ATTACK_MAPPINGS_MUTATION);
   const [sharePlaybookGraph, { loading: sharingGraph }] = useMutation<SharePlaybookGraphResponse>(SHARE_PLAYBOOK_GRAPH_MUTATION);
+  const [setPlaybookGraphRemotePull, { loading: togglingRemotePull }] = useMutation<SetPlaybookGraphRemotePullResponse>(SET_PLAYBOOK_GRAPH_REMOTE_PULL_MUTATION);
   const [clonePlaybookGraph, { loading: cloningGraph }] = useMutation<CloneGraphResponse>(CLONE_PLAYBOOK_GRAPH_MUTATION);
 
   const [aiTaskId, setAiTaskId] = useState<string | null>(null);
@@ -1617,6 +1638,24 @@ export const PlaybookWorkbench = () => {
     }
   }, [playbookId, clonePlaybookGraph, navigate]);
 
+  const handleToggleRemotePull = useCallback(async () => {
+    if (!playbookId || !data?.playbookGraph) return;
+    const nextState = !Boolean(data.playbookGraph.allowRemotePull);
+    try {
+      const result = await setPlaybookGraphRemotePull({
+        variables: { graphId: playbookId, enabled: nextState },
+      });
+      if (result.data?.setPlaybookGraphRemotePull?.success) {
+        alert(result.data.setPlaybookGraphRemotePull.message);
+        refetch();
+      } else {
+        alert(result.data?.setPlaybookGraphRemotePull?.message || 'Failed to update remote pull access');
+      }
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update remote pull access');
+    }
+  }, [playbookId, data, setPlaybookGraphRemotePull, refetch]);
+
   // Maieutic Engine handlers
   const handleMaieuticSubmit = useCallback((output: MaieuticOutput, selections: MaieuticImportSelections) => {
     // Stage the data in pending state - don't apply yet
@@ -1824,6 +1863,18 @@ export const PlaybookWorkbench = () => {
               }
             >
               <PixelIcon name={data.playbookGraph.isShared ? "share" : "lock"} className="w-5 h-5" />
+            </Button>
+          )}
+
+          {isAuthor && (
+            <Button
+              variant="ghost"
+              onClick={handleToggleRemotePull}
+              disabled={togglingRemotePull}
+              className="w-10 h-10 p-2 flex items-center justify-center"
+              title={data.playbookGraph.allowRemotePull ? 'Remote pull enabled - click to disable' : 'Remote pull disabled - click to enable'}
+            >
+              <PixelIcon name={data.playbookGraph.allowRemotePull ? 'download' : 'lock'} className="w-5 h-5" />
             </Button>
           )}
           

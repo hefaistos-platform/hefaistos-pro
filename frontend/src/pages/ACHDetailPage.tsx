@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { Card, Button, Input, Form, Select, Alert, Typography, Space, Modal, message, Popconfirm, Tag, Tooltip } from 'antd';
-import { ArrowLeftOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CloudDownloadOutlined, CopyOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -50,6 +50,7 @@ interface ACHAnalysisType {
   description: string;
   status: 'RESEARCH' | 'FINISHED' | 'APPROVED';
   savedAsTemplate: boolean;
+  allowRemotePull: boolean;
   owner: { id: string; username: string };
   hypotheses: HypothesisType[];
   evidenceItems: EvidenceType[];
@@ -128,6 +129,7 @@ const GET_ACH_ANALYSIS = gql`
       description
       status
       savedAsTemplate
+      allowRemotePull
       owner { id username }
       hypotheses {
         id
@@ -318,6 +320,16 @@ const CLONE_ACH_ANALYSIS = gql`
   }
 `;
 
+const SET_ACH_REMOTE_PULL = gql`
+  mutation SetAchRemotePull($analysisId: UUID!, $enabled: Boolean!) {
+    setAchRemotePull(analysisId: $analysisId, enabled: $enabled) {
+      success
+      message
+      analysis { id allowRemotePull }
+    }
+  }
+`;
+
 const UPDATE_AI_PREFERRED_MODEL = gql`
   mutation UpdateAIPreferredModel($preferredModel: String!) {
     updateAiSettings(preferredModel: $preferredModel) {
@@ -371,6 +383,7 @@ export const ACHDetailPage: React.FC = () => {
   const [deleteAnalysis] = useMutation(DELETE_ACH_ANALYSIS);
   const [updateStatus] = useMutation(UPDATE_ACH_STATUS);
   const [cloneAnalysis, { loading: cloningAnalysis }] = useMutation<CloneAchAnalysisResponse>(CLONE_ACH_ANALYSIS);
+  const [setAchRemotePull, { loading: togglingRemotePull }] = useMutation(SET_ACH_REMOTE_PULL);
   const [updateAiPreferredModel, { loading: updatingModel }] = useMutation(UPDATE_AI_PREFERRED_MODEL);
 
   const [newHypothesis, setNewHypothesis] = useState('');
@@ -700,6 +713,23 @@ export const ACHDetailPage: React.FC = () => {
     }
   };
 
+  const handleToggleRemotePull = async () => {
+    try {
+      const result = await setAchRemotePull({
+        variables: { analysisId: id, enabled: !analysis.allowRemotePull },
+      });
+      const payload = result.data?.setAchRemotePull;
+      if (!payload?.success) {
+        message.error(payload?.message || 'Failed to update remote pull access');
+        return;
+      }
+      message.success(payload.message || 'Remote pull access updated');
+      await refetch();
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to update remote pull access');
+    }
+  };
+
   const getCellScore = (hId: string, eId: string) => {
     const cell = analysis.matrixCells.find((c) => c.hypothesis.id === hId && c.evidence.id === eId);
     return cell?.score || 'N';
@@ -778,6 +808,13 @@ export const ACHDetailPage: React.FC = () => {
           </Button>
           {data?.me?.id && analysis.owner?.id === data.me.id && (
           <>
+            <Button
+              icon={analysis.allowRemotePull ? <CloudDownloadOutlined /> : <LockOutlined />}
+              loading={togglingRemotePull}
+              onClick={handleToggleRemotePull}
+            >
+              {analysis.allowRemotePull ? 'Remote Pull ON' : 'Remote Pull OFF'}
+            </Button>
             <Button 
               onClick={async () => {
                 const nextStatus = analysis.status === 'FINISHED' ? 'RESEARCH' : 'FINISHED';

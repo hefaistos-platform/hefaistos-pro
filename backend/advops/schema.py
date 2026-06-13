@@ -59,6 +59,7 @@ class ADVOPSReportType(DjangoObjectType):
             "priority",
             "author",
             "organization",
+            "allow_remote_pull",
             "created_at",
             "updated_at",
             "verification_summary",
@@ -326,8 +327,47 @@ class PushADVOPSReportToMISP(graphene.Mutation):
             raise GraphQLError(f"Failed to push to MISP: {str(e)}")
 
 
+class SetADVOPSRemotePull(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+        enabled = graphene.Boolean(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    report = graphene.Field(ADVOPSReportType)
+
+    @classmethod
+    @transaction.atomic
+    def mutate(cls, root, info, id, enabled):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError("Authentication required")
+
+        try:
+            report = ADVOPSReport.objects.get(id=id, organization=user.organization)
+        except ADVOPSReport.DoesNotExist:
+            raise GraphQLError("Not found")
+
+        is_admin = bool(
+            getattr(user, 'role', None) == 'ADMIN'
+            or getattr(user, 'is_superuser', False)
+            or getattr(user, 'is_staff', False)
+        )
+        if report.author_id != getattr(user, 'id', None) and not is_admin:
+            raise GraphQLError("Only author or admin can change remote pull access")
+
+        report.allow_remote_pull = bool(enabled)
+        report.save(update_fields=['allow_remote_pull', 'updated_at'])
+        return SetADVOPSRemotePull(
+            success=True,
+            message='Remote pull enabled for this ADVOPS hunt' if report.allow_remote_pull else 'Remote pull disabled for this ADVOPS hunt',
+            report=report,
+        )
+
+
 class Mutation(graphene.ObjectType):
     create_advops_report = CreateADVOPSReport.Field()
     update_advops_report = UpdateADVOPSReport.Field()
     delete_advops_report = DeleteADVOPSReport.Field()
     push_advops_report_to_misp = PushADVOPSReportToMISP.Field()
+    set_advops_remote_pull = SetADVOPSRemotePull.Field()

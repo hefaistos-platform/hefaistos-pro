@@ -27,6 +27,10 @@ class ADVOPSReport(models.Model):
     priority = models.CharField(max_length=16, choices=Priority.choices, default=Priority.MEDIUM)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="advops_reports")
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="advops_reports")
+    allow_remote_pull = models.BooleanField(
+        default=False,
+        help_text='If enabled, this ADVOPS hunt can be exported to trusted remote HEFAISTOS peers.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

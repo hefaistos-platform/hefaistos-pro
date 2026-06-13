@@ -19,6 +19,7 @@ const GET_ALL_ADVOPS_REPORTS = gql`
       hypothesis
       status
       priority
+      allowRemotePull
       author { username }
       createdAt
       updatedAt
@@ -70,6 +71,7 @@ const UPDATE_ADVOPS_REPORT = gql`
         hypothesis
         status
         priority
+        allowRemotePull
         author { username }
         createdAt
         updatedAt
@@ -80,6 +82,16 @@ const UPDATE_ADVOPS_REPORT = gql`
         mitreSummary
         detectionLogicSummary
       }
+    }
+  }
+`;
+
+const SET_ADVOPS_REMOTE_PULL = gql`
+  mutation SetAdvopsRemotePull($id: UUID!, $enabled: Boolean!) {
+    setAdvopsRemotePull(id: $id, enabled: $enabled) {
+      success
+      message
+      report { id allowRemotePull }
     }
   }
 `;
@@ -199,6 +211,7 @@ export const ADVOPSPage: React.FC<ADVOPSPageProps> = ({ embedded = false }) => {
   const [createReport] = useMutation(CREATE_ADVOPS_REPORT);
   const [updateReport] = useMutation(UPDATE_ADVOPS_REPORT);
   const [deleteReport] = useMutation(DELETE_ADVOPS_REPORT);
+  const [setAdvopsRemotePull, { loading: togglingRemotePull }] = useMutation(SET_ADVOPS_REMOTE_PULL);
   const [pushToMISP] = useMutation<PushToMISPResponse>(PUSH_ADVOPS_REPORT_TO_MISP);
   const [createWorkbench] = useMutation<CreatePlaybookGraphResponse>(CREATE_PLAYBOOK_GRAPH);
   const [updateWorkbenchDetails] = useMutation<UpdatePlaybookDetailsResponse>(UPDATE_PLAYBOOK_DETAILS);
@@ -413,6 +426,29 @@ export const ADVOPSPage: React.FC<ADVOPSPageProps> = ({ embedded = false }) => {
     setMispSelectVisible(true);
   };
 
+  const onToggleRemotePull = async () => {
+    if (!editing) return;
+    try {
+      const result = await setAdvopsRemotePull({
+        variables: { id: editing.id, enabled: !Boolean(editing.allowRemotePull) },
+      });
+      const payload = result.data?.setAdvopsRemotePull;
+      if (!payload?.success) {
+        message.error(payload?.message || 'Failed to update remote pull access');
+        return;
+      }
+      message.success(payload.message || 'Remote pull access updated');
+      await refetch();
+      setEditing((current) => (
+        current
+          ? { ...current, allowRemotePull: !Boolean(current.allowRemotePull) }
+          : current
+      ));
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to update remote pull access');
+    }
+  };
+
   const onCreateWorkbench = async () => {
     if (!editing) {
       message.error('Please save the hunt first');
@@ -609,6 +645,9 @@ export const ADVOPSPage: React.FC<ADVOPSPageProps> = ({ embedded = false }) => {
           onCancel={handleModalClose}
           onPushToMISP={onPushToMISP}
           onCreateWorkbench={onCreateWorkbench}
+          remotePullEnabled={Boolean(editing?.allowRemotePull)}
+          onToggleRemotePull={editing ? onToggleRemotePull : undefined}
+          togglingRemotePull={togglingRemotePull}
           workbenchLoading={workbenchLoading}
         />
       </Modal>

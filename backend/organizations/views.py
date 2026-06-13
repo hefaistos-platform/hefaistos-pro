@@ -9,6 +9,7 @@ from django.views.decorators.http import require_GET
 
 from organizations.sharing import (
     authenticate_inbound_key,
+    effective_required_tags,
     export_org_payload,
     get_or_create_instance_identity,
     normalize_scope,
@@ -43,6 +44,8 @@ def sharing_instance_info(request):
         'instance_id': str(identity.instance_id),
         'organization': share_key.organization.name,
         'allowed_scopes': list(share_key.allowed_scopes or []),
+        'enforce_tag_filter': bool(share_key.enforce_tag_filter),
+        'required_tags': effective_required_tags(share_key),
         'server_time': timezone.now().isoformat(),
         'mode': 'PULL_READ_ONLY',
     })
@@ -68,9 +71,12 @@ def sharing_export(request):
         share_key.organization,
         normalized_scope,
         create_identity_if_missing=False,
+        share_key=share_key,
     )
     payload['permissions'] = {
         'mode': 'PULL_READ_ONLY',
         'allowed_scopes': list(share_key.allowed_scopes or []),
+        'enforce_tag_filter': bool(share_key.enforce_tag_filter),
+        'required_tags': effective_required_tags(share_key),
     }
     return JsonResponse(payload)

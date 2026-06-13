@@ -60,6 +60,8 @@ const GET_INSTANCE_SHARING = gql`
       name
       keyHint
       allowedScopes
+      enforceTagFilter
+      requiredTags
       isActive
       expiresAt
       lastUsedAt
@@ -130,11 +132,15 @@ const CREATE_INBOUND_KEY = gql`
   mutation CreateHefaistosInboundShareKey(
     $name: String!
     $allowedScopes: [String]!
+    $enforceTagFilter: Boolean
+    $requiredTags: [String]
     $expiresAt: DateTime
   ) {
     createHefaistosInboundShareKey(
       name: $name
       allowedScopes: $allowedScopes
+      enforceTagFilter: $enforceTagFilter
+      requiredTags: $requiredTags
       expiresAt: $expiresAt
     ) {
       success
@@ -170,7 +176,7 @@ interface RemotePeer {
   name: string;
   remoteUrl: string;
   remoteInstanceId: string;
-  defaultScope: 'WORKBENCH' | 'RULES' | 'ACH' | 'ALL';
+  defaultScope: 'WORKBENCH' | 'RULES' | 'ACH' | 'ADVOPS' | 'ALL';
   autoPullEnabled: boolean;
   autoPullSchedule: 'DAILY' | 'WEEKLY';
   nextAutoPullAt?: string | null;
@@ -189,6 +195,8 @@ interface InboundShareKey {
   name: string;
   keyHint: string;
   allowedScopes: string[];
+  enforceTagFilter: boolean;
+  requiredTags: string[];
   isActive: boolean;
   expiresAt?: string | null;
   lastUsedAt?: string | null;
@@ -209,6 +217,7 @@ const scopeOptions = [
   { label: 'Workbench', value: 'WORKBENCH' },
   { label: 'Rules', value: 'RULES' },
   { label: 'ACH', value: 'ACH' },
+  { label: 'ADVOPS', value: 'ADVOPS' },
   { label: 'All', value: 'ALL' },
 ];
 const autoPullScheduleOptions = [
@@ -348,6 +357,8 @@ const InstanceSharing: React.FC = () => {
         variables: {
           name: values.name,
           allowedScopes: values.allowedScopes,
+          enforceTagFilter: Boolean(values.enforceTagFilter),
+          requiredTags: values.requiredTags || [],
           expiresAt: values.expiresAt ? values.expiresAt.toISOString() : null,
         },
       });
@@ -466,6 +477,22 @@ const InstanceSharing: React.FC = () => {
       ),
     },
     {
+      title: 'Tag Policy',
+      key: 'tagPolicy',
+      render: (_: unknown, record: InboundShareKey) => (
+        <Space wrap>
+          <Tag color={record.enforceTagFilter ? 'blue' : 'default'}>
+            {record.enforceTagFilter ? 'Tag Filter On' : 'Tag Filter Off'}
+          </Tag>
+          {record.enforceTagFilter && (record.requiredTags || []).map((tag) => (
+            <Tag key={`${record.id}-${tag}`} color="purple">
+              {tag}
+            </Tag>
+          ))}
+        </Space>
+      ),
+    },
+    {
       title: 'Status',
       dataIndex: 'isActive',
       key: 'isActive',
@@ -499,7 +526,7 @@ const InstanceSharing: React.FC = () => {
         type="info"
         showIcon
         message="PULL-only design"
-        description="Remote sharing endpoints are read-only. Pull operations never modify the remote HEFAISTOS instance. Export/PULL eligibility is restricted to DEPLOYED workbenches, rules linked to DEPLOYED workbenches, and FINISHED ACH analyses."
+        description="Remote sharing endpoints are read-only. Pull operations never modify the remote HEFAISTOS instance. Export eligibility is default-deny and now requires explicit per-item remote-pull enablement; optional key-level tag filtering further restricts Workbench/Rules export."
       />
 
       <Card loading={loading}>
@@ -649,6 +676,31 @@ const InstanceSharing: React.FC = () => {
               initialValue={['ALL']}
             >
               <Select mode="multiple" options={scopeOptions} />
+            </Form.Item>
+            <Form.Item
+              name="enforceTagFilter"
+              label="Enforce Tag Filter (Workbench/Rules)"
+              valuePropName="checked"
+              initialValue={false}
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item shouldUpdate={(prev, curr) => prev.enforceTagFilter !== curr.enforceTagFilter} noStyle>
+              {({ getFieldValue }) => (
+                <Form.Item
+                  name="requiredTags"
+                  label="Required Tags"
+                  rules={getFieldValue('enforceTagFilter') ? [{ required: true, message: 'Add at least one required tag' }] : []}
+                  initialValue={['PULL']}
+                >
+                  <Select
+                    mode="tags"
+                    tokenSeparators={[',', ' ']}
+                    placeholder="e.g. PULL"
+                    disabled={!getFieldValue('enforceTagFilter')}
+                  />
+                </Form.Item>
+              )}
             </Form.Item>
             <Form.Item name="expiresAt" label="Expiration (optional)">
               <DatePicker showTime style={{ width: '100%' }} />

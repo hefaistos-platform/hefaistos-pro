@@ -8,6 +8,7 @@ from django.test import Client, TestCase
 from django.utils import timezone
 
 from ach.models import ACHAnalysis
+from advops.models import ADVOPSReport
 from organizations.models import (
     HefaistosInboundShareKey,
     HefaistosInstanceIdentity,
@@ -29,6 +30,7 @@ class SharingScopePermissionTests(TestCase):
     def test_key_allows_scope_rules(self):
         self.assertTrue(key_allows_scope(['ALL'], 'WORKBENCH'))
         self.assertTrue(key_allows_scope(['WORKBENCH', 'RULES', 'ACH'], 'ALL'))
+        self.assertTrue(key_allows_scope(['ADVOPS'], 'ADVOPS'))
         self.assertTrue(key_allows_scope(['RULES'], 'RULES'))
         self.assertFalse(key_allows_scope(['WORKBENCH'], 'ALL'))
         self.assertFalse(key_allows_scope(['WORKBENCH'], 'RULES'))
@@ -132,12 +134,14 @@ class SharingApiEndpointTests(TestCase):
             organization=self.org,
             author=self.admin,
             status='DEPLOYED',
+            allow_remote_pull=True,
         )
         non_deployed_workbench = PlaybookGraph.objects.create(
             title='WB Draft',
             organization=self.org,
             author=self.admin,
             status='DEVELOPMENT',
+            allow_remote_pull=True,
         )
         repository = RuleRepository.objects.create(
             organization=self.org,
@@ -173,11 +177,13 @@ class SharingApiEndpointTests(TestCase):
             title='ACH Finished',
             owner=self.admin,
             status='FINISHED',
+            allow_remote_pull=True,
         )
         ACHAnalysis.objects.create(
             title='ACH Research',
             owner=self.admin,
             status='RESEARCH',
+            allow_remote_pull=True,
         )
 
         response = self.client.get(
@@ -196,6 +202,201 @@ class SharingApiEndpointTests(TestCase):
         self.assertEqual(ach_names, {'ACH Finished'})
         self.assertEqual((body.get('rules') or [{}])[0].get('playbook_status'), 'DEPLOYED')
         self.assertEqual((body.get('ach') or [{}])[0].get('status'), 'FINISHED')
+
+    def test_export_default_deny_requires_allow_remote_pull_toggle(self):
+        all_scope_key = 'hefshare_default_deny_key'
+        HefaistosInboundShareKey.objects.create(
+            organization=self.org,
+            name='default-deny-key',
+            key_hash=hash_api_key(all_scope_key),
+            key_hint='deny...key',
+            allowed_scopes=['ALL'],
+            is_active=True,
+            created_by=self.admin,
+        )
+
+        denied_workbench = PlaybookGraph.objects.create(
+            title='WB Blocked',
+            organization=self.org,
+            author=self.admin,
+            status='DEPLOYED',
+            allow_remote_pull=False,
+        )
+        allowed_workbench = PlaybookGraph.objects.create(
+            title='WB Allowed',
+            organization=self.org,
+            author=self.admin,
+            status='DEPLOYED',
+            allow_remote_pull=True,
+        )
+
+        repository = RuleRepository.objects.create(
+            organization=self.org,
+            name='Rule Scope Repo',
+            git_url='https://example.com/scope-rules.git',
+        )
+        DetectionRule.objects.create(
+            organization=self.org,
+            repository=repository,
+            title='Rule Blocked',
+            format='KQL',
+            raw_content='rule: blocked',
+            playbook=denied_workbench,
+        )
+        DetectionRule.objects.create(
+            organization=self.org,
+            repository=repository,
+            title='Rule Allowed',
+            format='KQL',
+            raw_content='rule: allowed',
+            playbook=allowed_workbench,
+        )
+
+        ACHAnalysis.objects.create(
+            title='ACH Blocked',
+            owner=self.admin,
+            status='FINISHED',
+            allow_remote_pull=False,
+        )
+        ACHAnalysis.objects.create(
+            title='ACH Allowed',
+            owner=self.admin,
+            status='FINISHED',
+            allow_remote_pull=True,
+        )
+
+        response = self.client.get(
+            '/api/sharing/export?scope=ALL',
+            **{'HTTP_X_HEFAISTOS_SHARE_KEY': all_scope_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+
+        workbench_names = {((doc.get('metadata') or {}).get('name') or '').strip() for doc in (body.get('workbenches') or [])}
+        rule_names = {(doc.get('title') or '').strip() for doc in (body.get('rules') or [])}
+        ach_names = {(doc.get('title') or '').strip() for doc in (body.get('ach') or [])}
+
+        self.assertEqual(workbench_names, {'WB Allowed'})
+        self.assertEqual(rule_names, {'Rule Allowed'})
+        self.assertEqual(ach_names, {'ACH Allowed'})
+
+    def test_export_tag_filter_restricts_workbench_and_rules(self):
+        tagged_key = 'hefshare_tag_policy_key'
+        HefaistosInboundShareKey.objects.create(
+            organization=self.org,
+            name='tag-policy-key',
+            key_hash=hash_api_key(tagged_key),
+            key_hint='tag...key',
+            allowed_scopes=['ALL'],
+            enforce_tag_filter=True,
+            required_tags=['PULL'],
+            is_active=True,
+            created_by=self.admin,
+        )
+
+        allowed_graph = PlaybookGraph.objects.create(
+            title='WB Tagged',
+            organization=self.org,
+            author=self.admin,
+            status='DEPLOYED',
+            allow_remote_pull=True,
+        )
+        allowed_graph.tags.add('PULL')
+
+        blocked_graph = PlaybookGraph.objects.create(
+            title='WB Untagged',
+            organization=self.org,
+            author=self.admin,
+            status='DEPLOYED',
+            allow_remote_pull=True,
+        )
+        blocked_graph.tags.add('INTERNAL')
+
+        repository = RuleRepository.objects.create(
+            organization=self.org,
+            name='Tag Rule Repo',
+            git_url='https://example.com/tag-rules.git',
+        )
+        DetectionRule.objects.create(
+            organization=self.org,
+            repository=repository,
+            title='Rule Tagged',
+            format='KQL',
+            raw_content='rule: tagged',
+            playbook=allowed_graph,
+        )
+        DetectionRule.objects.create(
+            organization=self.org,
+            repository=repository,
+            title='Rule Untagged',
+            format='KQL',
+            raw_content='rule: untagged',
+            playbook=blocked_graph,
+        )
+
+        response = self.client.get(
+            '/api/sharing/export?scope=ALL',
+            **{'HTTP_X_HEFAISTOS_SHARE_KEY': tagged_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+
+        workbench_names = {((doc.get('metadata') or {}).get('name') or '').strip() for doc in (body.get('workbenches') or [])}
+        rule_names = {(doc.get('title') or '').strip() for doc in (body.get('rules') or [])}
+
+        self.assertEqual(workbench_names, {'WB Tagged'})
+        self.assertEqual(rule_names, {'Rule Tagged'})
+        self.assertEqual(body.get('permissions', {}).get('enforce_tag_filter'), True)
+        self.assertEqual(body.get('permissions', {}).get('required_tags'), ['PULL'])
+
+    def test_export_advops_scope_honors_status_and_toggle(self):
+        advops_key = 'hefshare_advops_scope_key'
+        HefaistosInboundShareKey.objects.create(
+            organization=self.org,
+            name='advops-scope-key',
+            key_hash=hash_api_key(advops_key),
+            key_hint='adv...key',
+            allowed_scopes=['ADVOPS'],
+            is_active=True,
+            created_by=self.admin,
+        )
+
+        ADVOPSReport.objects.create(
+            hunt_id='ADV-2026-06-001',
+            hypothesis='Allowed hunt',
+            status='DEPLOYED',
+            priority='MEDIUM',
+            author=self.admin,
+            organization=self.org,
+            allow_remote_pull=True,
+        )
+        ADVOPSReport.objects.create(
+            hunt_id='ADV-2026-06-002',
+            hypothesis='Not enabled',
+            status='DEPLOYED',
+            priority='MEDIUM',
+            author=self.admin,
+            organization=self.org,
+            allow_remote_pull=False,
+        )
+        ADVOPSReport.objects.create(
+            hunt_id='ADV-2026-06-003',
+            hypothesis='Wrong status',
+            status='RESEARCH',
+            priority='MEDIUM',
+            author=self.admin,
+            organization=self.org,
+            allow_remote_pull=True,
+        )
+
+        response = self.client.get(
+            '/api/sharing/export?scope=ADVOPS',
+            **{'HTTP_X_HEFAISTOS_SHARE_KEY': advops_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        hunt_ids = {(entry.get('hunt_id') or '').strip() for entry in (body.get('advops') or [])}
+        self.assertEqual(hunt_ids, {'ADV-2026-06-001'})
 
 
 class SharingImportRulesTests(TestCase):

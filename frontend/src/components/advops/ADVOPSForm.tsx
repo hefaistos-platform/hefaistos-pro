@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Form, Input, Select, Button, Space, Row, Col, Upload, Modal, message, Badge, Tooltip, Divider } from 'antd';
-import { RobotOutlined, UploadOutlined, LinkOutlined } from '@ant-design/icons';
+import { RobotOutlined, UploadOutlined, LinkOutlined, CloudDownloadOutlined, LockOutlined } from '@ant-design/icons';
 import { gql } from '@apollo/client';
 import { useMutation } from '@apollo/client/react';
 import { ADVOPSReport, ADVOPSPriority, ADVOPSStatus } from '../../types/advops';
@@ -109,10 +109,24 @@ export interface ADVOPSFormProps {
   onCancel?: () => void;
   onPushToMISP?: () => void;
   onCreateWorkbench?: () => void;
+  onToggleRemotePull?: () => void;
+  remotePullEnabled?: boolean;
+  togglingRemotePull?: boolean;
   workbenchLoading?: boolean;
 }
 
-export const ADVOPSForm: React.FC<ADVOPSFormProps> = ({ initial, submitting, onSubmit, onCancel, onPushToMISP, onCreateWorkbench, workbenchLoading }) => {
+export const ADVOPSForm: React.FC<ADVOPSFormProps> = ({
+  initial,
+  submitting,
+  onSubmit,
+  onCancel,
+  onPushToMISP,
+  onCreateWorkbench,
+  onToggleRemotePull,
+  remotePullEnabled,
+  togglingRemotePull,
+  workbenchLoading,
+}) => {
   const [form] = Form.useForm<Partial<ADVOPSReport>>();
   const [extractStrain, { loading: strainLoading }] = useMutation<ExtractStrainDataResult, ExtractStrainDataVars>(EXTRACT_STRAIN_DATA);
   const [extractStrainFromUrl, { loading: urlLoading }] = useMutation<ExtractStrainDataFromURLResult, ExtractStrainDataFromURLVars>(EXTRACT_STRAIN_DATA_FROM_URL);
@@ -437,6 +451,14 @@ export const ADVOPSForm: React.FC<ADVOPSFormProps> = ({ initial, submitting, onS
         <Space>
           {initial?.id && (
             <>
+              <Button
+                onClick={onToggleRemotePull}
+                loading={togglingRemotePull}
+                disabled={!onToggleRemotePull || submitting}
+                icon={remotePullEnabled ? <CloudDownloadOutlined /> : <LockOutlined />}
+              >
+                {remotePullEnabled ? 'Remote Pull ON' : 'Remote Pull OFF'}
+              </Button>
               <Button 
                 type="primary" 
                 danger 

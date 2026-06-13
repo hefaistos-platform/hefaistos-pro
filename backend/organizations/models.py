@@ -10,6 +10,7 @@ SHARING_SCOPE_CHOICES = [
     ('WORKBENCH', 'Workbench'),
     ('RULES', 'Rules'),
     ('ACH', 'ACH'),
+    ('ADVOPS', 'ADVOPS'),
     ('ALL', 'All'),
 ]
 SHARING_SCOPE_VALUES = {choice[0] for choice in SHARING_SCOPE_CHOICES}
@@ -831,7 +832,16 @@ class HefaistosInboundShareKey(models.Model):
     allowed_scopes = models.JSONField(
         default=list,
         blank=True,
-        help_text='Allowed pull scopes for this key: WORKBENCH, RULES, ACH, ALL.',
+        help_text='Allowed pull scopes for this key: WORKBENCH, RULES, ACH, ADVOPS, ALL.',
+    )
+    enforce_tag_filter = models.BooleanField(
+        default=False,
+        help_text='When enabled, remote pulls are restricted to items matching required_tags.',
+    )
+    required_tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Required tags for export eligibility when enforce_tag_filter is enabled (e.g. ["PULL"]).',
     )
     is_active = models.BooleanField(default=True)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -868,6 +878,20 @@ class HefaistosInboundShareKey(models.Model):
             raise ValidationError(
                 {'allowed_scopes': f'Unsupported scopes: {", ".join(sorted(set(map(str, invalid))))}'}
             )
+
+        normalized_tags: list[str] = []
+        for raw_tag in (self.required_tags or []):
+            tag = str(raw_tag or '').strip()
+            if not tag:
+                continue
+            if tag.casefold() in {existing.casefold() for existing in normalized_tags}:
+                continue
+            normalized_tags.append(tag)
+
+        self.required_tags = normalized_tags
+
+        if self.enforce_tag_filter and not self.required_tags:
+            raise ValidationError({'required_tags': 'At least one required tag is needed when tag filtering is enabled.'})
 
 
 class HefaistosPullJob(models.Model):

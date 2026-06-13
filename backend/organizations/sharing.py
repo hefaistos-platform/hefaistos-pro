@@ -28,6 +28,8 @@ from organizations.models import (
 ATOMIC_SCOPES = ('WORKBENCH', 'RULES', 'ACH')
 WORKBENCH_REQUIRED_STATUS = 'DEPLOYED'
 ACH_REQUIRED_STATUS = 'FINISHED'
+ADVOPS_REQUIRED_STATUS = 'DEPLOYED'
+DEFAULT_REQUIRED_EXPORT_TAGS = ('PULL',)
 
 
 def normalize_scope(scope: str | None) -> str:
@@ -83,6 +85,51 @@ def build_key_hint(raw_key: str) -> str:
 
 def generate_raw_share_key() -> str:
     return f"hefshare_{secrets.token_urlsafe(36)}"
+
+
+def normalize_required_tags(required_tags: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_tag in (required_tags or []):
+        tag = str(raw_tag or '').strip()
+        if not tag:
+            continue
+        key = tag.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(tag)
+    return normalized
+
+
+def effective_required_tags(share_key: HefaistosInboundShareKey | None) -> list[str]:
+    if share_key is None:
+        return []
+    configured = normalize_required_tags(getattr(share_key, 'required_tags', None) or [])
+    if configured:
+        return configured
+    return list(DEFAULT_REQUIRED_EXPORT_TAGS)
+
+
+def item_matches_required_tags(
+    item_tags: list[str] | tuple[str, ...],
+    share_key: HefaistosInboundShareKey | None,
+) -> bool:
+    if share_key is None:
+        return True
+    if not bool(getattr(share_key, 'enforce_tag_filter', False)):
+        return True
+
+    required_tags = effective_required_tags(share_key)
+    if not required_tags:
+        return True
+
+    normalized_item_tags = {
+        str(tag).strip().casefold()
+        for tag in (item_tags or [])
+        if str(tag).strip()
+    }
+    return all(required.casefold() in normalized_item_tags for required in required_tags)
 
 
 def _normalized_name(value: str | None) -> str:
@@ -146,13 +193,17 @@ def authenticate_inbound_key(
     return share_key
 
 
-def _workbench_payload_for_org(organization) -> list[dict[str, Any]]:
+def _workbench_payload_for_org(
+    organization,
+    share_key: HefaistosInboundShareKey | None = None,
+) -> list[dict[str, Any]]:
     from playbooks.models import PlaybookGraph
     from playbooks.schema import serialize_playbook_graph_hex_v2
 
     graphs = PlaybookGraph.objects.filter(
         organization=organization,
         status__iexact=WORKBENCH_REQUIRED_STATUS,
+        allow_remote_pull=True,
     ).select_related(
         'author',
         'mitre_technique',
@@ -165,6 +216,10 @@ def _workbench_payload_for_org(organization) -> list[dict[str, Any]]:
     payload = []
     seen_names: set[str] = set()
     for graph in graphs:
+        graph_tags = list(graph.tags.names())
+        if not item_matches_required_tags(graph_tags, share_key):
+            continue
+
         key = _normalized_name(graph.title)
         if not key or key in seen_names:
             continue
@@ -173,13 +228,17 @@ def _workbench_payload_for_org(organization) -> list[dict[str, Any]]:
     return payload
 
 
-def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
+def _rules_payload_for_org(
+    organization,
+    share_key: HefaistosInboundShareKey | None = None,
+) -> list[dict[str, Any]]:
     from rules.models import DetectionRule
 
     rules = DetectionRule.objects.filter(
         organization=organization,
         playbook__isnull=False,
         playbook__status__iexact=WORKBENCH_REQUIRED_STATUS,
+        playbook__allow_remote_pull=True,
     ).select_related(
         'repository',
         'playbook',
@@ -188,6 +247,10 @@ def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
     payload = []
     seen_names: set[str] = set()
     for rule in rules:
+        playbook_tags = list(rule.playbook.tags.names()) if getattr(rule, 'playbook', None) else []
+        if not item_matches_required_tags(playbook_tags, share_key):
+            continue
+
         key = _normalized_name(rule.title)
         if not key or key in seen_names:
             continue
@@ -204,6 +267,7 @@ def _rules_payload_for_org(organization) -> list[dict[str, Any]]:
             'repository_url': getattr(rule.repository, 'git_url', '') or '',
             'playbook_title': getattr(rule.playbook, 'title', '') or '',
             'playbook_status': getattr(rule.playbook, 'status', '') or '',
+            'playbook_tags': playbook_tags,
             'created_at': rule.created_at.isoformat() if rule.created_at else '',
             'updated_at': rule.updated_at.isoformat() if rule.updated_at else '',
         })
@@ -216,6 +280,7 @@ def _ach_payload_for_org(organization) -> list[dict[str, Any]]:
     analyses = ACHAnalysis.objects.filter(
         owner__organization=organization,
         status__iexact=ACH_REQUIRED_STATUS,
+        allow_remote_pull=True,
     ).select_related('owner').prefetch_related(
         'hypotheses__mitre_technique',
         'evidence_items',
@@ -273,13 +338,50 @@ def _ach_payload_for_org(organization) -> list[dict[str, Any]]:
     return payload
 
 
+def _advops_payload_for_org(organization) -> list[dict[str, Any]]:
+    from advops.models import ADVOPSReport
+
+    reports = ADVOPSReport.objects.filter(
+        organization=organization,
+        status__iexact=ADVOPS_REQUIRED_STATUS,
+        allow_remote_pull=True,
+    ).select_related('author').order_by('-updated_at', '-created_at', '-id')
+
+    payload = []
+    seen_ids: set[str] = set()
+    for report in reports:
+        hunt_id = str(report.hunt_id or '').strip()
+        normalized_hunt_id = hunt_id.casefold()
+        if not normalized_hunt_id or normalized_hunt_id in seen_ids:
+            continue
+        seen_ids.add(normalized_hunt_id)
+        payload.append({
+            'hunt_id': hunt_id,
+            'hypothesis': report.hypothesis or '',
+            'status': report.status or '',
+            'priority': report.priority or '',
+            'verification_summary': report.verification_summary or '',
+            'infrastructure_summary': report.infrastructure_summary or '',
+            'pivot_summary': report.pivot_summary or '',
+            'false_positive_summary': report.false_positive_summary or '',
+            'mitre_summary': report.mitre_summary or '',
+            'detection_logic_summary': report.detection_logic_summary or '',
+            'created_at': report.created_at.isoformat() if report.created_at else '',
+            'updated_at': report.updated_at.isoformat() if report.updated_at else '',
+        })
+    return payload
+
+
 def export_org_payload(
     organization,
     requested_scope: str,
     create_identity_if_missing: bool = True,
+    share_key: HefaistosInboundShareKey | None = None,
 ) -> dict[str, Any]:
     scope = normalize_scope(requested_scope)
     include_scopes = expand_scope(scope)
+    if scope == 'ADVOPS':
+        include_scopes.add('ADVOPS')
     instance_identity = get_or_create_instance_identity(create_if_missing=create_identity_if_missing)
 
     payload: dict[str, Any] = {
@@ -290,14 +392,17 @@ def export_org_payload(
         'workbenches': [],
         'rules': [],
         'ach': [],
+        'advops': [],
     }
 
     if 'WORKBENCH' in include_scopes:
-        payload['workbenches'] = _workbench_payload_for_org(organization)
+        payload['workbenches'] = _workbench_payload_for_org(organization, share_key=share_key)
     if 'RULES' in include_scopes:
-        payload['rules'] = _rules_payload_for_org(organization)
+        payload['rules'] = _rules_payload_for_org(organization, share_key=share_key)
     if 'ACH' in include_scopes:
         payload['ach'] = _ach_payload_for_org(organization)
+    if 'ADVOPS' in include_scopes:
+        payload['advops'] = _advops_payload_for_org(organization)
 
     return payload
 
@@ -541,6 +646,93 @@ def _import_ach(
             errors.append(f'ACH #{idx + 1}: {exc}')
 
 
+def _import_advops(
+    advops_payload: list[dict[str, Any]],
+    organization,
+    actor,
+    summary: dict[str, dict[str, int]],
+    errors: list[str],
+) -> None:
+    from advops.models import ADVOPSReport
+
+    valid_statuses = {str(choice[0]).upper() for choice in ADVOPSReport.Status.choices}
+    valid_priorities = {str(choice[0]).upper() for choice in ADVOPSReport.Priority.choices}
+
+    for idx, report_data in enumerate(advops_payload or []):
+        try:
+            if not isinstance(report_data, dict):
+                raise ValueError('Invalid ADVOPS payload')
+            hunt_id = str(report_data.get('hunt_id') or '').strip()
+            if not hunt_id:
+                raise ValueError('ADVOPS hunt_id is required')
+
+            status = str(report_data.get('status') or '').upper().strip()
+            if status != ADVOPS_REQUIRED_STATUS:
+                raise ValueError('Only DEPLOYED ADVOPS reports are allowed for PULL.')
+            if status not in valid_statuses:
+                status = ADVOPS_REQUIRED_STATUS
+
+            priority = str(report_data.get('priority') or 'MEDIUM').upper().strip()
+            if priority not in valid_priorities:
+                priority = ADVOPSReport.Priority.MEDIUM
+
+            defaults = {
+                'hypothesis': str(report_data.get('hypothesis') or ''),
+                'status': status,
+                'priority': priority,
+                'verification_summary': str(report_data.get('verification_summary') or ''),
+                'infrastructure_summary': str(report_data.get('infrastructure_summary') or ''),
+                'pivot_summary': str(report_data.get('pivot_summary') or ''),
+                'false_positive_summary': str(report_data.get('false_positive_summary') or ''),
+                'mitre_summary': str(report_data.get('mitre_summary') or ''),
+                'detection_logic_summary': str(report_data.get('detection_logic_summary') or ''),
+            }
+
+            with transaction.atomic():
+                existing = ADVOPSReport.objects.filter(
+                    organization=organization,
+                    hunt_id__iexact=hunt_id,
+                ).order_by('-updated_at', '-created_at', '-id').first()
+                if existing is None:
+                    ADVOPSReport.objects.create(
+                        organization=organization,
+                        author=actor,
+                        hunt_id=hunt_id,
+                        **defaults,
+                    )
+                    summary['advops']['created'] += 1
+                else:
+                    existing.author = existing.author or actor
+                    existing.hunt_id = hunt_id
+                    existing.hypothesis = defaults['hypothesis']
+                    existing.status = defaults['status']
+                    existing.priority = defaults['priority']
+                    existing.verification_summary = defaults['verification_summary']
+                    existing.infrastructure_summary = defaults['infrastructure_summary']
+                    existing.pivot_summary = defaults['pivot_summary']
+                    existing.false_positive_summary = defaults['false_positive_summary']
+                    existing.mitre_summary = defaults['mitre_summary']
+                    existing.detection_logic_summary = defaults['detection_logic_summary']
+                    existing.save(update_fields=[
+                        'author',
+                        'hunt_id',
+                        'hypothesis',
+                        'status',
+                        'priority',
+                        'verification_summary',
+                        'infrastructure_summary',
+                        'pivot_summary',
+                        'false_positive_summary',
+                        'mitre_summary',
+                        'detection_logic_summary',
+                        'updated_at',
+                    ])
+                    summary['advops']['updated'] += 1
+        except Exception as exc:
+            summary['advops']['failed'] += 1
+            errors.append(f'ADVOPS #{idx + 1}: {exc}')
+
+
 def import_payload_into_org(
     payload: dict[str, Any],
     organization,
@@ -555,6 +747,7 @@ def import_payload_into_org(
         'workbenches': {'created': 0, 'updated': 0, 'failed': 0},
         'rules': {'created': 0, 'updated': 0, 'failed': 0},
         'ach': {'created': 0, 'updated': 0, 'failed': 0},
+        'advops': {'created': 0, 'updated': 0, 'failed': 0},
     }
     errors: list[str] = []
 
@@ -579,6 +772,14 @@ def import_payload_into_org(
     if 'ACH' in include_scopes:
         _import_ach(
             payload.get('ach') or [],
+            actor=actor,
+            summary=summary,
+            errors=errors,
+        )
+    if 'ADVOPS' in include_scopes:
+        _import_advops(
+            payload.get('advops') or [],
+            organization=organization,
             actor=actor,
             summary=summary,
             errors=errors,

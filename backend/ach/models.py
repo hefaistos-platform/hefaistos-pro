@@ -35,6 +35,10 @@ class ACHAnalysis(models.Model):
     )
     approved_at = models.DateTimeField(null=True, blank=True)
     saved_as_template = models.BooleanField(default=False, help_text="Whether this analysis has been saved as a template")
+    allow_remote_pull = models.BooleanField(
+        default=False,
+        help_text='If enabled, this ACH analysis can be exported to trusted remote HEFAISTOS peers.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

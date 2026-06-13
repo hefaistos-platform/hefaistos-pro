@@ -25,10 +25,12 @@ from .models import (
 from .sharing import (
     build_key_hint,
     compute_next_auto_pull_at,
+    effective_required_tags,
     generate_raw_share_key,
     get_or_create_instance_identity,
     hash_api_key,
     normalize_auto_pull_schedule,
+    normalize_required_tags,
     normalize_scope,
     pull_from_remote_peer,
 )
@@ -335,6 +337,8 @@ class HefaistosInboundShareKeyType(graphene.ObjectType):
     name = graphene.String()
     key_hint = graphene.String()
     allowed_scopes = graphene.List(graphene.String)
+    enforce_tag_filter = graphene.Boolean()
+    required_tags = graphene.List(graphene.String)
     is_active = graphene.Boolean()
     expires_at = graphene.DateTime()
     last_used_at = graphene.DateTime()
@@ -343,6 +347,9 @@ class HefaistosInboundShareKeyType(graphene.ObjectType):
 
     def resolve_allowed_scopes(self, info):
         return [str(scope).upper() for scope in (self.allowed_scopes or []) if str(scope).strip()]
+
+    def resolve_required_tags(self, info):
+        return effective_required_tags(self)
 
 
 class HefaistosPullJobType(graphene.ObjectType):
@@ -2377,6 +2384,8 @@ class CreateHefaistosInboundShareKey(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
         allowed_scopes = graphene.List(graphene.String, required=True)
+        enforce_tag_filter = graphene.Boolean(required=False, default_value=False)
+        required_tags = graphene.List(graphene.String, required=False)
         expires_at = graphene.DateTime(required=False)
 
     success = graphene.Boolean()
@@ -2386,7 +2395,15 @@ class CreateHefaistosInboundShareKey(graphene.Mutation):
 
     @staticmethod
     @role_required([Roles.ADMIN])
-    def mutate(root, info, name, allowed_scopes, expires_at=None):
+    def mutate(
+        root,
+        info,
+        name,
+        allowed_scopes,
+        enforce_tag_filter=False,
+        required_tags=None,
+        expires_at=None,
+    ):
         from django.core.exceptions import ValidationError
 
         user = info.context.user
@@ -2398,6 +2415,7 @@ class CreateHefaistosInboundShareKey(graphene.Mutation):
         else:
             scopes = list(dict.fromkeys(scopes))
 
+        normalized_tags = normalize_required_tags(required_tags)
         raw_key = generate_raw_share_key()
         entry = HefaistosInboundShareKey(
             organization=user.organization,
@@ -2405,6 +2423,8 @@ class CreateHefaistosInboundShareKey(graphene.Mutation):
             key_hash=hash_api_key(raw_key),
             key_hint=build_key_hint(raw_key),
             allowed_scopes=scopes,
+            enforce_tag_filter=bool(enforce_tag_filter),
+            required_tags=normalized_tags,
             expires_at=expires_at,
             is_active=True,
             created_by=user,

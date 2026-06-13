@@ -512,6 +512,48 @@ class UpdateACHStatus(graphene.Mutation):
         return UpdateACHStatus(analysis=analysis)
 
 
+class SetACHRemotePull(graphene.Mutation):
+    class Arguments:
+        analysis_id = graphene.UUID(required=True)
+        enabled = graphene.Boolean(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    analysis = graphene.Field(ACHAnalysisType)
+
+    def mutate(self, info, analysis_id, enabled):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Not logged in")
+
+        analysis = ACHAnalysis.objects.select_related('owner').filter(id=analysis_id).first()
+        if analysis is None:
+            raise Exception("Analysis not found")
+
+        is_admin = bool(
+            user.role in [Roles.ADMIN, Roles.REVIEWER]
+            or getattr(user, 'is_superuser', False)
+            or getattr(user, 'is_staff', False)
+        )
+        same_org = bool(
+            getattr(user, 'organization_id', None)
+            and getattr(analysis.owner, 'organization_id', None) == user.organization_id
+        )
+
+        if not same_org and not is_admin:
+            raise Exception("Access denied")
+        if not is_admin and analysis.owner_id != user.id:
+            raise Exception("Only owner or admin can change remote pull access")
+
+        analysis.allow_remote_pull = bool(enabled)
+        analysis.save(update_fields=['allow_remote_pull', 'updated_at'])
+        return SetACHRemotePull(
+            success=True,
+            message='Remote pull enabled for this ACH analysis' if analysis.allow_remote_pull else 'Remote pull disabled for this ACH analysis',
+            analysis=analysis,
+        )
+
+
 class ApproveACHAnalysis(graphene.Mutation):
     class Arguments:
         analysis_id = graphene.UUID(required=True)
@@ -702,6 +744,7 @@ class Mutation(graphene.ObjectType):
     create_ach_template = CreateACHTemplate.Field()
     save_ach_as_template = SaveACHAsTemplate.Field()
     update_ach_status = UpdateACHStatus.Field()
+    set_ach_remote_pull = SetACHRemotePull.Field()
     approve_ach_analysis = ApproveACHAnalysis.Field()
     delete_ach_analysis = DeleteACHAnalysis.Field()
     clone_ach_analysis = CloneACHAnalysis.Field()
