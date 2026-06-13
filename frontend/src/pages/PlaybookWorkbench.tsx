@@ -1874,7 +1874,7 @@ export const PlaybookWorkbench = () => {
               className="w-10 h-10 p-2 flex items-center justify-center"
               title={data.playbookGraph.allowRemotePull ? 'Remote pull enabled - click to disable' : 'Remote pull disabled - click to enable'}
             >
-              <PixelIcon name={data.playbookGraph.allowRemotePull ? 'download' : 'lock'} className="w-5 h-5" />
+              <PixelIcon name={data.playbookGraph.allowRemotePull ? 'download' : 'download-off'} className="w-5 h-5" />
             </Button>
           )}
           

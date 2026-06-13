@@ -18,6 +18,7 @@ export const PixelIcon: React.FC<PixelIconProps> = ({ name, className }) => {
     folder: '📁',
     bell: '🔔',
     download: '📥',
+    'download-off': '🚫',
     upload: '📤',
     copy: '📋',
     'file-text': '📄',
