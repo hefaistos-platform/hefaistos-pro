@@ -29,7 +29,7 @@ from rules.models import DetectionRule, RuleRepository
 class SharingScopePermissionTests(TestCase):
     def test_key_allows_scope_rules(self):
         self.assertTrue(key_allows_scope(['ALL'], 'WORKBENCH'))
-        self.assertTrue(key_allows_scope(['WORKBENCH', 'RULES', 'ACH'], 'ALL'))
+        self.assertTrue(key_allows_scope(['WORKBENCH', 'RULES', 'ACH', 'ADVOPS'], 'ALL'))
         self.assertTrue(key_allows_scope(['ADVOPS'], 'ADVOPS'))
         self.assertTrue(key_allows_scope(['RULES'], 'RULES'))
         self.assertFalse(key_allows_scope(['WORKBENCH'], 'ALL'))
@@ -397,6 +397,37 @@ class SharingApiEndpointTests(TestCase):
         body = response.json()
         hunt_ids = {(entry.get('hunt_id') or '').strip() for entry in (body.get('advops') or [])}
         self.assertEqual(hunt_ids, {'ADV-2026-06-001'})
+
+    def test_export_all_includes_advops_when_allowed(self):
+        all_scope_key = 'hefshare_all_includes_advops_key'
+        HefaistosInboundShareKey.objects.create(
+            organization=self.org,
+            name='all-includes-advops',
+            key_hash=hash_api_key(all_scope_key),
+            key_hint='all...adv',
+            allowed_scopes=['ALL'],
+            is_active=True,
+            created_by=self.admin,
+        )
+
+        ADVOPSReport.objects.create(
+            hunt_id='ADV-2026-06-010',
+            hypothesis='Included in ALL',
+            status='DEPLOYED',
+            priority='HIGH',
+            author=self.admin,
+            organization=self.org,
+            allow_remote_pull=True,
+        )
+
+        response = self.client.get(
+            '/api/sharing/export?scope=ALL',
+            **{'HTTP_X_HEFAISTOS_SHARE_KEY': all_scope_key},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        hunt_ids = {(entry.get('hunt_id') or '').strip() for entry in (body.get('advops') or [])}
+        self.assertEqual(hunt_ids, {'ADV-2026-06-010'})
 
 
 class SharingImportRulesTests(TestCase):

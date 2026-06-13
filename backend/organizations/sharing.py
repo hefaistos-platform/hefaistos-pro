@@ -25,7 +25,7 @@ from organizations.models import (
     SHARING_SCOPE_VALUES,
 )
 
-ATOMIC_SCOPES = ('WORKBENCH', 'RULES', 'ACH')
+ATOMIC_SCOPES = ('WORKBENCH', 'RULES', 'ACH', 'ADVOPS')
 WORKBENCH_REQUIRED_STATUS = 'DEPLOYED'
 ACH_REQUIRED_STATUS = 'FINISHED'
 ADVOPS_REQUIRED_STATUS = 'DEPLOYED'
@@ -380,8 +380,6 @@ def export_org_payload(
 ) -> dict[str, Any]:
     scope = normalize_scope(requested_scope)
     include_scopes = expand_scope(scope)
-    if scope == 'ADVOPS':
-        include_scopes.add('ADVOPS')
     instance_identity = get_or_create_instance_identity(create_if_missing=create_identity_if_missing)
 
     payload: dict[str, Any] = {
