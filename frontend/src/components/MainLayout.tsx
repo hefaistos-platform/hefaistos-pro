@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
-import { Layout, Menu, Button, Typography, App, Space, Dropdown } from 'antd';
+import { Layout, Menu, Button, Typography, App, Space, Dropdown, Alert } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   DatabaseOutlined,
@@ -68,6 +68,9 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   const username = meData?.me?.username;
   const email = meData?.me?.email;
   const isElOne = currentRole === 'ELONE' && !isSuperuser;
+  const isBotAuditorOrg = currentRole === 'BOT_AUDITOR_ORG';
+  const isBotAuditorGlobal = currentRole === 'BOT_AUDITOR_GLOBAL';
+  const isBotAuditor = isBotAuditorOrg || isBotAuditorGlobal;
 
   // Map route prefixes to menu keys
   const selectedKey = useMemo(() => {
@@ -110,7 +113,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       { key: 'tools-dld', icon: <RadarChartOutlined />, label: 'Logic Deconstructor', onClick: () => navigate('/tools/dld') },
       { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
       { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
-      ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' || isSuperuser ? [{
+      ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' || isSuperuser || isBotAuditor ? [{
         key: 'mgmt-cave',
         icon: <CrownOutlined />,
         label: 'MGMT Cave',
@@ -119,7 +122,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       { key: 'profile', icon: <TeamOutlined />, label: 'My Profile', onClick: () => navigate('/profile') },
     ];
 
-  if (!isElOne && (currentRole === 'ADMIN' || isSuperuser)) {
+  if (!isElOne && (currentRole === 'ADMIN' || isSuperuser || isBotAuditor)) {
     items.push({ key: 'news', icon: <BulbOutlined />, label: 'News Management', onClick: () => navigate('/mgmt/news') });
     items.push({ key: 'config', icon: <AppstoreOutlined />, label: 'Configuration', onClick: () => navigate('/mgmt/config') });
     items.push({ key: 'framework-updates', icon: <SyncOutlined />, label: 'Framework Updates', onClick: () => navigate('/mgmt/framework-updates') });
@@ -127,7 +130,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   }
 
   // Superuser management - only for Django superusers
-  if (!isElOne && isSuperuser) {
+  if (!isElOne && (isSuperuser || isBotAuditorGlobal)) {
     items.push({ key: 'superuser', icon: <CrownOutlined />, label: 'Superuser Mgmt', onClick: () => navigate('/mgmt/superuser') });
   }
 
@@ -338,6 +341,15 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
         </Header>
           <Content style={{ margin: 0, padding: '24px 32px', background: '#f9fbfd' }}>
           <App>
+            {isBotAuditor && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Bot Auditor Read-Only Mode"
+                description="This account can inspect features, but all write operations are blocked and sensitive fields are redacted."
+                style={{ marginBottom: 16 }}
+              />
+            )}
             {children}
           </App>
         </Content>

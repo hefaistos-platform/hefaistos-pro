@@ -124,10 +124,12 @@ export const LogsPage: React.FC = () => {
     fetchPolicy: 'cache-and-network',
   });
 
+  const role = (accessData?.me?.role || '').toUpperCase();
+  const isBotAuditor = role === 'BOT_AUDITOR_ORG' || role === 'BOT_AUDITOR_GLOBAL';
   const isAdmin = useMemo(() => {
-    const role = (accessData?.me?.role || '').toUpperCase();
     return role === 'ADMIN' || Boolean(accessData?.me?.isSuperuser) || Boolean(accessData?.me?.isStaff);
-  }, [accessData]);
+  }, [accessData?.me?.isStaff, accessData?.me?.isSuperuser, role]);
+  const hasLogsAccess = isAdmin || isBotAuditor;
 
   const variables: LogsQueryVars = useMemo(
     () => ({
@@ -147,7 +149,7 @@ export const LogsPage: React.FC = () => {
     refetch,
   } = useQuery<LogsQueryData, LogsQueryVars>(GET_MCS_SECURITY_LOGS, {
     variables,
-    skip: !isAdmin,
+    skip: !hasLogsAccess,
     fetchPolicy: 'network-only',
     notifyOnNetworkStatusChange: true,
   });
@@ -222,14 +224,14 @@ export const LogsPage: React.FC = () => {
     );
   }
 
-  if (!isAdmin) {
+  if (!hasLogsAccess) {
     return (
       <div style={{ padding: 32 }}>
         <Alert
           type="error"
           showIcon
           message="Forbidden"
-          description="You need the ADMIN role to access centralized security logs."
+          description="You need ADMIN or BOT_AUDITOR role to access centralized security logs."
         />
       </div>
     );
@@ -238,6 +240,14 @@ export const LogsPage: React.FC = () => {
   return (
     <div style={{ padding: 24, maxWidth: 1600, margin: '0 auto' }}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {isBotAuditor && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Read-only bot auditor mode"
+            description="Log viewing is allowed for evaluation. Write operations remain blocked."
+          />
+        )}
         <div>
           <Title level={2} style={{ marginBottom: 4 }}>
             Centralized Security Logs

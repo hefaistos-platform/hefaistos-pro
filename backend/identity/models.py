@@ -62,9 +62,11 @@ class CustomUser(AbstractUser):
         REVIEWER = 'REVIEWER', 'Reviewer'
         VIEWER = 'VIEWER', 'Viewer'
         ELONE = 'ELONE', 'ElOne'
+        BOT_AUDITOR_ORG = 'BOT_AUDITOR_ORG', 'Bot Auditor (Org)'
+        BOT_AUDITOR_GLOBAL = 'BOT_AUDITOR_GLOBAL', 'Bot Auditor (Global)'
 
     role = models.CharField(
-        max_length=10,
+        max_length=24,
         choices=Roles.choices,
         default=Roles.ANALYST, # Default new users to 'Analyst'
         help_text="The user's role, which determines their permissions."

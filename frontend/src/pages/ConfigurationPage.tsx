@@ -1279,13 +1279,20 @@ export const ConfigurationPage: React.FC = () => {
     return role === 'ADMIN' || role === 'SUPERADMIN' || Boolean(accessData?.me?.isSuperuser);
   }, [accessData?.me?.isSuperuser, accessData?.me?.role]);
 
+  const isBotAuditorRole = useMemo(() => {
+    const role = (accessData?.me?.role || '').toUpperCase();
+    return role === 'BOT_AUDITOR_ORG' || role === 'BOT_AUDITOR_GLOBAL';
+  }, [accessData?.me?.role]);
+
+  const isConfigAccessAllowed = isConfigAdmin || isBotAuditorRole;
+
   useEffect(() => {
-    if (!accessLoading && !isConfigAdmin) {
+    if (!accessLoading && !isConfigAccessAllowed) {
       navigate('/', { replace: true });
     }
-  }, [accessLoading, isConfigAdmin, navigate]);
+  }, [accessLoading, isConfigAccessAllowed, navigate]);
   const isAccessPending = accessLoading;
-  const isAccessDenied = !accessLoading && !isConfigAdmin;
+  const isAccessDenied = !accessLoading && !isConfigAccessAllowed;
 
   const tabFromUrl = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -1317,15 +1324,15 @@ export const ConfigurationPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const { data: usersData, loading: usersLoading, error: usersError, refetch: refetchUsers } = useQuery<{ allUsersInOrg: User[] }>(GET_ALL_USERS_QUERY, {
-    skip: isAccessPending || !isConfigAdmin,
+    skip: isAccessPending || !isConfigAccessAllowed,
   });
   const { data: orgData } = useQuery<{ allOrganizations: { id: string; name: string }[] }>(ALL_ORGANIZATIONS_QUERY, {
     errorPolicy: 'ignore',
-    skip: isAccessPending || !isConfigAdmin,
+    skip: isAccessPending || !isConfigAccessAllowed,
   });
   const { data: orgAiData, refetch: refetchOrgAi } = useQuery<OrgAISettingsData>(GET_ORG_AI_SETTINGS, {
     errorPolicy: 'ignore',
-    skip: isAccessPending || !isConfigAdmin,
+    skip: isAccessPending || !isConfigAccessAllowed,
   });
   const [orgAiForm, setOrgAiForm] = useState({ ollamaBaseUrl: '', ollamaModel: '', openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiEndpoint: '', azureOpenaiKey: '', azureOpenaiDeployment: '', orgPreferredModel: '', ollamaEnabled: true, openaiEnabled: true, geminiEnabled: true, claudeEnabled: true, azureOpenaiEnabled: true });
 
@@ -1403,7 +1410,7 @@ export const ConfigurationPage: React.FC = () => {
   // Determine role for MISP tab (piggyback on repos query result via App.useApp context)
   const { data: repoData } = useQuery<{ me?: { role: string } | null; allRuleRepositories: Repo[] }>(
     GET_RULE_REPOSITORIES,
-    { fetchPolicy: 'cache-first', skip: isAccessPending || !isConfigAdmin },
+    { fetchPolicy: 'cache-first', skip: isAccessPending || !isConfigAccessAllowed },
   );
   const repoRole = repoData?.me?.role || 'VIEWER';
   const canAdminConfig = isConfigAdmin;
@@ -1416,10 +1423,14 @@ export const ConfigurationPage: React.FC = () => {
       children: (
         <div>
           <div className="flex justify-end mb-4">
-            <Button variant="primary" onClick={() => setIsInviteModalOpen(true)}>
-              <PixelIcon name="add" className="w-5 h-5 mr-2" />
-              Invite User
-            </Button>
+            {canAdminConfig ? (
+              <Button variant="primary" onClick={() => setIsInviteModalOpen(true)}>
+                <PixelIcon name="add" className="w-5 h-5 mr-2" />
+                Invite User
+              </Button>
+            ) : (
+              <Typography.Text type="secondary">Read-only mode: invite/edit actions are disabled.</Typography.Text>
+            )}
           </div>
           {usersLoading && <p>Loading users...</p>}
           {usersError && <p className="text-hefaistos-accent-red">Error: {usersError.message}</p>}
@@ -1443,18 +1454,24 @@ export const ConfigurationPage: React.FC = () => {
                       <td className="p-4">{user.role}</td>
                       <td className="p-4">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>
                       <td className="p-4 flex gap-2">
-                        <Button variant="secondary" onClick={() => {
-                          setEditingUser(user);
-                          setEditForm({ email: user.email || '', role: user.role, bio: (user as any).bio || '', jobTitle: (user as any).jobTitle || '', slackHandle: (user as any).slackHandle || '', organizationId: user.organization?.id || '' });
-                        }}>
-                          <PixelIcon name="edit" className="w-4 h-4" />
-                        </Button>
-                        <Button variant="secondary" title="Reset Password" aria-label="Reset Password" onClick={() => { setResetPasswordUser(user); setNewPassword(''); setConfirmPassword(''); }}>
-                          🔑
-                        </Button>
-                        <Button variant="danger" onClick={() => handleDelete(user)} disabled={deleteLoading || user.isStaff}>
-                          <PixelIcon name="delete" className="w-4 h-4" />
-                        </Button>
+                        {canAdminConfig ? (
+                          <>
+                            <Button variant="secondary" onClick={() => {
+                              setEditingUser(user);
+                              setEditForm({ email: user.email || '', role: user.role, bio: (user as any).bio || '', jobTitle: (user as any).jobTitle || '', slackHandle: (user as any).slackHandle || '', organizationId: user.organization?.id || '' });
+                            }}>
+                              <PixelIcon name="edit" className="w-4 h-4" />
+                            </Button>
+                            <Button variant="secondary" title="Reset Password" aria-label="Reset Password" onClick={() => { setResetPasswordUser(user); setNewPassword(''); setConfirmPassword(''); }}>
+                              🔑
+                            </Button>
+                            <Button variant="danger" onClick={() => handleDelete(user)} disabled={deleteLoading || user.isStaff}>
+                              <PixelIcon name="delete" className="w-4 h-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Typography.Text type="secondary">Read-only</Typography.Text>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -1462,7 +1479,9 @@ export const ConfigurationPage: React.FC = () => {
               </table>
             </div>
           )}
-          <InviteUserModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onUserInvited={() => refetchUsers()} />
+          {canAdminConfig && (
+            <InviteUserModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onUserInvited={() => refetchUsers()} />
+          )}
         </div>
       ),
     },
@@ -1500,7 +1519,7 @@ export const ConfigurationPage: React.FC = () => {
       key: 'orgai',
       label: 'Org AI',
       children: (
-        <div className="space-y-8">
+        <div className={`space-y-8 ${!canAdminConfig ? 'pointer-events-none opacity-80' : ''}`}>
           <div className="bg-white rounded-lg shadow-sm border-2 border-hefaistos-border p-6">
             <h3 className="text-xl font-bold mb-1">Organization AI Settings</h3>
             <p className="text-sm text-gray-500 mb-6">
@@ -1664,7 +1683,7 @@ export const ConfigurationPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end mt-4">
-              <Button variant="primary" disabled={savingOrgAi} onClick={handleSaveOrgAi}>
+              <Button variant="primary" disabled={savingOrgAi || !canAdminConfig} onClick={handleSaveOrgAi}>
                 {savingOrgAi ? 'Saving...' : 'Save AI Settings'}
               </Button>
             </div>
@@ -1714,7 +1733,7 @@ export const ConfigurationPage: React.FC = () => {
       />
 
       {/* Edit user modal */}
-      {editingUser && (
+      {canAdminConfig && editingUser && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}
@@ -1737,6 +1756,8 @@ export const ConfigurationPage: React.FC = () => {
                   <option value="REVIEWER">REVIEWER</option>
                   <option value="VIEWER">VIEWER</option>
                   <option value="ELONE">ELONE</option>
+                  <option value="BOT_AUDITOR_ORG">BOT_AUDITOR_ORG</option>
+                  <option value="BOT_AUDITOR_GLOBAL">BOT_AUDITOR_GLOBAL</option>
                 </select>
               </div>
               <div>
@@ -1789,7 +1810,7 @@ export const ConfigurationPage: React.FC = () => {
       )}
 
       {/* Reset password modal */}
-      {resetPasswordUser && (
+      {canAdminConfig && resetPasswordUser && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setResetPasswordUser(null); }}

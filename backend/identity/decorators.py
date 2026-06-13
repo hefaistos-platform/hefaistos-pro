@@ -9,6 +9,23 @@ logger = logging.getLogger(__name__)
 # Expose the roles for easy import by other modules
 Roles = CustomUser.Roles
 
+BOT_AUDITOR_ROLES = {
+    Roles.BOT_AUDITOR_ORG,
+    Roles.BOT_AUDITOR_GLOBAL,
+}
+
+
+def is_bot_auditor_role(role: str | None) -> bool:
+    return (role or '') in BOT_AUDITOR_ROLES
+
+
+def is_bot_auditor_user(user) -> bool:
+    return bool(user and not getattr(user, 'is_anonymous', True) and is_bot_auditor_role(getattr(user, 'role', None)))
+
+
+def is_global_bot_auditor_user(user) -> bool:
+    return bool(user and not getattr(user, 'is_anonymous', True) and getattr(user, 'role', None) == Roles.BOT_AUDITOR_GLOBAL)
+
 def role_required(roles: list):
     """
     A decorator that checks if a logged-in user has one of the required roles.
@@ -67,12 +84,43 @@ def role_required(roles: list):
                     # Service accounts bypass role checks for connector operations
                     return func(*args, **kwargs)
 
-                # Check 3: Allow platform admins (superuser/staff) to bypass org-scoped role checks
+                # Check 3: Bot auditors are strictly read-only and may never call
+                # role-gated actions (mutations, privileged commands).
+                if is_bot_auditor_user(user):
+                    logger.warning(f"[role_required] Bot auditor '{user.username}' denied write access to {func.__name__}")
+                    emit_security_event(
+                        level='warning',
+                        logger_name='AuthorizationService',
+                        message=(
+                            f"Read-only bot account '{user.username}' attempted write access "
+                            f"to '{func.__name__}'."
+                        ),
+                        event_action='resource_access_denied',
+                        event_outcome='failure',
+                        asvs_event_code='AUTHZ-DENY-01',
+                        event_reason='Read-only bot auditor accounts cannot perform write operations.',
+                        event_category=['authorization'],
+                        event_type=['denied', 'failure'],
+                        user_id=str(getattr(user, 'id', 'unknown')),
+                        user_name=getattr(user, 'username', None),
+                        source_ip=extract_client_ip(info.context),
+                        request=info.context,
+                        asvs_details={
+                            'authorization': {
+                                'resource_type': 'graphql_mutation',
+                                'resource_id': func.__name__,
+                                'required_permission': f"role:{','.join(roles)}",
+                            }
+                        },
+                    )
+                    raise PermissionDenied("Read-only bot auditor accounts cannot perform this action.")
+
+                # Check 4: Allow platform admins (superuser/staff) to bypass org-scoped role checks
                 if getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False):
                     logger.info(f"[role_required] Platform admin '{user.username}' (superuser={user.is_superuser}, staff={user.is_staff}) allowed access to {func.__name__}")
                     return func(*args, **kwargs)
 
-                # Check 4: Does user have the required role?
+                # Check 5: Does user have the required role?
                 if user.role not in roles:
                     logger.warning(f"[role_required] User '{user.username}' with role '{user.role}' denied access to {func.__name__} (requires {roles})")
                     emit_security_event(

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
-import { 
+import {
+  Alert,
   Table, 
   Button, 
   Modal, 
@@ -30,7 +31,6 @@ import dayjs from 'dayjs';
 import { createEditorOptions, MARKDOWN_PLACEHOLDERS, configureMdeInstance } from '../config/markdownConfig';
 import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
-const { TextArea } = Input;
 const { Title, Text } = Typography;
 
 interface NewsPost {
@@ -51,6 +51,14 @@ interface NewsPost {
 
 interface AllNewsData {
   allNews: NewsPost[];
+}
+
+interface NewsAdminAccessData {
+  me?: {
+    id: string;
+    role?: string | null;
+    isSuperuser?: boolean | null;
+  } | null;
 }
 
 const ALL_NEWS_ADMIN_QUERY = gql`
@@ -76,6 +84,16 @@ const ALL_NEWS_ADMIN_QUERY = gql`
 const NEWS_SETTINGS_QUERY = gql`
   query NewsSettings {
     newsSettings
+  }
+`;
+
+const NEWS_ADMIN_ACCESS_QUERY = gql`
+  query NewsAdminAccess {
+    me {
+      id
+      role
+      isSuperuser
+    }
   }
 `;
 
@@ -200,6 +218,14 @@ export const AdminNewsPage: React.FC = () => {
     []
   );
 
+  const { data: accessData, loading: accessLoading } = useQuery<NewsAdminAccessData>(NEWS_ADMIN_ACCESS_QUERY, {
+    fetchPolicy: 'cache-first',
+  });
+  const normalizedRole = (accessData?.me?.role || '').toUpperCase();
+  const isBotAuditor = normalizedRole === 'BOT_AUDITOR_ORG' || normalizedRole === 'BOT_AUDITOR_GLOBAL';
+  const canManage = normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN' || Boolean(accessData?.me?.isSuperuser);
+  const canView = canManage || isBotAuditor;
+
   const { data, loading, refetch } = useQuery<AllNewsData>(ALL_NEWS_ADMIN_QUERY);
   interface NewsSettingsData { newsSettings: any }
   const { data: settingsData, refetch: refetchSettings } = useQuery<NewsSettingsData>(NEWS_SETTINGS_QUERY);
@@ -256,6 +282,7 @@ export const AdminNewsPage: React.FC = () => {
   });
 
   const handleCreate = () => {
+    if (!canManage) return;
     setEditingPost(null);
     form.resetFields();
     setPreviewContent('');
@@ -280,6 +307,7 @@ export const AdminNewsPage: React.FC = () => {
   const digestEnabled = parsedSettings?.digestEnabled ?? true;
 
   const toggleDigest = async () => {
+    if (!canManage) return;
     try {
       await setSettings({ variables: { digestEnabled: !digestEnabled } });
       message.success(`Digest ${!digestEnabled ? 'enabled' : 'disabled'}`);
@@ -289,6 +317,7 @@ export const AdminNewsPage: React.FC = () => {
   };
 
   const sendDigestNow = async () => {
+    if (!canManage) return;
     try {
       const { data } = await sendDigest({ variables: { limit: 20 } });
       if (data?.sendNewsDigest) {
@@ -302,6 +331,7 @@ export const AdminNewsPage: React.FC = () => {
   };
 
   const handleEdit = (post: NewsPost) => {
+    if (!canManage) return;
     setEditingPost(post);
     form.setFieldsValue({
       title: post.title,
@@ -316,6 +346,7 @@ export const AdminNewsPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!canManage) return;
     try {
       const values = await form.validateFields();
       const variables = {
@@ -334,6 +365,7 @@ export const AdminNewsPage: React.FC = () => {
   };
 
   const handlePublishToggle = async (post: NewsPost) => {
+    if (!canManage) return;
     if (post.isPublished) {
       await unpublishNews({ variables: { id: post.id } });
     } else {
@@ -342,6 +374,7 @@ export const AdminNewsPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canManage) return;
     await deleteNews({ variables: { id } });
   };
 
@@ -444,24 +477,28 @@ export const AdminNewsPage: React.FC = () => {
             icon={record.isPublished ? <EyeInvisibleOutlined /> : <EyeOutlined />}
             onClick={() => handlePublishToggle(record)}
             title={record.isPublished ? 'Unpublish' : 'Publish'}
+            disabled={!canManage}
           />
           <Button
             type="text"
             size="small"
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
+            disabled={!canManage}
           />
           <Popconfirm
             title="Delete this news post?"
             onConfirm={() => handleDelete(record.id)}
             okText="Yes"
             cancelText="No"
+            disabled={!canManage}
           >
             <Button
               type="text"
               size="small"
               danger
               icon={<DeleteOutlined />}
+              disabled={!canManage}
             />
           </Popconfirm>
         </Space>
@@ -469,10 +506,31 @@ export const AdminNewsPage: React.FC = () => {
     }
   ];
 
+  if (!accessLoading && accessData?.me && !canView) {
+    return (
+      <div style={{ padding: '24px' }}>
+        <Alert
+          type="error"
+          showIcon
+          message="Forbidden"
+          description="You need ADMIN or BOT_AUDITOR role to access News Management."
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '24px' }}>
       <Card>
         <Space direction="vertical" style={{ width: '100%' }} size="large">
+          {isBotAuditor && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Read-only bot auditor mode"
+              description="You can inspect news content and history, but create/edit/publish actions are disabled."
+            />
+          )}
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
             <Title level={2} style={{ margin: 0 }}>
               📰 News Management
@@ -480,14 +538,16 @@ export const AdminNewsPage: React.FC = () => {
             <Space>
               <Button
                 onClick={toggleDigest}
+                disabled={!canManage}
               >
                 {digestEnabled ? 'Disable Digest' : 'Enable Digest'}
               </Button>
-              <Button onClick={sendDigestNow}>Send Digest Now</Button>
+              <Button onClick={sendDigestNow} disabled={!canManage}>Send Digest Now</Button>
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
                 onClick={handleCreate}
+                disabled={!canManage}
               >
                 Create News Post
               </Button>
@@ -515,11 +575,13 @@ export const AdminNewsPage: React.FC = () => {
         }}
         onOk={handleSubmit}
         confirmLoading={creating || updating}
+        okButtonProps={{ disabled: !canManage }}
         width={900}
       >
         <Form
           form={form}
           layout="vertical"
+          disabled={!canManage}
           initialValues={{
             category: 'ANNOUNCEMENT',
             priority: 'MEDIUM',

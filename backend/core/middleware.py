@@ -10,8 +10,52 @@ from django.http import HttpResponseForbidden, HttpResponseBadRequest
 from django.conf import settings
 from django.utils.deprecation import MiddlewareMixin
 from core.mcs_logging import emit_security_event
+from identity.decorators import is_bot_auditor_user
 
 logger = logging.getLogger(__name__)
+
+
+class BotReadOnlyHttpMiddleware:
+    """
+    Enforce read-only mode for bot auditor roles on non-GraphQL HTTP endpoints.
+    GraphQL write protection is handled by core.graphql_security.GraphQLSecurityMiddleware.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        user = getattr(request, 'user', None)
+        if (
+            user
+            and not getattr(user, 'is_anonymous', True)
+            and is_bot_auditor_user(user)
+            and request.method.upper() not in ('GET', 'HEAD', 'OPTIONS')
+            and not request.path.startswith('/graphql')
+        ):
+            source_ip = request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR', 'unknown')
+            emit_security_event(
+                level='warning',
+                logger_name='AuthorizationService',
+                message=(
+                    f"Read-only bot account '{getattr(user, 'username', 'unknown')}' "
+                    f"attempted HTTP write '{request.method} {request.path}'."
+                ),
+                event_action='resource_access_denied',
+                event_outcome='failure',
+                asvs_event_code='AUTHZ-DENY-01',
+                event_reason='Read-only bot auditor accounts cannot perform write operations.',
+                event_category=['authorization'],
+                event_type=['denied', 'failure'],
+                user_id=str(getattr(user, 'id', 'unknown')),
+                user_name=getattr(user, 'username', None),
+                source_ip=source_ip,
+                request=request,
+                http_status_code=403,
+            )
+            return HttpResponseForbidden('Read-only bot auditor accounts cannot perform this operation.')
+
+        return self.get_response(request)
 
 
 class AdminIPRestrictionMiddleware:

@@ -17,7 +17,7 @@ from .models import (
     WebAuthnChallenge,
 )
 from organizations.models import Organization
-from .decorators import role_required, Roles
+from .decorators import role_required, Roles, is_global_bot_auditor_user
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
 from django.contrib.auth.signals import user_logged_in
@@ -135,7 +135,11 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             raise Exception("Authentication required")
 
-        # Security: This query returns all users in the *caller's* organization
+        # Global bot auditors can enumerate users platform-wide for evaluation.
+        if is_global_bot_auditor_user(user):
+            return CustomUser.objects.all().order_by('username')
+
+        # Default security: return users only from caller organization.
         return CustomUser.objects.filter(organization=user.organization)
 
     def resolve_my_ai_credentials(self, info):
@@ -215,6 +219,20 @@ def _issue_account_setup_link(target_user, caller_user, request=None):
     return _frontend_url(f"/activate-account?token={raw_token}", request=request)
 
 
+def _allowed_roles_for_assignment(caller):
+    roles = [
+        Roles.ADMIN,
+        Roles.ANALYST,
+        Roles.REVIEWER,
+        Roles.VIEWER,
+        Roles.ELONE,
+        Roles.BOT_AUDITOR_ORG,
+    ]
+    if getattr(caller, 'is_superuser', False) or getattr(caller, 'is_staff', False):
+        roles.append(Roles.BOT_AUDITOR_GLOBAL)
+    return roles
+
+
 class InviteUser(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
@@ -233,7 +251,11 @@ class InviteUser(graphene.Mutation):
     def mutate(root, info, username, email, role):
         caller = info.context.user
 
-        if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER, Roles.ELONE]:
+        if role == Roles.BOT_AUDITOR_GLOBAL and not (caller.is_superuser or caller.is_staff):
+            raise Exception("Only platform admins can assign BOT_AUDITOR_GLOBAL.")
+
+        allowed_roles = _allowed_roles_for_assignment(caller)
+        if role not in allowed_roles:
             raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
 
         new_user = CustomUser(
@@ -2046,7 +2068,10 @@ class Mutation(graphene.ObjectType):
             target.email = email
             changed_fields.append('email')
         if role is not None:
-            if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER, Roles.ELONE]:
+            if role == Roles.BOT_AUDITOR_GLOBAL and not (caller.is_superuser or caller.is_staff):
+                raise Exception("Only platform admins can assign BOT_AUDITOR_GLOBAL.")
+            allowed_roles = _allowed_roles_for_assignment(caller)
+            if role not in allowed_roles:
                 raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
             target.role = role
             changed_fields.append('role')

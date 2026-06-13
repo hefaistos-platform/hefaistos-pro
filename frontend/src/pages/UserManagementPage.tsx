@@ -686,6 +686,8 @@ export const UserManagementPage = () => {
                   <option value="REVIEWER">REVIEWER</option>
                   <option value="VIEWER">VIEWER</option>
                   <option value="ELONE">ELONE</option>
+                  <option value="BOT_AUDITOR_ORG">BOT_AUDITOR_ORG</option>
+                  <option value="BOT_AUDITOR_GLOBAL">BOT_AUDITOR_GLOBAL</option>
                 </select>
               </div>
               <div>

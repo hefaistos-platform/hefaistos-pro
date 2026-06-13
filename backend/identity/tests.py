@@ -75,6 +75,14 @@ class RoleRequiredDecoratorTests(TestCase):
         with self.assertRaises(PermissionDenied):
             wrapped(info)
 
+    def test_bot_auditor_denied_even_if_role_allowed(self):
+        """Bot auditor roles are hard read-only and denied from role-gated writes."""
+        user = self._make_user(role=Roles.BOT_AUDITOR_ORG)
+        info = _make_info(user)
+        wrapped = role_required([Roles.BOT_AUDITOR_ORG, Roles.ADMIN])(_dummy_func)
+        with self.assertRaises(PermissionDenied):
+            wrapped(info)
+
     def test_superuser_bypasses_role_check(self):
         """A superuser (platform admin) bypasses org-scoped role checks regardless of their role field."""
         user = self._make_user(role=Roles.VIEWER, is_superuser=True)

@@ -188,6 +188,10 @@ export const FrameworkUpdatesPage: React.FC = () => {
 
   const { data: meData } = useQuery(ME_QUERY);
   const userRole = meData?.me?.role;
+  const normalizedRole = (userRole || '').toUpperCase();
+  const isBotAuditor = normalizedRole === 'BOT_AUDITOR_ORG' || normalizedRole === 'BOT_AUDITOR_GLOBAL';
+  const canView = normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN' || isBotAuditor;
+  const canManage = normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN';
 
   const { data: versionsData } = useQuery(LOADED_ATTACK_VERSIONS_QUERY);
   const { data: latestData } = useQuery(LATEST_AVAILABLE_ATTACK_VERSION_QUERY, { fetchPolicy: 'cache-and-network' });
@@ -235,10 +239,10 @@ export const FrameworkUpdatesPage: React.FC = () => {
     }
   }, [refetchJobs, messageApi]);
 
-  if (userRole && userRole !== 'ADMIN') {
+  if (userRole && !canView) {
     return (
       <div style={{ padding: 32 }}>
-        <Alert type="error" showIcon message="Forbidden" description="You need the ADMIN role to access this page." />
+        <Alert type="error" showIcon message="Forbidden" description="You need ADMIN or BOT_AUDITOR role to access this page." />
       </div>
     );
   }
@@ -291,6 +295,16 @@ export const FrameworkUpdatesPage: React.FC = () => {
         ATT&CK Framework Updates
       </Title>
 
+      {isBotAuditor && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Read-only bot auditor mode"
+          description="You can inspect versions and history, but running imports is disabled."
+        />
+      )}
+
       {/* Current version status */}
       <Card title="Currently Loaded Frameworks" style={{ marginBottom: 24 }}>
         {loadedVersions.length === 0 ? (
@@ -335,6 +349,7 @@ export const FrameworkUpdatesPage: React.FC = () => {
           initialValues={{ mode: 'remote' }}
           onFinish={handleSubmit}
           style={{ gap: 8 }}
+          disabled={!canManage}
         >
           <Form.Item
             name="version"
@@ -355,7 +370,7 @@ export const FrameworkUpdatesPage: React.FC = () => {
               htmlType="submit"
               icon={<SyncOutlined />}
               loading={importing || !!pollingJobId}
-              disabled={!!pollingJobId}
+              disabled={!canManage || !!pollingJobId}
             >
               Run Update
             </Button>
