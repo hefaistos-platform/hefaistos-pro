@@ -40,6 +40,7 @@ from playbooks.models import PlaybookGraph  # Safe import (models only, avoids c
 from ach.models import ACHAnalysis
 from advops.models import ADVOPSReport
 from core.mcs_logging import emit_security_event, extract_client_ip
+from core.email_templates import get_frontend_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -200,18 +201,18 @@ class Query(graphene.ObjectType):
             logger.error(f"Error in resolve_me: {str(e)}")
             raise
 
-def _frontend_url(path: str) -> str:
-    base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
+def _frontend_url(path: str, request=None) -> str:
+    base = get_frontend_base_url(request=request).rstrip('/')
     safe_path = path if path.startswith('/') else f'/{path}'
     if not base:
         return safe_path
     return f"{base}{safe_path}"
 
 
-def _issue_account_setup_link(target_user, caller_user):
+def _issue_account_setup_link(target_user, caller_user, request=None):
     AccountSetupToken.objects.filter(user=target_user, used=False).delete()
     _, raw_token = AccountSetupToken.issue_for_user(user=target_user, created_by=caller_user, hours_valid=24)
-    return _frontend_url(f"/activate-account?token={raw_token}")
+    return _frontend_url(f"/activate-account?token={raw_token}", request=request)
 
 
 class InviteUser(graphene.Mutation):
@@ -244,7 +245,7 @@ class InviteUser(graphene.Mutation):
         new_user.set_unusable_password()
         new_user.save()
 
-        setup_url = _issue_account_setup_link(target_user=new_user, caller_user=caller)
+        setup_url = _issue_account_setup_link(target_user=new_user, caller_user=caller, request=info.context)
         setup_link_to_return = None
 
         try:
@@ -794,7 +795,7 @@ def _get_webauthn_origin():
     configured = getattr(settings, 'WEBAUTHN_ORIGIN', None)
     if configured:
         return configured
-    frontend_url = getattr(settings, 'FRONTEND_URL', None)
+    frontend_url = get_frontend_base_url()
     if frontend_url:
         return frontend_url.rstrip('/')
     return "http://localhost:3000"
@@ -1896,9 +1897,7 @@ class RequestPasswordReset(graphene.Mutation):
             from core.email_service import get_email_service
             service = get_email_service()
             if service.is_configured() and target.email:
-                from django.conf import settings
-                frontend_url = getattr(settings, 'FRONTEND_URL', '').rstrip('/')
-                reset_url = f"{frontend_url}/reset-password?token={token_value}"
+                reset_url = _frontend_url(f"/reset-password?token={token_value}", request=info.context)
                 service.send_message(
                     to=[target.email],
                     subject='HEFAISTOS Password Reset Request',

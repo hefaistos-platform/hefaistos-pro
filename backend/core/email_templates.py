@@ -1,27 +1,84 @@
 import os
 from typing import List
+from urllib.parse import urlparse
 
 from django.utils.html import escape
 
+_PLACEHOLDER_HOSTS = {
+    "app.example.com",
+    "example.com",
+    "www.example.com",
+    "your.domain.com",
+}
 
-def get_login_url() -> str:
-    """Return the configured frontend login URL."""
+def _normalize_base_url(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    return raw.rstrip("/")
+
+
+def _is_placeholder_base_url(value: str) -> bool:
+    try:
+        host = (urlparse(value).hostname or "").lower()
+    except Exception:
+        return True
+    if not host:
+        return True
+    return host in _PLACEHOLDER_HOSTS or host.endswith(".example.com")
+
+
+def _frontend_base_from_request(request: object | None) -> str:
+    if not request:
+        return ""
+    request_obj = request.get("request") if isinstance(request, dict) else request
+    try:
+        return (request_obj.build_absolute_uri("/") or "").rstrip("/")
+    except Exception:
+        return ""
+
+
+def get_frontend_base_url(request: object | None = None) -> str:
+    """Resolve canonical frontend base URL with placeholder-safe fallbacks."""
     try:
         from django.conf import settings
-        base = getattr(settings, 'FRONTEND_URL', None) or os.environ.get('FRONTEND_URL', 'https://hefaistos.org')
+        public_base = getattr(settings, "PUBLIC_BASE_URL", None) or os.environ.get("PUBLIC_BASE_URL")
+        frontend_base = getattr(settings, "FRONTEND_URL", None) or os.environ.get("FRONTEND_URL")
+        server_domain = getattr(settings, "SERVER_DOMAIN", None) or os.environ.get("SERVER_DOMAIN")
     except Exception:
-        base = os.environ.get('FRONTEND_URL', 'https://hefaistos.org')
-    return base.rstrip('/') + '/login'
+        public_base = os.environ.get("PUBLIC_BASE_URL")
+        frontend_base = os.environ.get("FRONTEND_URL")
+        server_domain = os.environ.get("SERVER_DOMAIN")
+
+    for candidate in (
+        _normalize_base_url(public_base),
+        _normalize_base_url(frontend_base),
+        _normalize_base_url(server_domain),
+        _normalize_base_url(_frontend_base_from_request(request)),
+    ):
+        if candidate and not _is_placeholder_base_url(candidate):
+            return candidate
+
+    # Last-resort fallback preserves backward behavior in local/dev setups.
+    fallback = _normalize_base_url(_frontend_base_from_request(request)) or "https://localhost"
+    return fallback
 
 
-def login_link_text() -> str:
+def get_login_url(request: object | None = None) -> str:
+    """Return the configured frontend login URL."""
+    return get_frontend_base_url(request=request) + "/login"
+
+
+def login_link_text(request: object | None = None) -> str:
     """Return a plain-text login footer line."""
-    return f"Login to HEFAISTOS platform: {get_login_url()}"
+    return f"Login to HEFAISTOS platform: {get_login_url(request=request)}"
 
 
-def login_link_html() -> str:
+def login_link_html(request: object | None = None) -> str:
     """Return an HTML login footer line."""
-    url = get_login_url()
+    url = get_login_url(request=request)
     return (
         f'<p style="margin-top:16px">Login to HEFAISTOS platform: '
         f'<a href="{url}" style="color:#2563eb;text-decoration:underline">{url}</a></p>'
