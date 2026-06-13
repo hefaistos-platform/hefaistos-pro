@@ -9,6 +9,7 @@ import { KanbanBoardPage } from './pages/KanbanBoardPage'
 import { LoginPage } from './pages/LoginPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { ActivateAccountPage } from './pages/ActivateAccountPage';
 import { PlaybooksHubPage } from './pages/PlaybooksHubPage';
 import PlaybookWorkbenchPage from './pages/PlaybookWorkbench';
 import { PlaybookDetailPage } from './pages/PlaybookDetailPage';
@@ -67,6 +68,7 @@ const AppRoutes = () => {
       />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/activate-account" element={<ActivateAccountPage />} />
       <Route
         path="/*"
         element={

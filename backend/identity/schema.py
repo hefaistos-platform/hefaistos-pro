@@ -9,6 +9,7 @@ from .models import (
     CustomUser,
     UserAiCredential,
     PasswordResetToken,
+    AccountSetupToken,
     UserMfaSettings,
     MfaLoginChallenge,
     MfaAuditEvent,
@@ -22,6 +23,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.signals import user_logged_in
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 from graphql_jwt.shortcuts import get_token
 import pyotp
@@ -198,94 +200,257 @@ class Query(graphene.ObjectType):
             logger.error(f"Error in resolve_me: {str(e)}")
             raise
 
-# Add this class
+def _frontend_url(path: str) -> str:
+    base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
+    safe_path = path if path.startswith('/') else f'/{path}'
+    if not base:
+        return safe_path
+    return f"{base}{safe_path}"
+
+
+def _issue_account_setup_link(target_user, caller_user):
+    AccountSetupToken.objects.filter(user=target_user, used=False).delete()
+    _, raw_token = AccountSetupToken.issue_for_user(user=target_user, created_by=caller_user, hours_valid=24)
+    return _frontend_url(f"/activate-account?token={raw_token}")
+
+
 class InviteUser(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
         email = graphene.String(required=True)
-        password = graphene.String(required=True)
         role = graphene.String(required=True)
 
     user = graphene.Field(UserType)
+    message = graphene.String()
+    setup_link = graphene.String()
 
     class Meta:
-        description = "Creates (invites) a new user in the Admin's organization."
+        description = "Creates (invites) a new user in the Admin's organization without sending any temporary password."
 
     @staticmethod
-    @role_required([Roles.ADMIN]) # Only Admins can invite
-    def mutate(root, info, username, email, password, role):
-        user = info.context.user
+    @role_required([Roles.ADMIN])  # Only Admins can invite
+    def mutate(root, info, username, email, role):
+        caller = info.context.user
 
-        # Validate Role
         if role not in [Roles.ADMIN, Roles.ANALYST, Roles.REVIEWER, Roles.VIEWER, Roles.ELONE]:
             raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
 
-        # Validate Password
-        try:
-            validate_password(password)
-        except ValidationError as e:
-            raise Exception(f"Password validation failed: {', '.join(e)}")
-
-        # Create User
         new_user = CustomUser(
-            username=username,
-            email=email,
+            username=(username or '').strip(),
+            email=(email or '').strip(),
             role=role,
-            organization=user.organization # Create in the Admin's org
+            organization=caller.organization,
         )
-        new_user.set_password(password)
+        new_user.set_unusable_password()
         new_user.save()
 
-        # Send welcome/invitation email to new user
+        setup_url = _issue_account_setup_link(target_user=new_user, caller_user=caller)
+        setup_link_to_return = None
+
         try:
             from core.email_service import get_email_service
-            from core.email_templates import login_link_text, login_link_html
             service = get_email_service()
-            if service.is_configured() and email:
-                org_name = user.organization.name if user.organization else 'HEFAISTOS'
+            if service.is_configured() and new_user.email:
+                org_name = caller.organization.name if caller.organization else 'HEFAISTOS'
+                mfa_note = (
+                    "\nBecause this account has ADMIN role, setup includes mandatory MFA enrollment."
+                    if role == Roles.ADMIN
+                    else ""
+                )
                 service.send_message(
-                    to=[email],
-                    subject=f'🎉 Welcome to {org_name} - Your HEFAISTOS Account',
-                    text=f"""Hello {username},
+                    to=[new_user.email],
+                    subject=f'Welcome to {org_name} - Complete Your HEFAISTOS Account Setup',
+                    text=f"""Hello {new_user.username},
 
 You have been invited to join {org_name} on HEFAISTOS.
 
-Your account details:
-- Username: {username}
-- Temporary Password: {password}
+Account details:
+- Username: {new_user.username}
 - Role: {role}
 - Organization: {org_name}
 
-Please log in and change your password immediately.
+Complete your account setup using this one-time secure link (valid for 24 hours):
 
-{login_link_text()}
+{setup_url}
+{mfa_note}
 
-If you have any questions, please contact your administrator.
+If you did not expect this invitation, please ignore this email.
 
 Best regards,
 The HEFAISTOS Team""",
                     html=f"""<html><body>
-<h2>🎉 Welcome to {org_name}!</h2>
-<p>Hello <strong>{username}</strong>,</p>
+<h2>Welcome to {org_name}</h2>
+<p>Hello <strong>{new_user.username}</strong>,</p>
 <p>You have been invited to join <strong>{org_name}</strong> on HEFAISTOS.</p>
-<h3>Your account details:</h3>
+<h3>Account details:</h3>
 <ul>
-<li><strong>Username:</strong> {username}</li>
-<li><strong>Temporary Password:</strong> <code style="background:#f0f0f0;padding:2px 6px;border-radius:3px;">{password}</code></li>
+<li><strong>Username:</strong> {new_user.username}</li>
 <li><strong>Role:</strong> {role}</li>
 <li><strong>Organization:</strong> {org_name}</li>
 </ul>
-<p style="color:#c00;"><strong>⚠️ Please log in and change your password immediately.</strong></p>
-{login_link_html()}
-<p>If you have any questions, please contact your administrator.</p>
+<p>Complete your account setup using this one-time secure link (valid for 24 hours):</p>
+<p><a href="{setup_url}" style="color:#2563eb;text-decoration:underline">{setup_url}</a></p>
+{"<p><strong>Because this account has ADMIN role, setup includes mandatory MFA enrollment.</strong></p>" if role == Roles.ADMIN else ""}
+<p>If you did not expect this invitation, please ignore this email.</p>
 <p>Best regards,<br/>The HEFAISTOS Team</p>
-</body></html>"""
+</body></html>""",
                 )
-                logger.info(f"Sent invitation email to new user {username} at {email}")
+                logger.info(f"Sent account setup invitation email to {new_user.username} at {new_user.email}")
+            else:
+                setup_link_to_return = setup_url
         except Exception as e:
-            logger.error(f"Failed to send invitation email to {email}: {e}")
+            logger.error(f"Failed to send account setup invitation email to {new_user.email}: {e}")
+            setup_link_to_return = setup_url
 
-        return InviteUser(user=new_user)
+        return InviteUser(
+            user=new_user,
+            message="Invitation created. Setup link sent by email when email service is configured.",
+            setup_link=setup_link_to_return,
+        )
+
+
+class PrepareAccountActivation(graphene.Mutation):
+    class Arguments:
+        token = graphene.String(required=True)
+
+    username = graphene.String(required=True)
+    email = graphene.String(required=True)
+    role = graphene.String(required=True)
+    requires_mfa = graphene.Boolean(required=True)
+    totp_secret = graphene.String()
+    otpauth_uri = graphene.String()
+    expires_at = graphene.DateTime(required=True)
+
+    @staticmethod
+    def mutate(root, info, token):
+        setup_token = AccountSetupToken.from_raw_token(token)
+        if not setup_token:
+            raise Exception("Invalid or already-used activation token.")
+        if setup_token.is_expired():
+            raise Exception("This activation token has expired. Ask your administrator for a new invitation.")
+
+        target = setup_token.user
+        requires_mfa = target.role == Roles.ADMIN
+        totp_secret = None
+        otpauth_uri = None
+
+        if requires_mfa:
+            settings_obj, _ = UserMfaSettings.objects.get_or_create(user=target)
+            has_mfa = _has_mfa_method(target, settings_obj)
+            requires_mfa = not has_mfa
+            if requires_mfa:
+                pending_secret = settings_obj.pending_totp_secret
+                if not pending_secret:
+                    pending_secret = pyotp.random_base32()
+                    settings_obj.pending_totp_secret = pending_secret
+                    settings_obj.save(update_fields=['pending_totp_secret_encrypted', 'updated_at'])
+                totp_secret = pending_secret
+                otpauth_uri = pyotp.TOTP(pending_secret).provisioning_uri(
+                    name=target.username,
+                    issuer_name="HEFAISTOS",
+                )
+
+        return PrepareAccountActivation(
+            username=target.username,
+            email=target.email or '',
+            role=target.role,
+            requires_mfa=requires_mfa,
+            totp_secret=totp_secret,
+            otpauth_uri=otpauth_uri,
+            expires_at=setup_token.expires_at,
+        )
+
+
+class CompleteAccountActivation(graphene.Mutation):
+    class Arguments:
+        token = graphene.String(required=True)
+        new_password = graphene.String(required=True)
+        otp_code = graphene.String(required=False)
+
+    ok = graphene.Boolean(required=True)
+    message = graphene.String()
+    backup_codes = graphene.List(graphene.String, required=True)
+
+    @staticmethod
+    def mutate(root, info, token, new_password, otp_code=None):
+        setup_token = AccountSetupToken.from_raw_token(token)
+        if not setup_token:
+            raise Exception("Invalid or already-used activation token.")
+        if setup_token.is_expired():
+            raise Exception("This activation token has expired. Ask your administrator for a new invitation.")
+
+        target = setup_token.user
+        try:
+            validate_password(new_password, user=target)
+        except ValidationError as e:
+            raise Exception(f"Password validation failed: {', '.join(e.messages)}")
+
+        backup_codes = []
+        source_ip = extract_client_ip(info.context)
+        with transaction.atomic():
+            token_hash = AccountSetupToken.hash_token(token)
+            locked_token = AccountSetupToken.objects.select_for_update().select_related('user').filter(
+                token_hash=token_hash,
+                used=False,
+            ).first()
+            if not locked_token:
+                raise Exception("Invalid or already-used activation token.")
+            if locked_token.is_expired():
+                raise Exception("This activation token has expired. Ask your administrator for a new invitation.")
+
+            target = locked_token.user
+            if target.role == Roles.ADMIN:
+                mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=target)
+                has_mfa = _has_mfa_method(target, mfa_settings)
+                if not has_mfa:
+                    pending_secret = mfa_settings.pending_totp_secret
+                    if not pending_secret:
+                        raise Exception("MFA enrollment is required for this administrator account.")
+                    if not pyotp.TOTP(pending_secret).verify((otp_code or '').strip(), valid_window=1):
+                        raise Exception("Invalid MFA verification code")
+                    backup_codes = _generate_backup_codes()
+                    mfa_settings.totp_secret = pending_secret
+                    mfa_settings.pending_totp_secret = ''
+                    mfa_settings.totp_enabled = True
+                    mfa_settings.backup_codes_hashes = _hash_backup_codes(backup_codes)
+                    mfa_settings.backup_codes_generated_at = timezone.now()
+                    mfa_settings.failed_attempts = 0
+                    mfa_settings.locked_until = None
+                    mfa_settings.save()
+                    MfaAuditEvent.objects.create(
+                        user=target,
+                        event=MfaAuditEvent.Event.TOTP_ENROLL_CONFIRMED,
+                        details={"source": "account_activation"},
+                    )
+
+            target.set_password(new_password)
+            target.save(update_fields=['password'])
+            AccountSetupToken.objects.filter(pk=locked_token.pk).update(
+                used=True,
+                used_at=timezone.now(),
+            )
+
+        target_user_id, target_user_name = _user_identity(target)
+        emit_security_event(
+            level='informational',
+            logger_name='AuthService',
+            message=f"User '{target_user_name}' completed account activation.",
+            event_action='user_password_change_success',
+            event_outcome='success',
+            asvs_event_code='AUTHN-CHANGE-PASS-OK-01',
+            event_category=['authentication'],
+            event_type=['end', 'success'],
+            user_id=target_user_id,
+            user_name=target_user_name,
+            source_ip=source_ip,
+            request=info.context,
+            http_status_code=200,
+        )
+        return CompleteAccountActivation(
+            ok=True,
+            message="Account setup completed successfully. You can now log in.",
+            backup_codes=backup_codes,
+        )
 
 # Add this class
 class DeleteUser(graphene.Mutation):
@@ -1826,6 +1991,8 @@ class ResetPassword(graphene.Mutation):
 
 
 class Mutation(graphene.ObjectType):
+    prepare_account_activation = PrepareAccountActivation.Field()
+    complete_account_activation = CompleteAccountActivation.Field()
     start_mfa_login = StartMfaLogin.Field()
     verify_mfa_login = VerifyMfaLogin.Field()
     start_webauthn_registration = StartWebAuthnRegistration.Field()

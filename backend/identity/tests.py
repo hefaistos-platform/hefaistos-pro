@@ -2,7 +2,11 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from organizations.models import Organization
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+import pyotp
+
+from identity.models import AccountSetupToken, UserMfaSettings
+from identity.schema import InviteUser, PrepareAccountActivation, CompleteAccountActivation
 from identity.decorators import role_required, Roles
 
 User = get_user_model()
@@ -95,3 +99,81 @@ class RoleRequiredDecoratorTests(TestCase):
         wrapped = role_required([Roles.ADMIN])(_dummy_func)
         with self.assertRaises(PermissionDenied):
             wrapped(info)
+
+
+class AccountSetupFlowTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Activation Org")
+        self.admin = User.objects.create_user(
+            username="orgadmin",
+            email="admin@example.com",
+            password="AdminPass123!",
+            role=Roles.ADMIN,
+            organization=self.org,
+        )
+
+    def _make_info(self, user=None):
+        info = MagicMock()
+        if user is not None:
+            info.context.user = user
+        info.context.META = {"REMOTE_ADDR": "127.0.0.1"}
+        return info
+
+    @patch("identity.schema.emit_security_event")
+    @patch("core.email_service.get_email_service")
+    def test_invite_user_creates_unusable_password_and_setup_token(self, mock_get_email_service, _mock_emit):
+        service = MagicMock()
+        service.is_configured.return_value = False
+        mock_get_email_service.return_value = service
+
+        info = self._make_info(self.admin)
+        result = InviteUser.mutate(
+            None,
+            info,
+            username="newuser",
+            email="newuser@example.com",
+            role=Roles.ANALYST,
+        )
+
+        created = User.objects.get(username="newuser")
+        self.assertFalse(created.has_usable_password())
+        self.assertEqual(AccountSetupToken.objects.filter(user=created, used=False).count(), 1)
+        self.assertIsNotNone(result.setup_link)
+        self.assertIn("activate-account?token=", result.setup_link)
+
+    @patch("identity.schema.emit_security_event")
+    def test_admin_activation_requires_totp_and_enables_mfa(self, _mock_emit):
+        invited = User.objects.create_user(
+            username="newadmin",
+            email="newadmin@example.com",
+            role=Roles.ADMIN,
+            organization=self.org,
+        )
+        invited.set_unusable_password()
+        invited.save(update_fields=["password"])
+
+        _token_obj, raw_token = AccountSetupToken.issue_for_user(user=invited, created_by=self.admin, hours_valid=24)
+
+        public_info = self._make_info()
+        prepared = PrepareAccountActivation.mutate(None, public_info, token=raw_token)
+        self.assertTrue(prepared.requires_mfa)
+        self.assertTrue(prepared.totp_secret)
+        otp = pyotp.TOTP(prepared.totp_secret).now()
+
+        completed = CompleteAccountActivation.mutate(
+            None,
+            public_info,
+            token=raw_token,
+            new_password="NewAdminPass123!",
+            otp_code=otp,
+        )
+        self.assertTrue(completed.ok)
+        self.assertGreater(len(completed.backup_codes), 0)
+
+        invited.refresh_from_db()
+        self.assertTrue(invited.check_password("NewAdminPass123!"))
+
+        mfa_settings = UserMfaSettings.objects.get(user=invited)
+        self.assertTrue(mfa_settings.totp_enabled)
+        self.assertTrue(bool(mfa_settings.totp_secret))
+        self.assertEqual(AccountSetupToken.objects.filter(user=invited, used=False).count(), 0)

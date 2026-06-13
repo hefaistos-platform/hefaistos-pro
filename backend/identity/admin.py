@@ -1,6 +1,13 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser, UserMfaSettings, MfaAuditEvent, WebAuthnCredential, WebAuthnChallenge
+from .models import (
+    CustomUser,
+    UserMfaSettings,
+    MfaAuditEvent,
+    WebAuthnCredential,
+    WebAuthnChallenge,
+    AccountSetupToken,
+)
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
@@ -45,3 +52,10 @@ class WebAuthnCredentialAdmin(admin.ModelAdmin):
 class WebAuthnChallengeAdmin(admin.ModelAdmin):
     list_display = ('challenge_type', 'user', 'username', 'used', 'expires_at', 'created_at')
     search_fields = ('user__username', 'username', 'challenge_type')
+
+
+@admin.register(AccountSetupToken)
+class AccountSetupTokenAdmin(admin.ModelAdmin):
+    list_display = ('user', 'created_by', 'used', 'expires_at', 'created_at', 'used_at')
+    search_fields = ('user__username', 'user__email', 'created_by__username')
+    readonly_fields = ('token_hash', 'created_at', 'used_at')

@@ -140,6 +140,59 @@ class PasswordResetToken(models.Model):
         return f"PasswordResetToken({self.user.username}, used={self.used})"
 
 
+class AccountSetupToken(models.Model):
+    """One-time token for invited account activation. Expires after 24 hours by default."""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='account_setup_tokens')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_account_setup_tokens',
+    )
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @staticmethod
+    def hash_token(raw_token: str) -> str:
+        return hashlib.sha256((raw_token or '').encode('utf-8')).hexdigest()
+
+    @classmethod
+    def issue_for_user(cls, user, created_by=None, hours_valid: int = 24):
+        raw_token = secrets.token_urlsafe(32)
+        token_obj = cls.objects.create(
+            user=user,
+            created_by=created_by,
+            token_hash=cls.hash_token(raw_token),
+            expires_at=timezone.now() + timedelta(hours=max(1, int(hours_valid or 24))),
+        )
+        return token_obj, raw_token
+
+    @classmethod
+    def from_raw_token(cls, raw_token: str):
+        if not raw_token:
+            return None
+        token_hash = cls.hash_token(raw_token)
+        return cls.objects.select_related('user').filter(token_hash=token_hash, used=False).first()
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def mark_used(self):
+        self.used = True
+        self.used_at = timezone.now()
+        self.save(update_fields=['used', 'used_at'])
+
+    def __str__(self):
+        return f"AccountSetupToken({self.user.username}, used={self.used})"
+
+
 class UserAiCredential(models.Model):
     class Provider(models.TextChoices):
         GEMINI = 'gemini', 'Google Gemini'
