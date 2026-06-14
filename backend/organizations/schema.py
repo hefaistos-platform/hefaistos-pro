@@ -1,8 +1,11 @@
 import graphene
 import logging
 import re
+from datetime import timedelta
 from typing import List, Set
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Max, Q
+from django.utils import timezone
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 from ai_assistant.models import OrgAISettings, SharedAIProfile
@@ -497,6 +500,55 @@ class OrgAITaskRunType(graphene.ObjectType):
         return self.run_by.username if getattr(self, 'run_by', None) else None
 
 
+class PlatformGlobalKpisType(graphene.ObjectType):
+    organizations = graphene.Int()
+    users = graphene.Int()
+    rules_total = graphene.Int()
+    active_rules = graphene.Int()
+    workbenches_total = graphene.Int()
+    deployed_workbenches = graphene.Int()
+    l1_entries = graphene.Int()
+    orgs_with_shared_ai = graphene.Int()
+    orgs_with_shared_smtp = graphene.Int()
+    orgs_with_custom_ai = graphene.Int()
+    orgs_with_custom_smtp = graphene.Int()
+    orgs_near_user_capacity = graphene.Int()
+    orgs_without_admin = graphene.Int()
+
+
+class PlatformOrganizationStatType(graphene.ObjectType):
+    organization_id = graphene.UUID()
+    organization_name = graphene.String()
+    max_users = graphene.Int()
+    member_count = graphene.Int()
+    user_utilization_percent = graphene.Float()
+    admin_count = graphene.Int()
+    rules_total = graphene.Int()
+    active_rules = graphene.Int()
+    workbenches_total = graphene.Int()
+    deployed_workbenches = graphene.Int()
+    l1_entries = graphene.Int()
+    ai_shared_enabled = graphene.Boolean()
+    smtp_shared_enabled = graphene.Boolean()
+    last_activity_at = graphene.DateTime()
+
+
+class PlatformAlertType(graphene.ObjectType):
+    severity = graphene.String()
+    category = graphene.String()
+    organization_id = graphene.UUID()
+    organization_name = graphene.String()
+    message = graphene.String()
+
+
+class PlatformStatsType(graphene.ObjectType):
+    generated_at = graphene.DateTime()
+    inactivity_days = graphene.Int()
+    global_kpis = graphene.Field(PlatformGlobalKpisType)
+    organizations = graphene.List(PlatformOrganizationStatType)
+    alerts = graphene.List(PlatformAlertType)
+
+
 # ---------------------------------------------------------------------------
 # OpenTIDE AI Preview types
 # ---------------------------------------------------------------------------
@@ -658,6 +710,11 @@ class Query(graphene.ObjectType):
         task_key=graphene.String(required=False),
         description='Recent organization AI task runs (admin only).',
     )
+    platform_stats = graphene.Field(
+        PlatformStatsType,
+        inactivity_days=graphene.Int(required=False, default_value=30),
+        description='System-wide platform statistics for superusers.',
+    )
 
     def resolve_my_organization(self, info):
         user = info.context.user
@@ -761,6 +818,197 @@ class Query(graphene.ObjectType):
         if task_key:
             qs = qs.filter(task_key=task_key)
         return list(qs.order_by('-started_at')[:max_limit])
+
+    def resolve_platform_stats(self, info, inactivity_days=30):
+        from playbooks.models import L1PortalEntry, PlaybookGraph
+        from rules.models import DetectionRule
+
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        if not user.is_superuser:
+            raise GraphQLError('Permission denied. Superuser access required.')
+
+        inactivity_days = max(7, min(int(inactivity_days or 30), 365))
+        inactivity_cutoff = timezone.now() - timedelta(days=inactivity_days)
+
+        orgs_qs = Organization.objects.annotate(
+            member_count=Count('customuser', distinct=True),
+            admin_count=Count('customuser', filter=Q(customuser__role=Roles.ADMIN), distinct=True),
+            rules_total=Count('detection_rules', distinct=True),
+            active_rules=Count('detection_rules', filter=Q(detection_rules__playbook__status='DEPLOYED'), distinct=True),
+            workbenches_total=Count('playbookgraph', distinct=True),
+            deployed_workbenches=Count('playbookgraph', filter=Q(playbookgraph__status='DEPLOYED'), distinct=True),
+            l1_entries=Count('l1_portal_entries', distinct=True),
+            last_user_login=Max('customuser__last_login'),
+            last_rule_update=Max('detection_rules__updated_at'),
+            last_workbench_update=Max('playbookgraph__updated_at'),
+        ).order_by('name')
+
+        orgs = list(orgs_qs)
+        org_ids = [org.id for org in orgs]
+        org_ids_set = {str(org_id) for org_id in org_ids}
+
+        smtp_shared_org_ids = {
+            str(org_id)
+            for org_id in OrganizationSmtpSettings.objects.filter(
+                organization_id__in=org_ids,
+                enforce_shared=True,
+            ).values_list('organization_id', flat=True)
+        }
+        smtp_custom_org_ids = {
+            str(org_id)
+            for org_id in OrganizationSmtpSettings.objects.filter(
+                organization_id__in=org_ids,
+                custom_enabled=True,
+                enforce_shared=False,
+            ).values_list('organization_id', flat=True)
+        }
+
+        org_ai_settings = list(
+            OrgAISettings.objects.select_related('shared_profile').filter(
+                organization_id__in=org_ids,
+            )
+        )
+        ai_shared_org_ids = {
+            str(settings.organization_id)
+            for settings in org_ai_settings
+            if settings.shared_profile_locked
+        }
+        ai_custom_org_ids = {
+            str(settings.organization_id)
+            for settings in org_ai_settings
+            if settings.has_any_provider and not settings.shared_profile_locked
+        }
+
+        near_capacity_count = 0
+        without_admin_count = 0
+        alerts: List[PlatformAlertType] = []
+        org_rows: List[PlatformOrganizationStatType] = []
+
+        for org in orgs:
+            org_id_str = str(org.id)
+            member_count = int(getattr(org, 'member_count', 0) or 0)
+            max_users = getattr(org, 'max_users', None)
+            admin_count = int(getattr(org, 'admin_count', 0) or 0)
+            rules_total = int(getattr(org, 'rules_total', 0) or 0)
+            active_rules = int(getattr(org, 'active_rules', 0) or 0)
+            workbenches_total = int(getattr(org, 'workbenches_total', 0) or 0)
+            deployed_workbenches = int(getattr(org, 'deployed_workbenches', 0) or 0)
+            l1_entries = int(getattr(org, 'l1_entries', 0) or 0)
+
+            utilization_percent = None
+            if max_users:
+                utilization_percent = round((member_count / max_users) * 100, 2)
+                if utilization_percent >= 90:
+                    near_capacity_count += 1
+                    alerts.append(
+                        PlatformAlertType(
+                            severity='critical' if utilization_percent >= 100 else 'warning',
+                            category='USER_CAPACITY',
+                            organization_id=org.id,
+                            organization_name=org.name,
+                            message=(
+                                f'Organization is at {utilization_percent:.1f}% user capacity '
+                                f'({member_count}/{max_users}).'
+                            ),
+                        )
+                    )
+
+            if admin_count == 0:
+                without_admin_count += 1
+                alerts.append(
+                    PlatformAlertType(
+                        severity='critical',
+                        category='ORG_ADMIN',
+                        organization_id=org.id,
+                        organization_name=org.name,
+                        message='Organization has no ADMIN user assigned.',
+                    )
+                )
+
+            if active_rules == 0 and deployed_workbenches == 0:
+                alerts.append(
+                    PlatformAlertType(
+                        severity='warning',
+                        category='DEPLOYMENT',
+                        organization_id=org.id,
+                        organization_name=org.name,
+                        message='No deployed workbenches and no active rules.',
+                    )
+                )
+
+            activity_candidates = [
+                getattr(org, 'updated_at', None),
+                getattr(org, 'last_user_login', None),
+                getattr(org, 'last_rule_update', None),
+                getattr(org, 'last_workbench_update', None),
+            ]
+            present_activity = [value for value in activity_candidates if value is not None]
+            last_activity_at = max(present_activity) if present_activity else None
+
+            if last_activity_at is None or last_activity_at < inactivity_cutoff:
+                alerts.append(
+                    PlatformAlertType(
+                        severity='warning',
+                        category='INACTIVITY',
+                        organization_id=org.id,
+                        organization_name=org.name,
+                        message=f'No recent activity in the last {inactivity_days} days.',
+                    )
+                )
+
+            org_rows.append(
+                PlatformOrganizationStatType(
+                    organization_id=org.id,
+                    organization_name=org.name,
+                    max_users=max_users,
+                    member_count=member_count,
+                    user_utilization_percent=utilization_percent,
+                    admin_count=admin_count,
+                    rules_total=rules_total,
+                    active_rules=active_rules,
+                    workbenches_total=workbenches_total,
+                    deployed_workbenches=deployed_workbenches,
+                    l1_entries=l1_entries,
+                    ai_shared_enabled=org_id_str in ai_shared_org_ids,
+                    smtp_shared_enabled=org_id_str in smtp_shared_org_ids,
+                    last_activity_at=last_activity_at,
+                )
+            )
+
+        global_kpis = PlatformGlobalKpisType(
+            organizations=len(orgs),
+            users=CustomUser.objects.filter(organization_id__in=org_ids).count(),
+            rules_total=DetectionRule.objects.filter(organization_id__in=org_ids).count(),
+            active_rules=DetectionRule.objects.filter(
+                organization_id__in=org_ids,
+                playbook__status='DEPLOYED',
+            ).count(),
+            workbenches_total=PlaybookGraph.objects.filter(organization_id__in=org_ids).count(),
+            deployed_workbenches=PlaybookGraph.objects.filter(
+                organization_id__in=org_ids,
+                status='DEPLOYED',
+            ).count(),
+            l1_entries=L1PortalEntry.objects.filter(
+                organization_id__in=org_ids,
+                graph__status='DEPLOYED',
+            ).count(),
+            orgs_with_shared_ai=len(ai_shared_org_ids & org_ids_set),
+            orgs_with_shared_smtp=len(smtp_shared_org_ids & org_ids_set),
+            orgs_with_custom_ai=len(ai_custom_org_ids & org_ids_set),
+            orgs_with_custom_smtp=len(smtp_custom_org_ids & org_ids_set),
+            orgs_near_user_capacity=near_capacity_count,
+            orgs_without_admin=without_admin_count,
+        )
+
+        return PlatformStatsType(
+            generated_at=timezone.now(),
+            inactivity_days=inactivity_days,
+            global_kpis=global_kpis,
+            organizations=org_rows,
+            alerts=alerts,
+        )
 
     def resolve_opentide_hef_publish_profiles(self, info, enabled=None):
         user = info.context.user

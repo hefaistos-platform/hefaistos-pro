@@ -18,6 +18,9 @@ import {
   Divider,
   Switch,
   Alert,
+  Row,
+  Col,
+  Statistic,
 } from 'antd';
 import {
   PlusOutlined,
@@ -29,6 +32,7 @@ import {
   ExclamationCircleOutlined,
   MailOutlined,
   RobotOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons';
 import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
@@ -125,6 +129,53 @@ const GET_SHARED_AI_PROFILES = gql`
       hasAnyProvider
       isActive
       updatedAt
+    }
+  }
+`;
+
+const GET_PLATFORM_STATS = gql`
+  query GetPlatformStats($inactivityDays: Int) {
+    platformStats(inactivityDays: $inactivityDays) {
+      generatedAt
+      inactivityDays
+      globalKpis {
+        organizations
+        users
+        rulesTotal
+        activeRules
+        workbenchesTotal
+        deployedWorkbenches
+        l1Entries
+        orgsWithSharedAi
+        orgsWithSharedSmtp
+        orgsWithCustomAi
+        orgsWithCustomSmtp
+        orgsNearUserCapacity
+        orgsWithoutAdmin
+      }
+      organizations {
+        organizationId
+        organizationName
+        maxUsers
+        memberCount
+        userUtilizationPercent
+        adminCount
+        rulesTotal
+        activeRules
+        workbenchesTotal
+        deployedWorkbenches
+        l1Entries
+        aiSharedEnabled
+        smtpSharedEnabled
+        lastActivityAt
+      }
+      alerts {
+        severity
+        category
+        organizationId
+        organizationName
+        message
+      }
     }
   }
 `;
@@ -413,6 +464,57 @@ interface SetOrganizationSharedFlagsData {
   };
 }
 
+interface PlatformGlobalKpis {
+  organizations: number;
+  users: number;
+  rulesTotal: number;
+  activeRules: number;
+  workbenchesTotal: number;
+  deployedWorkbenches: number;
+  l1Entries: number;
+  orgsWithSharedAi: number;
+  orgsWithSharedSmtp: number;
+  orgsWithCustomAi: number;
+  orgsWithCustomSmtp: number;
+  orgsNearUserCapacity: number;
+  orgsWithoutAdmin: number;
+}
+
+interface PlatformOrganizationStat {
+  organizationId: string;
+  organizationName: string;
+  maxUsers?: number | null;
+  memberCount: number;
+  userUtilizationPercent?: number | null;
+  adminCount: number;
+  rulesTotal: number;
+  activeRules: number;
+  workbenchesTotal: number;
+  deployedWorkbenches: number;
+  l1Entries: number;
+  aiSharedEnabled: boolean;
+  smtpSharedEnabled: boolean;
+  lastActivityAt?: string | null;
+}
+
+interface PlatformAlertRow {
+  severity: string;
+  category: string;
+  organizationId: string;
+  organizationName: string;
+  message: string;
+}
+
+interface PlatformStatsData {
+  platformStats: {
+    generatedAt: string;
+    inactivityDays: number;
+    globalKpis: PlatformGlobalKpis;
+    organizations: PlatformOrganizationStat[];
+    alerts: PlatformAlertRow[];
+  } | null;
+}
+
 export const OrganizationsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('organizations');
   const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
@@ -443,6 +545,15 @@ export const OrganizationsPage: React.FC = () => {
     GET_SHARED_AI_PROFILES,
     { variables: { includeInactive: false }, fetchPolicy: 'cache-and-network' },
   );
+  const {
+    data: platformStatsData,
+    loading: platformStatsLoading,
+    refetch: refetchPlatformStats,
+  } = useQuery<PlatformStatsData>(GET_PLATFORM_STATS, {
+    variables: { inactivityDays: 30 },
+    fetchPolicy: 'network-only',
+    nextFetchPolicy: 'cache-first',
+  });
 
   // Mutations
   const [createOrganization, { loading: createOrgLoading }] = useMutation<CreateOrgData>(CREATE_ORGANIZATION);
@@ -476,6 +587,9 @@ export const OrganizationsPage: React.FC = () => {
   }, [aiProfiles]);
 
   const smtpLoginMethod = Form.useWatch('loginMethod', smtpForm) || 'PLAIN';
+  const platformStats = platformStatsData?.platformStats || null;
+  const platformOrgRows = platformStats?.organizations || [];
+  const platformAlerts = platformStats?.alerts || [];
 
   useEffect(() => {
     if (primarySmtpProfile) {
@@ -905,6 +1019,77 @@ export const OrganizationsPage: React.FC = () => {
     },
   ];
 
+  const platformColumns = [
+    {
+      title: 'Organization',
+      dataIndex: 'organizationName',
+      key: 'organizationName',
+      render: (name: string) => <strong>{name}</strong>,
+    },
+    {
+      title: 'Users',
+      key: 'users',
+      render: (_: unknown, row: PlatformOrganizationStat) => (
+        <Space direction="vertical" size={0}>
+          <Text>{row.memberCount} / {row.maxUsers ?? 'Unlimited'}</Text>
+          <Tag color={row.userUtilizationPercent != null && row.userUtilizationPercent >= 90 ? 'volcano' : 'default'}>
+            {row.userUtilizationPercent != null ? `${row.userUtilizationPercent.toFixed(1)}%` : 'n/a'}
+          </Tag>
+        </Space>
+      ),
+    },
+    {
+      title: 'Admins',
+      dataIndex: 'adminCount',
+      key: 'adminCount',
+      render: (count: number) => (
+        <Tag color={count > 0 ? 'green' : 'red'}>{count}</Tag>
+      ),
+    },
+    {
+      title: 'Rules',
+      key: 'rules',
+      render: (_: unknown, row: PlatformOrganizationStat) => (
+        <Space direction="vertical" size={0}>
+          <Text>{row.rulesTotal} total</Text>
+          <Text type="secondary">{row.activeRules} active</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Workbenches',
+      key: 'workbenches',
+      render: (_: unknown, row: PlatformOrganizationStat) => (
+        <Space direction="vertical" size={0}>
+          <Text>{row.workbenchesTotal} total</Text>
+          <Text type="secondary">{row.deployedWorkbenches} deployed</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'L1 Entries',
+      dataIndex: 'l1Entries',
+      key: 'l1Entries',
+      render: (count: number) => <Tag>{count}</Tag>,
+    },
+    {
+      title: 'Shared Policy',
+      key: 'shared',
+      render: (_: unknown, row: PlatformOrganizationStat) => (
+        <Space>
+          <Tag color={row.aiSharedEnabled ? 'blue' : 'default'}>AI {row.aiSharedEnabled ? 'ON' : 'OFF'}</Tag>
+          <Tag color={row.smtpSharedEnabled ? 'blue' : 'default'}>SMTP {row.smtpSharedEnabled ? 'ON' : 'OFF'}</Tag>
+        </Space>
+      ),
+    },
+    {
+      title: 'Last Activity',
+      dataIndex: 'lastActivityAt',
+      key: 'lastActivityAt',
+      render: (ts?: string | null) => ts ? new Date(ts).toLocaleString() : 'No activity',
+    },
+  ];
+
   const tabItems = [
     {
       key: 'organizations',
@@ -1153,6 +1338,74 @@ export const OrganizationsPage: React.FC = () => {
                 </Button>
               </Form.Item>
             </Form>
+          </Card>
+        </Space>
+      ),
+    },
+    {
+      key: 'platform-stats',
+      label: (
+        <span>
+          <BarChartOutlined /> Platform stats
+        </span>
+      ),
+      children: (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              System-wide visibility across all organizations. Updated:{' '}
+              <Text code>
+                {platformStats?.generatedAt ? new Date(platformStats.generatedAt).toLocaleString() : 'n/a'}
+              </Text>
+            </Paragraph>
+            <Button onClick={() => refetchPlatformStats()} loading={platformStatsLoading}>
+              Refresh stats
+            </Button>
+          </Space>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Organizations" value={platformStats?.globalKpis.organizations || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Users" value={platformStats?.globalKpis.users || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Rules" value={platformStats?.globalKpis.rulesTotal || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Active Rules" value={platformStats?.globalKpis.activeRules || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Workbenches" value={platformStats?.globalKpis.workbenchesTotal || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Deployed Workbenches" value={platformStats?.globalKpis.deployedWorkbenches || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="L1 Entries" value={platformStats?.globalKpis.l1Entries || 0} /></Card></Col>
+            <Col xs={24} sm={12} md={8} lg={6}><Card><Statistic title="Near Capacity Orgs" value={platformStats?.globalKpis.orgsNearUserCapacity || 0} /></Card></Col>
+          </Row>
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={12} lg={6}><Card><Statistic title="Shared AI Orgs" value={platformStats?.globalKpis.orgsWithSharedAi || 0} /></Card></Col>
+            <Col xs={24} md={12} lg={6}><Card><Statistic title="Shared SMTP Orgs" value={platformStats?.globalKpis.orgsWithSharedSmtp || 0} /></Card></Col>
+            <Col xs={24} md={12} lg={6}><Card><Statistic title="Custom AI Orgs" value={platformStats?.globalKpis.orgsWithCustomAi || 0} /></Card></Col>
+            <Col xs={24} md={12} lg={6}><Card><Statistic title="Custom SMTP Orgs" value={platformStats?.globalKpis.orgsWithCustomSmtp || 0} /></Card></Col>
+          </Row>
+
+          <Card title="Actionable Alerts" loading={platformStatsLoading}>
+            {platformAlerts.length === 0 ? (
+              <Alert type="success" showIcon message="No critical platform alerts right now." />
+            ) : (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {platformAlerts.map((alert, idx) => (
+                  <Alert
+                    key={`${alert.organizationId}-${alert.category}-${idx}`}
+                    type={alert.severity === 'critical' ? 'error' : 'warning'}
+                    showIcon
+                    message={`${alert.organizationName}: ${alert.message}`}
+                    description={`Category: ${alert.category}`}
+                  />
+                ))}
+              </Space>
+            )}
+          </Card>
+
+          <Card title="Per-Organization Breakdown" loading={platformStatsLoading}>
+            <Table<PlatformOrganizationStat>
+              rowKey="organizationId"
+              columns={platformColumns}
+              dataSource={platformOrgRows}
+              pagination={{ pageSize: 10 }}
+            />
           </Card>
         </Space>
       ),
