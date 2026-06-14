@@ -202,9 +202,10 @@ class MailgunEmailService:
 
 
 class SMTPEmailService:
-    """SMTP email client loaded from platform SMTP settings."""
+    """SMTP email client loaded from effective organization SMTP settings."""
 
-    def __init__(self):
+    def __init__(self, organization=None):
+        self.organization = organization
         self.smtp_server = ''
         self.smtp_port = 0
         self.encryption = 'NONE'
@@ -217,8 +218,11 @@ class SMTPEmailService:
 
     def _load_settings(self) -> None:
         try:
-            from organizations.models import SmtpSettings
-            settings_obj = SmtpSettings.objects.filter(singleton_key='default').first()
+            from organizations.models import get_effective_smtp_for_organization
+            settings_obj = get_effective_smtp_for_organization(
+                self.organization,
+                create_if_missing=False,
+            )
         except Exception as exc:
             logger.debug("SMTP settings lookup failed (will fallback to Mailgun): %s", exc)
             settings_obj = None
@@ -368,9 +372,9 @@ class SMTPEmailService:
             return False
 
 
-def get_email_service() -> Union[SMTPEmailService, MailgunEmailService]:
+def get_email_service(organization=None) -> Union[SMTPEmailService, MailgunEmailService]:
     """Return SMTP service when configured, otherwise fallback to Mailgun."""
-    smtp_service = SMTPEmailService()
+    smtp_service = SMTPEmailService(organization=organization)
     if smtp_service.is_configured():
         return smtp_service
     return MailgunEmailService()

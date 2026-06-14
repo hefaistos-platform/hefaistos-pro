@@ -10,7 +10,8 @@ import graphene
 from django.db import close_old_connections, transaction
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
-from .models import UserAISettings, OrgAISettings, AIGenerationTask
+from .models import UserAISettings, OrgAISettings, SharedAIProfile, AIGenerationTask
+from organizations.models import Organization
 from .engine import (
     generate_rule,
     run_logic_deconstruction,
@@ -37,12 +38,26 @@ def _get_effective_ai_settings(user_settings):
         org = getattr(user_settings.user, 'organization', None)
         if org:
             try:
-                org_settings = OrgAISettings.objects.get(organization=org)
-                if org_settings.has_any_provider:
-                    return org_settings
+                org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+                effective_settings = org_settings.get_effective_settings()
+                if getattr(effective_settings, 'has_any_provider', False):
+                    return effective_settings
             except OrgAISettings.DoesNotExist:
                 pass
     return user_settings
+
+
+def _resolve_target_org(user, organization_id=None):
+    if organization_id is None:
+        return getattr(user, 'organization', None)
+
+    if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
+        raise GraphQLError("Only superusers can target another organization.")
+
+    try:
+        return Organization.objects.get(pk=organization_id)
+    except Organization.DoesNotExist:
+        raise GraphQLError("Organization not found.")
 
 
 def _serialize_capability_abstractions(playbook):
@@ -629,7 +644,78 @@ class OrgAISettingsType(DjangoObjectType):
         model = OrgAISettings
         fields = ('id', 'ollama_base_url', 'ollama_model', 'org_preferred_model',
                   'azure_openai_endpoint', 'azure_openai_deployment', 'created_at', 'updated_at',
-                  'ollama_enabled', 'openai_enabled', 'gemini_enabled', 'claude_enabled', 'azure_openai_enabled')
+                  'ollama_enabled', 'openai_enabled', 'gemini_enabled', 'claude_enabled', 'azure_openai_enabled',
+                  'shared_profile_locked')
+
+    has_ollama = graphene.Boolean()
+    has_openai = graphene.Boolean()
+    has_gemini = graphene.Boolean()
+    has_claude = graphene.Boolean()
+    has_azure_openai = graphene.Boolean()
+    has_any_provider = graphene.Boolean()
+    config_source = graphene.String()
+    shared_profile_id = graphene.UUID()
+    shared_profile_name = graphene.String()
+    can_edit_custom_settings = graphene.Boolean()
+
+    def _effective(self):
+        if hasattr(self, 'get_effective_settings'):
+            return self.get_effective_settings()
+        return self
+
+    def resolve_has_ollama(self, info):
+        return bool(getattr(self._effective(), 'has_ollama', False))
+
+    def resolve_has_openai(self, info):
+        return bool(getattr(self._effective(), 'has_openai', False))
+
+    def resolve_has_gemini(self, info):
+        return bool(getattr(self._effective(), 'has_gemini', False))
+
+    def resolve_has_claude(self, info):
+        return bool(getattr(self._effective(), 'has_claude', False))
+
+    def resolve_has_azure_openai(self, info):
+        return bool(getattr(self._effective(), 'has_azure_openai', False))
+
+    def resolve_has_any_provider(self, info):
+        return bool(getattr(self._effective(), 'has_any_provider', False))
+
+    def resolve_config_source(self, info):
+        return getattr(self, 'config_source', 'CUSTOM')
+
+    def resolve_shared_profile_id(self, info):
+        return getattr(self, 'shared_profile_id', None)
+
+    def resolve_shared_profile_name(self, info):
+        if getattr(self, 'shared_profile_id', None):
+            return getattr(self.shared_profile, 'name', '') if getattr(self, 'shared_profile', None) else ''
+        return ''
+
+    def resolve_can_edit_custom_settings(self, info):
+        return bool(getattr(self, 'can_edit_custom_settings', True))
+
+
+class SharedAIProfileType(DjangoObjectType):
+    class Meta:
+        model = SharedAIProfile
+        fields = (
+            'id',
+            'name',
+            'ollama_base_url',
+            'ollama_model',
+            'org_preferred_model',
+            'azure_openai_endpoint',
+            'azure_openai_deployment',
+            'created_at',
+            'updated_at',
+            'is_active',
+            'ollama_enabled',
+            'openai_enabled',
+            'gemini_enabled',
+            'claude_enabled',
+            'azure_openai_enabled',
+        )
 
     has_ollama = graphene.Boolean()
     has_openai = graphene.Boolean()
@@ -682,8 +768,9 @@ class UserAISettingsType(DjangoObjectType):
         if not org:
             return False
         try:
-            org_settings = OrgAISettings.objects.get(organization=org)
-            return org_settings.has_ollama
+            org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+            effective = org_settings.get_effective_settings()
+            return bool(getattr(effective, 'has_ollama', False))
         except OrgAISettings.DoesNotExist:
             return False
     def resolve_decrypted_openai(self, info): return bool(self.get_openai_key())
@@ -695,11 +782,12 @@ class UserAISettingsType(DjangoObjectType):
             org = getattr(self.user, 'organization', None)
             if org:
                 try:
-                    org_settings = OrgAISettings.objects.get(organization=org)
-                    if org_settings.has_any_provider:
-                        pm = org_settings.preferred_model
+                    org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+                    effective = org_settings.get_effective_settings()
+                    if getattr(effective, 'has_any_provider', False):
+                        pm = effective.preferred_model
                         if pm == 'OLLAMA':
-                            return org_settings.get_ollama_model() or 'OLLAMA'
+                            return effective.get_ollama_model() or 'OLLAMA'
                         return pm
                 except OrgAISettings.DoesNotExist:
                     pass
@@ -1210,6 +1298,7 @@ class GenerateResponsePlaybook(graphene.Mutation):
 class UpdateOrgAISettings(graphene.Mutation):
     """Update organization-wide AI settings. Admin only."""
     class Arguments:
+        organization_id = graphene.UUID()
         ollama_base_url = graphene.String()
         ollama_model = graphene.String()
         openai_key = graphene.String()
@@ -1230,17 +1319,21 @@ class UpdateOrgAISettings(graphene.Mutation):
 
     @staticmethod
     @role_required([Roles.ADMIN])
-    def mutate(root, info, ollama_base_url=None, ollama_model=None,
+    def mutate(root, info, organization_id=None, ollama_base_url=None, ollama_model=None,
                openai_key=None, gemini_key=None, claude_key=None,
                azure_openai_endpoint=None, azure_openai_key=None, azure_openai_deployment=None,
                org_preferred_model=None,
                ollama_enabled=None, openai_enabled=None, gemini_enabled=None,
                claude_enabled=None, azure_openai_enabled=None):
         user = info.context.user
-        org = getattr(user, 'organization', None)
-        if not org:
+        org = _resolve_target_org(user, organization_id=organization_id)
+        if org is None:
             raise Exception("User is not associated with an organization.")
-        settings, _ = OrgAISettings.objects.get_or_create(organization=org)
+        settings, _ = OrgAISettings.objects.select_related('shared_profile').get_or_create(organization=org)
+        if settings.shared_profile_locked and not (user.is_superuser or user.is_staff):
+            raise GraphQLError(
+                "Organization AI settings are locked by superuser shared profile assignment."
+            )
         if ollama_base_url is not None:
             settings.ollama_base_url = ollama_base_url.strip()
         if ollama_model is not None:
@@ -1271,6 +1364,183 @@ class UpdateOrgAISettings(graphene.Mutation):
             settings.azure_openai_enabled = azure_openai_enabled
         settings.save()
         return UpdateOrgAISettings(settings=settings, ok=True)
+
+
+class SetSharedAIProfile(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=False)
+        name = graphene.String(required=False)
+        ollama_base_url = graphene.String()
+        ollama_model = graphene.String()
+        openai_key = graphene.String()
+        gemini_key = graphene.String()
+        claude_key = graphene.String()
+        azure_openai_endpoint = graphene.String()
+        azure_openai_key = graphene.String()
+        azure_openai_deployment = graphene.String()
+        org_preferred_model = graphene.String()
+        ollama_enabled = graphene.Boolean()
+        openai_enabled = graphene.Boolean()
+        gemini_enabled = graphene.Boolean()
+        claude_enabled = graphene.Boolean()
+        azure_openai_enabled = graphene.Boolean()
+        is_active = graphene.Boolean()
+
+    profile = graphene.Field(SharedAIProfileType)
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(
+        root,
+        info,
+        id=None,
+        name=None,
+        ollama_base_url=None,
+        ollama_model=None,
+        openai_key=None,
+        gemini_key=None,
+        claude_key=None,
+        azure_openai_endpoint=None,
+        azure_openai_key=None,
+        azure_openai_deployment=None,
+        org_preferred_model=None,
+        ollama_enabled=None,
+        openai_enabled=None,
+        gemini_enabled=None,
+        claude_enabled=None,
+        azure_openai_enabled=None,
+        is_active=None,
+    ):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError("Permission denied. Superuser access required.")
+
+        created = False
+        if id is not None:
+            profile = SharedAIProfile.objects.filter(pk=id).first()
+            if profile is None:
+                raise GraphQLError("Shared AI profile not found.")
+        else:
+            profile = SharedAIProfile(created_by=user)
+            created = True
+
+        if name is not None:
+            profile.name = name.strip()
+        elif created:
+            raise GraphQLError("Profile name is required when creating a shared AI profile.")
+
+        if ollama_base_url is not None:
+            profile.ollama_base_url = ollama_base_url.strip()
+        if ollama_model is not None:
+            profile.ollama_model = ollama_model.strip()
+        if openai_key is not None:
+            profile.openai_api_key = openai_key or ''
+        if gemini_key is not None:
+            profile.gemini_api_key = gemini_key or ''
+        if claude_key is not None:
+            profile.claude_api_key = claude_key or ''
+        if azure_openai_endpoint is not None:
+            profile.azure_openai_endpoint = azure_openai_endpoint.strip()
+        if azure_openai_key is not None:
+            profile.azure_openai_api_key = azure_openai_key or ''
+        if azure_openai_deployment is not None:
+            profile.azure_openai_deployment = azure_openai_deployment.strip()
+        if org_preferred_model is not None:
+            profile.org_preferred_model = org_preferred_model.strip()
+        if ollama_enabled is not None:
+            profile.ollama_enabled = bool(ollama_enabled)
+        if openai_enabled is not None:
+            profile.openai_enabled = bool(openai_enabled)
+        if gemini_enabled is not None:
+            profile.gemini_enabled = bool(gemini_enabled)
+        if claude_enabled is not None:
+            profile.claude_enabled = bool(claude_enabled)
+        if azure_openai_enabled is not None:
+            profile.azure_openai_enabled = bool(azure_openai_enabled)
+        if is_active is not None:
+            profile.is_active = bool(is_active)
+
+        profile.save()
+        return SetSharedAIProfile(
+            profile=profile,
+            ok=True,
+            message="Shared AI profile created." if created else "Shared AI profile updated.",
+        )
+
+
+class DeleteSharedAIProfile(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, id):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError("Permission denied. Superuser access required.")
+
+        profile = SharedAIProfile.objects.filter(pk=id).first()
+        if profile is None:
+            return DeleteSharedAIProfile(ok=False, message="Shared AI profile not found.")
+
+        profile.is_active = False
+        profile.save(update_fields=['is_active', 'updated_at'])
+        return DeleteSharedAIProfile(ok=True, message="Shared AI profile deactivated.")
+
+
+class AssignSharedAIProfile(graphene.Mutation):
+    class Arguments:
+        organization_id = graphene.UUID(required=True)
+        shared_profile_id = graphene.UUID(required=False)
+        clear_assignment = graphene.Boolean(required=False, default_value=False)
+        shared_profile_locked = graphene.Boolean(required=False)
+
+    settings = graphene.Field(OrgAISettingsType)
+    ok = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(
+        root,
+        info,
+        organization_id,
+        shared_profile_id=None,
+        clear_assignment=False,
+        shared_profile_locked=None,
+    ):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError("Permission denied. Superuser access required.")
+
+        target_org = _resolve_target_org(user, organization_id=organization_id)
+        settings, _ = OrgAISettings.objects.get_or_create(organization=target_org)
+
+        if clear_assignment:
+            settings.shared_profile = None
+            settings.shared_profile_locked = False
+        elif shared_profile_id is not None:
+            profile = SharedAIProfile.objects.filter(pk=shared_profile_id, is_active=True).first()
+            if profile is None:
+                raise GraphQLError("Shared AI profile not found or inactive.")
+            settings.shared_profile = profile
+
+        if shared_profile_locked is not None:
+            settings.shared_profile_locked = bool(shared_profile_locked)
+            if settings.shared_profile_locked and settings.shared_profile_id is None:
+                raise GraphQLError("Cannot lock shared AI without an assigned shared profile.")
+
+        settings.save()
+        return AssignSharedAIProfile(
+            settings=settings,
+            ok=True,
+            message="Shared AI assignment updated.",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2100,6 +2370,9 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
 class Mutation(graphene.ObjectType):
     update_ai_settings = UpdateAISettings.Field()
     update_org_ai_settings = UpdateOrgAISettings.Field()
+    set_shared_ai_profile = SetSharedAIProfile.Field()
+    delete_shared_ai_profile = DeleteSharedAIProfile.Field()
+    assign_shared_ai_profile = AssignSharedAIProfile.Field()
     deconstruct_rule = DeconstructRule.Field()
     suggest_rule_improvements = SuggestRuleImprovements.Field()
     generate_similar_rules = GenerateSimilarRules.Field()
@@ -2116,7 +2389,11 @@ class Mutation(graphene.ObjectType):
 
 class Query(graphene.ObjectType):
     my_ai_settings = graphene.Field(UserAISettingsType)
-    org_ai_settings = graphene.Field(OrgAISettingsType)
+    org_ai_settings = graphene.Field(OrgAISettingsType, organization_id=graphene.UUID(required=False))
+    shared_ai_profiles = graphene.List(
+        SharedAIProfileType,
+        include_inactive=graphene.Boolean(required=False, default_value=False),
+    )
     ai_generation_task_status = graphene.Field(
         AIGenerationTaskType,
         task_id=graphene.UUID(required=True),
@@ -2206,8 +2483,9 @@ class Query(graphene.ObjectType):
             org = getattr(info.context.user, 'organization', None)
             if org:
                 try:
-                    org_settings = OrgAISettings.objects.get(organization=org)
-                    if org_settings.has_any_provider:
+                    org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+                    effective = org_settings.get_effective_settings()
+                    if getattr(effective, 'has_any_provider', False):
                         use_org_ai = True
                 except OrgAISettings.DoesNotExist:
                     pass
@@ -2236,14 +2514,24 @@ class Query(graphene.ObjectType):
                     settings.save(update_fields=['preferred_model'])
         return settings
 
-    def resolve_org_ai_settings(self, info):
+    def resolve_org_ai_settings(self, info, organization_id=None):
         user = info.context.user
         if user.is_anonymous:
             return None
-        org = getattr(user, 'organization', None)
+        org = _resolve_target_org(user, organization_id=organization_id)
         if not org:
             return None
-        try:
-            return OrgAISettings.objects.get(organization=org)
-        except OrgAISettings.DoesNotExist:
-            return None
+        settings, _ = OrgAISettings.objects.get_or_create(organization=org)
+        return settings
+
+    def resolve_shared_ai_profiles(self, info, include_inactive=False):
+        user = info.context.user
+        if user.is_anonymous:
+            return []
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError("Permission denied. Superuser access required.")
+
+        qs = SharedAIProfile.objects.all()
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+        return list(qs.order_by('name'))

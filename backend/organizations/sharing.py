@@ -140,16 +140,39 @@ def _normalized_fingerprint(value: str) -> str:
     return ''.join(ch for ch in (value or '') if ch.isalnum()).lower()
 
 
-def _instance_seed() -> str:
+def _instance_seed(organization=None) -> str:
     server_domain = os.environ.get('SERVER_DOMAIN', '').strip()
     host = server_domain or socket.gethostname() or 'localhost'
     secret = getattr(settings, 'SECRET_KEY', 'hefaistos')
-    return f"hefaistos-instance:{host}:{secret[:32]}"
+    if organization is not None and getattr(organization, 'id', None):
+        return f"hefaistos-instance:{host}:{secret[:32]}:org:{organization.id}"
+    return f"hefaistos-instance:{host}:{secret[:32]}:global"
 
 
-def get_or_create_instance_identity(create_if_missing: bool = True) -> HefaistosInstanceIdentity:
-    default_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, _instance_seed())
-    identity = HefaistosInstanceIdentity.objects.filter(singleton_key='default').first()
+def get_or_create_instance_identity(organization=None, create_if_missing: bool = True) -> HefaistosInstanceIdentity:
+    default_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, _instance_seed(organization))
+    if organization is not None:
+        key = f"org:{organization.id}"
+        identity = HefaistosInstanceIdentity.objects.filter(organization=organization).first()
+        if identity is None:
+            if not create_if_missing:
+                return HefaistosInstanceIdentity(
+                    organization=organization,
+                    singleton_key=key,
+                    instance_id=default_uuid,
+                )
+            identity = HefaistosInstanceIdentity.objects.create(
+                organization=organization,
+                singleton_key=key,
+                instance_id=default_uuid,
+            )
+        elif identity.instance_id.version != 5 and create_if_missing:
+            identity.instance_id = default_uuid
+            identity.singleton_key = key
+            identity.save(update_fields=['instance_id', 'singleton_key', 'updated_at'])
+        return identity
+
+    identity = HefaistosInstanceIdentity.objects.filter(organization__isnull=True, singleton_key='default').first()
     if identity is None:
         if not create_if_missing:
             # Return deterministic UUID v5 identity without persisting DB state.
@@ -380,7 +403,10 @@ def export_org_payload(
 ) -> dict[str, Any]:
     scope = normalize_scope(requested_scope)
     include_scopes = expand_scope(scope)
-    instance_identity = get_or_create_instance_identity(create_if_missing=create_identity_if_missing)
+    instance_identity = get_or_create_instance_identity(
+        organization=organization,
+        create_if_missing=create_identity_if_missing,
+    )
 
     payload: dict[str, Any] = {
         'schema_version': '1.0',
@@ -818,7 +844,7 @@ def pull_from_remote_peer(
     requested_scope: str | None = None,
 ) -> HefaistosPullJob:
     scope = normalize_scope(requested_scope or peer.default_scope)
-    identity = get_or_create_instance_identity()
+    identity = get_or_create_instance_identity(organization=peer.organization)
     now = timezone.now()
     job = HefaistosPullJob.objects.create(
         organization=peer.organization,

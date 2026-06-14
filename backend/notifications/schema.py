@@ -197,7 +197,7 @@ class CreateNotification(graphene.Mutation):
 			# --- Email Dispatch (optional, respects user preferences) ---
 			try:
 				from core.email_service import get_email_service
-				service = get_email_service()
+				service = get_email_service(organization=organization)
 				
 				# Skip if email service not configured
 				if not service.is_configured():

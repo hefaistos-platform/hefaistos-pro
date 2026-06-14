@@ -109,8 +109,8 @@ const ALL_ORGANIZATIONS_QUERY = gql`
 `;
 
 const GET_ORG_AI_SETTINGS = gql`
-  query GetOrgAISettings {
-    orgAiSettings {
+  query GetOrgAISettings($organizationId: UUID) {
+    orgAiSettings(organizationId: $organizationId) {
       id
       ollamaBaseUrl
       ollamaModel
@@ -128,13 +128,18 @@ const GET_ORG_AI_SETTINGS = gql`
       geminiEnabled
       claudeEnabled
       azureOpenaiEnabled
+      configSource
+      sharedProfileId
+      sharedProfileName
+      sharedProfileLocked
+      canEditCustomSettings
     }
   }
 `;
 
 const UPDATE_ORG_AI_SETTINGS = gql`
-  mutation UpdateOrgAISettings($ollamaBaseUrl: String, $ollamaModel: String, $openaiKey: String, $geminiKey: String, $claudeKey: String, $azureOpenaiEndpoint: String, $azureOpenaiKey: String, $azureOpenaiDeployment: String, $orgPreferredModel: String, $ollamaEnabled: Boolean, $openaiEnabled: Boolean, $geminiEnabled: Boolean, $claudeEnabled: Boolean, $azureOpenaiEnabled: Boolean) {
-    updateOrgAiSettings(ollamaBaseUrl: $ollamaBaseUrl, ollamaModel: $ollamaModel, openaiKey: $openaiKey, geminiKey: $geminiKey, claudeKey: $claudeKey, azureOpenaiEndpoint: $azureOpenaiEndpoint, azureOpenaiKey: $azureOpenaiKey, azureOpenaiDeployment: $azureOpenaiDeployment, orgPreferredModel: $orgPreferredModel, ollamaEnabled: $ollamaEnabled, openaiEnabled: $openaiEnabled, geminiEnabled: $geminiEnabled, claudeEnabled: $claudeEnabled, azureOpenaiEnabled: $azureOpenaiEnabled) {
+  mutation UpdateOrgAISettings($organizationId: UUID, $ollamaBaseUrl: String, $ollamaModel: String, $openaiKey: String, $geminiKey: String, $claudeKey: String, $azureOpenaiEndpoint: String, $azureOpenaiKey: String, $azureOpenaiDeployment: String, $orgPreferredModel: String, $ollamaEnabled: Boolean, $openaiEnabled: Boolean, $geminiEnabled: Boolean, $claudeEnabled: Boolean, $azureOpenaiEnabled: Boolean) {
+    updateOrgAiSettings(organizationId: $organizationId, ollamaBaseUrl: $ollamaBaseUrl, ollamaModel: $ollamaModel, openaiKey: $openaiKey, geminiKey: $geminiKey, claudeKey: $claudeKey, azureOpenaiEndpoint: $azureOpenaiEndpoint, azureOpenaiKey: $azureOpenaiKey, azureOpenaiDeployment: $azureOpenaiDeployment, orgPreferredModel: $orgPreferredModel, ollamaEnabled: $ollamaEnabled, openaiEnabled: $openaiEnabled, geminiEnabled: $geminiEnabled, claudeEnabled: $claudeEnabled, azureOpenaiEnabled: $azureOpenaiEnabled) {
       ok
       settings {
         id
@@ -154,6 +159,101 @@ const UPDATE_ORG_AI_SETTINGS = gql`
         geminiEnabled
         claudeEnabled
         azureOpenaiEnabled
+        configSource
+        sharedProfileId
+        sharedProfileName
+        sharedProfileLocked
+        canEditCustomSettings
+      }
+    }
+  }
+`;
+
+const GET_SHARED_AI_PROFILES = gql`
+  query GetSharedAiProfiles($includeInactive: Boolean) {
+    sharedAiProfiles(includeInactive: $includeInactive) {
+      id
+      name
+      hasAnyProvider
+      isActive
+      updatedAt
+    }
+  }
+`;
+
+const SET_SHARED_AI_PROFILE = gql`
+  mutation SetSharedAiProfile(
+    $id: UUID
+    $name: String
+    $ollamaBaseUrl: String
+    $ollamaModel: String
+    $openaiKey: String
+    $geminiKey: String
+    $claudeKey: String
+    $azureOpenaiEndpoint: String
+    $azureOpenaiKey: String
+    $azureOpenaiDeployment: String
+    $orgPreferredModel: String
+    $ollamaEnabled: Boolean
+    $openaiEnabled: Boolean
+    $geminiEnabled: Boolean
+    $claudeEnabled: Boolean
+    $azureOpenaiEnabled: Boolean
+    $isActive: Boolean
+  ) {
+    setSharedAiProfile(
+      id: $id
+      name: $name
+      ollamaBaseUrl: $ollamaBaseUrl
+      ollamaModel: $ollamaModel
+      openaiKey: $openaiKey
+      geminiKey: $geminiKey
+      claudeKey: $claudeKey
+      azureOpenaiEndpoint: $azureOpenaiEndpoint
+      azureOpenaiKey: $azureOpenaiKey
+      azureOpenaiDeployment: $azureOpenaiDeployment
+      orgPreferredModel: $orgPreferredModel
+      ollamaEnabled: $ollamaEnabled
+      openaiEnabled: $openaiEnabled
+      geminiEnabled: $geminiEnabled
+      claudeEnabled: $claudeEnabled
+      azureOpenaiEnabled: $azureOpenaiEnabled
+      isActive: $isActive
+    ) {
+      ok
+      message
+      profile {
+        id
+        name
+        hasAnyProvider
+        isActive
+      }
+    }
+  }
+`;
+
+const ASSIGN_SHARED_AI_PROFILE = gql`
+  mutation AssignSharedAiProfile(
+    $organizationId: UUID!
+    $sharedProfileId: UUID
+    $clearAssignment: Boolean
+    $sharedProfileLocked: Boolean
+  ) {
+    assignSharedAiProfile(
+      organizationId: $organizationId
+      sharedProfileId: $sharedProfileId
+      clearAssignment: $clearAssignment
+      sharedProfileLocked: $sharedProfileLocked
+    ) {
+      ok
+      message
+      settings {
+        id
+        configSource
+        sharedProfileId
+        sharedProfileName
+        sharedProfileLocked
+        canEditCustomSettings
       }
     }
   }
@@ -247,8 +347,8 @@ const DELETE_MISP_INSTANCE = gql`
 `;
 
 const GET_SMTP_SETTINGS = gql`
-  query GetSmtpSettings {
-    smtpSettings {
+  query GetSmtpSettings($organizationId: UUID) {
+    smtpSettings(organizationId: $organizationId) {
       smtpServer
       smtpPort
       encryption
@@ -257,12 +357,20 @@ const GET_SMTP_SETTINGS = gql`
       hasPassword
       fromEmail
       updatedAt
+      source
+      sharedProfileId
+      sharedProfileName
+      enforceShared
+      customConfigured
+      canEditCustom
+      organizationId
     }
   }
 `;
 
 const UPSERT_SMTP_SETTINGS = gql`
   mutation UpsertSmtpSettings(
+    $organizationId: UUID
     $smtpServer: String!
     $smtpPort: Int!
     $encryption: String!
@@ -272,6 +380,7 @@ const UPSERT_SMTP_SETTINGS = gql`
     $fromEmail: String
   ) {
     upsertSmtpSettings(
+      organizationId: $organizationId
       smtpServer: $smtpServer
       smtpPort: $smtpPort
       encryption: $encryption
@@ -291,6 +400,100 @@ const UPSERT_SMTP_SETTINGS = gql`
         hasPassword
         fromEmail
         updatedAt
+        source
+        sharedProfileId
+        sharedProfileName
+        enforceShared
+        customConfigured
+        canEditCustom
+        organizationId
+      }
+    }
+  }
+`;
+
+const GET_SHARED_SMTP_PROFILES = gql`
+  query GetSharedSmtpProfiles($includeInactive: Boolean) {
+    sharedSmtpProfiles(includeInactive: $includeInactive) {
+      id
+      name
+      smtpServer
+      smtpPort
+      encryption
+      loginMethod
+      smtpUsername
+      hasPassword
+      fromEmail
+      isActive
+      updatedAt
+    }
+  }
+`;
+
+const SET_SHARED_SMTP_PROFILE = gql`
+  mutation SetSharedSmtpProfile(
+    $id: UUID
+    $name: String
+    $smtpServer: String!
+    $smtpPort: Int!
+    $encryption: String!
+    $loginMethod: String!
+    $smtpUsername: String
+    $smtpPassword: String
+    $fromEmail: String
+    $isActive: Boolean
+  ) {
+    setSharedSmtpProfile(
+      id: $id
+      name: $name
+      smtpServer: $smtpServer
+      smtpPort: $smtpPort
+      encryption: $encryption
+      loginMethod: $loginMethod
+      smtpUsername: $smtpUsername
+      smtpPassword: $smtpPassword
+      fromEmail: $fromEmail
+      isActive: $isActive
+    ) {
+      success
+      message
+      profile {
+        id
+        name
+        smtpServer
+        smtpPort
+        encryption
+        loginMethod
+        smtpUsername
+        hasPassword
+        fromEmail
+        isActive
+        updatedAt
+      }
+    }
+  }
+`;
+
+const SET_ORGANIZATION_SMTP_POLICY = gql`
+  mutation SetOrganizationSmtpPolicy(
+    $organizationId: UUID!
+    $sharedProfileId: UUID
+    $enforceShared: Boolean
+  ) {
+    setOrganizationSmtpPolicy(
+      organizationId: $organizationId
+      sharedProfileId: $sharedProfileId
+      enforceShared: $enforceShared
+    ) {
+      success
+      message
+      smtpSettings {
+        source
+        sharedProfileId
+        sharedProfileName
+        enforceShared
+        canEditCustom
+        organizationId
       }
     }
   }
@@ -410,7 +613,20 @@ interface OrgAISettingsData {
     geminiEnabled: boolean;
     claudeEnabled: boolean;
     azureOpenaiEnabled: boolean;
+    configSource?: 'CUSTOM' | 'SHARED' | 'SHARED_LOCKED' | string;
+    sharedProfileId?: string | null;
+    sharedProfileName?: string | null;
+    sharedProfileLocked?: boolean;
+    canEditCustomSettings?: boolean;
   } | null;
+}
+
+interface SharedAiProfile {
+  id: string;
+  name: string;
+  hasAnyProvider: boolean;
+  isActive: boolean;
+  updatedAt?: string | null;
 }
 
 interface MISPInstance {
@@ -430,6 +646,27 @@ interface SmtpSettings {
   smtpUsername?: string | null;
   hasPassword?: boolean | null;
   fromEmail?: string | null;
+  updatedAt?: string | null;
+  source?: 'CUSTOM' | 'SHARED' | 'SHARED_LOCKED' | 'LEGACY_GLOBAL' | string;
+  sharedProfileId?: string | null;
+  sharedProfileName?: string | null;
+  enforceShared?: boolean;
+  customConfigured?: boolean;
+  canEditCustom?: boolean;
+  organizationId?: string | null;
+}
+
+interface SharedSmtpProfile {
+  id: string;
+  name: string;
+  smtpServer: string;
+  smtpPort: number;
+  encryption: 'NONE' | 'SSL' | 'STARTTLS';
+  loginMethod: 'PLAIN' | 'LOGIN';
+  smtpUsername?: string | null;
+  hasPassword?: boolean | null;
+  fromEmail?: string | null;
+  isActive: boolean;
   updatedAt?: string | null;
 }
 
@@ -908,13 +1145,59 @@ const RulesTab: React.FC = () => {
   );
 };
 
-const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
+const SMTPTab: React.FC<{ canManage: boolean; isSuperuser: boolean; organizations: { id: string; name: string }[] }> = ({ canManage, isSuperuser, organizations }) => {
   const { message: msg } = App.useApp();
   const [form] = Form.useForm();
+  const [targetOrgId, setTargetOrgId] = useState<string | undefined>(undefined);
+  const [sharedProfileName, setSharedProfileName] = useState('');
+  const [selectedSharedProfileId, setSelectedSharedProfileId] = useState<string | undefined>(undefined);
+  const [enforceShared, setEnforceShared] = useState(false);
+
+  useEffect(() => {
+    if (isSuperuser && !targetOrgId && organizations.length > 0) {
+      setTargetOrgId(organizations[0].id);
+    }
+  }, [isSuperuser, organizations, targetOrgId]);
+
+  const orgIdForQuery = isSuperuser ? targetOrgId || null : null;
+  const skipForMissingTarget = Boolean(isSuperuser && organizations.length > 0 && !targetOrgId);
+
   const { data, loading, refetch } = useQuery<{ smtpSettings: SmtpSettings | null }>(GET_SMTP_SETTINGS, {
+    variables: { organizationId: orgIdForQuery },
     fetchPolicy: 'cache-and-network',
     errorPolicy: 'all',
-    skip: !canManage,
+    skip: !canManage || skipForMissingTarget,
+  });
+  const { data: sharedProfilesData, refetch: refetchSharedProfiles } = useQuery<{ sharedSmtpProfiles: SharedSmtpProfile[] }>(
+    GET_SHARED_SMTP_PROFILES,
+    {
+      variables: { includeInactive: false },
+      fetchPolicy: 'cache-and-network',
+      skip: !isSuperuser,
+    },
+  );
+  const [setOrganizationSmtpPolicy, { loading: savingPolicy }] = useMutation(SET_ORGANIZATION_SMTP_POLICY, {
+    onCompleted: (res) => {
+      if (res?.setOrganizationSmtpPolicy?.success) {
+        msg.success(res.setOrganizationSmtpPolicy.message || 'SMTP policy updated');
+        refetch();
+      } else {
+        msg.error(res?.setOrganizationSmtpPolicy?.message || 'Failed to update SMTP policy');
+      }
+    },
+    onError: (err) => msg.error(err.message || 'Failed to update SMTP policy'),
+  });
+  const [setSharedSmtpProfile, { loading: savingSharedProfile }] = useMutation(SET_SHARED_SMTP_PROFILE, {
+    onCompleted: (res) => {
+      if (res?.setSharedSmtpProfile?.success) {
+        msg.success(res.setSharedSmtpProfile.message || 'Shared SMTP profile saved');
+        setSharedProfileName('');
+        refetchSharedProfiles();
+      } else {
+        msg.error(res?.setSharedSmtpProfile?.message || 'Failed to save shared SMTP profile');
+      }
+    },
+    onError: (err) => msg.error(err.message || 'Failed to save shared SMTP profile'),
   });
   const [upsertSmtpSettings, { loading: saving }] = useMutation(UPSERT_SMTP_SETTINGS, {
     onCompleted: (res) => {
@@ -931,6 +1214,8 @@ const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
 
   const loginMethod = Form.useWatch('loginMethod', form) || 'PLAIN';
   const smtpSettings = data?.smtpSettings;
+  const customLocked = Boolean(smtpSettings?.enforceShared) && !isSuperuser;
+  const canEditCustom = canManage && !customLocked;
 
   useEffect(() => {
     if (smtpSettings) {
@@ -956,11 +1241,20 @@ const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
     }
   }, [form, smtpSettings]);
 
+  useEffect(() => {
+    if (!isSuperuser) {
+      return;
+    }
+    setSelectedSharedProfileId(smtpSettings?.sharedProfileId || undefined);
+    setEnforceShared(Boolean(smtpSettings?.enforceShared));
+  }, [isSuperuser, smtpSettings?.sharedProfileId, smtpSettings?.enforceShared]);
+
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
       await upsertSmtpSettings({
         variables: {
+          organizationId: isSuperuser ? targetOrgId || null : null,
           smtpServer: values.smtpServer,
           smtpPort: Number(values.smtpPort),
           encryption: values.encryption,
@@ -977,6 +1271,49 @@ const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
     }
   };
 
+  const handleSaveAsSharedProfile = async () => {
+    if (!isSuperuser) return;
+    if (!sharedProfileName.trim()) {
+      msg.error('Shared profile name is required');
+      return;
+    }
+    try {
+      const values = await form.validateFields();
+      await setSharedSmtpProfile({
+        variables: {
+          name: sharedProfileName.trim(),
+          smtpServer: values.smtpServer,
+          smtpPort: Number(values.smtpPort),
+          encryption: values.encryption,
+          loginMethod: values.loginMethod,
+          smtpUsername: values.loginMethod === 'LOGIN' ? (values.smtpUsername || null) : null,
+          smtpPassword: values.loginMethod === 'LOGIN'
+            ? ((values.smtpPassword && String(values.smtpPassword).trim()) ? values.smtpPassword : null)
+            : null,
+          fromEmail: values.fromEmail ? values.fromEmail : null,
+          isActive: true,
+        },
+      });
+    } catch {
+      // form validation errors are shown inline
+    }
+  };
+
+  const handleApplyPolicy = async () => {
+    if (!isSuperuser || !targetOrgId) return;
+    if (!selectedSharedProfileId) {
+      msg.error('Select a shared SMTP profile first.');
+      return;
+    }
+    await setOrganizationSmtpPolicy({
+      variables: {
+        organizationId: targetOrgId,
+        sharedProfileId: selectedSharedProfileId,
+        enforceShared,
+      },
+    });
+  };
+
   return (
     <Card loading={loading}>
       {!canManage && (
@@ -987,7 +1324,52 @@ const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
       <Typography.Paragraph type="secondary">
         When SMTP is configured, it overrides Mailgun API for outgoing emails.
       </Typography.Paragraph>
-      <Form form={form} layout="vertical" disabled={!canManage}>
+      {isSuperuser && organizations.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Typography.Text strong>Target Organization</Typography.Text>
+          <Select
+            style={{ width: '100%', marginTop: 8 }}
+            value={targetOrgId}
+            onChange={setTargetOrgId}
+            options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+          />
+        </div>
+      )}
+      <Typography.Paragraph type="secondary">
+        Current source: <Typography.Text code>{smtpSettings?.source || 'UNSET'}</Typography.Text>
+        {smtpSettings?.sharedProfileName ? ` (${smtpSettings.sharedProfileName})` : ''}
+      </Typography.Paragraph>
+      {customLocked && (
+        <Typography.Text type="warning" style={{ display: 'block', marginBottom: 12 }}>
+          Shared SMTP is locked by superuser for this organization. Custom override is disabled.
+        </Typography.Text>
+      )}
+
+      {isSuperuser && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Typography.Title level={5} style={{ marginBottom: 8 }}>Shared SMTP Assignment</Typography.Title>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Select
+              placeholder="Select shared SMTP profile"
+              value={selectedSharedProfileId}
+              onChange={(value) => setSelectedSharedProfileId(value)}
+              options={(sharedProfilesData?.sharedSmtpProfiles || []).map((profile) => ({
+                value: profile.id,
+                label: profile.name,
+              }))}
+            />
+            <div className="flex items-center gap-2">
+              <Switch checked={enforceShared} onChange={setEnforceShared} />
+              <Typography.Text>Lock shared SMTP for this organization</Typography.Text>
+            </div>
+            <AntButton type="default" onClick={handleApplyPolicy} loading={savingPolicy} disabled={!targetOrgId || !selectedSharedProfileId}>
+              Apply Shared SMTP Policy
+            </AntButton>
+          </Space>
+        </Card>
+      )}
+
+      <Form form={form} layout="vertical" disabled={!canEditCustom}>
         <Form.Item name="smtpServer" label="SMTP server" rules={[{ required: true, message: 'SMTP server is required' }]}>
           <Input placeholder="smtp.example.com" />
         </Form.Item>
@@ -1032,9 +1414,24 @@ const SMTPTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
           <Input placeholder="noreply@example.com" />
         </Form.Item>
         <Form.Item style={{ marginBottom: 0 }}>
-          <AntButton type="primary" onClick={handleSave} loading={saving} disabled={!canManage}>
-            Save SMTP Settings
-          </AntButton>
+          <Space wrap>
+            <AntButton type="primary" onClick={handleSave} loading={saving} disabled={!canEditCustom}>
+              Save Organization SMTP
+            </AntButton>
+            {isSuperuser && (
+              <>
+                <Input
+                  placeholder="Shared profile name"
+                  value={sharedProfileName}
+                  onChange={(e) => setSharedProfileName(e.target.value)}
+                  style={{ width: 220 }}
+                />
+                <AntButton onClick={handleSaveAsSharedProfile} loading={savingSharedProfile}>
+                  Save As Shared Profile
+                </AntButton>
+              </>
+            )}
+          </Space>
         </Form.Item>
       </Form>
     </Card>
@@ -1322,6 +1719,11 @@ export const ConfigurationPage: React.FC = () => {
   const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const isSuperuser = Boolean(accessData?.me?.isSuperuser);
+  const [selectedOrgAiOrgId, setSelectedOrgAiOrgId] = useState<string | undefined>(undefined);
+  const [sharedAiProfileName, setSharedAiProfileName] = useState('');
+  const [selectedSharedAiProfileId, setSelectedSharedAiProfileId] = useState<string | undefined>(undefined);
+  const [lockSharedAi, setLockSharedAi] = useState(false);
 
   const { data: usersData, loading: usersLoading, error: usersError, refetch: refetchUsers } = useQuery<{ allUsersInOrg: User[] }>(GET_ALL_USERS_QUERY, {
     skip: isAccessPending || !isConfigAccessAllowed,
@@ -1330,9 +1732,25 @@ export const ConfigurationPage: React.FC = () => {
     errorPolicy: 'ignore',
     skip: isAccessPending || !isConfigAccessAllowed,
   });
+  useEffect(() => {
+    const orgList = orgData?.allOrganizations || [];
+    if (isSuperuser && !selectedOrgAiOrgId && orgList.length > 0) {
+      setSelectedOrgAiOrgId(orgList[0].id);
+    }
+  }, [isSuperuser, orgData?.allOrganizations, selectedOrgAiOrgId]);
+
+  const orgAiTargetOrgId = isSuperuser ? selectedOrgAiOrgId || null : null;
+  const skipOrgAiForMissingTarget = Boolean(isSuperuser && (orgData?.allOrganizations?.length || 0) > 0 && !selectedOrgAiOrgId);
+
   const { data: orgAiData, refetch: refetchOrgAi } = useQuery<OrgAISettingsData>(GET_ORG_AI_SETTINGS, {
+    variables: { organizationId: orgAiTargetOrgId },
     errorPolicy: 'ignore',
-    skip: isAccessPending || !isConfigAccessAllowed,
+    skip: isAccessPending || !isConfigAccessAllowed || skipOrgAiForMissingTarget,
+  });
+  const { data: sharedAiData, refetch: refetchSharedAiProfiles } = useQuery<{ sharedAiProfiles: SharedAiProfile[] }>(GET_SHARED_AI_PROFILES, {
+    variables: { includeInactive: false },
+    errorPolicy: 'ignore',
+    skip: !isSuperuser || isAccessPending || !isConfigAccessAllowed,
   });
   const [orgAiForm, setOrgAiForm] = useState({ ollamaBaseUrl: '', ollamaModel: '', openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiEndpoint: '', azureOpenaiKey: '', azureOpenaiDeployment: '', orgPreferredModel: '', ollamaEnabled: true, openaiEnabled: true, geminiEnabled: true, claudeEnabled: true, azureOpenaiEnabled: true });
 
@@ -1340,6 +1758,8 @@ export const ConfigurationPage: React.FC = () => {
   const [adminUpdateUser, { loading: saving }] = useMutation(ADMIN_UPDATE_USER_MUTATION, { refetchQueries: [{ query: GET_ALL_USERS_QUERY }], awaitRefetchQueries: true });
   const [adminResetUserPassword, { loading: resettingPassword }] = useMutation(ADMIN_RESET_USER_PASSWORD_MUTATION);
   const [updateOrgAiSettings, { loading: savingOrgAi }] = useMutation(UPDATE_ORG_AI_SETTINGS);
+  const [setSharedAiProfile, { loading: savingSharedAiProfile }] = useMutation(SET_SHARED_AI_PROFILE);
+  const [assignSharedAiProfile, { loading: assigningSharedAiProfile }] = useMutation(ASSIGN_SHARED_AI_PROFILE);
 
   useEffect(() => {
     if (orgAiData?.orgAiSettings) {
@@ -1359,6 +1779,8 @@ export const ConfigurationPage: React.FC = () => {
         claudeEnabled: orgAiData.orgAiSettings.claudeEnabled ?? true,
         azureOpenaiEnabled: orgAiData.orgAiSettings.azureOpenaiEnabled ?? true,
       });
+      setSelectedSharedAiProfileId(orgAiData.orgAiSettings.sharedProfileId || undefined);
+      setLockSharedAi(Boolean(orgAiData.orgAiSettings.sharedProfileLocked));
     }
   }, [orgAiData?.orgAiSettings]);
 
@@ -1384,6 +1806,7 @@ export const ConfigurationPage: React.FC = () => {
     try {
       await updateOrgAiSettings({
         variables: {
+          organizationId: isSuperuser ? selectedOrgAiOrgId || null : null,
           ollamaBaseUrl: orgAiForm.ollamaBaseUrl || null,
           ollamaModel: orgAiForm.ollamaModel || null,
           openaiKey: orgAiForm.openaiKey || undefined,
@@ -1407,6 +1830,70 @@ export const ConfigurationPage: React.FC = () => {
     } catch (e: any) { message.error(e.message || 'Failed to save organization AI settings.'); }
   };
 
+  const handleSaveSharedAiProfile = async () => {
+    if (!isSuperuser) return;
+    if (!sharedAiProfileName.trim()) {
+      message.error('Shared AI profile name is required.');
+      return;
+    }
+    try {
+      const result = await setSharedAiProfile({
+        variables: {
+          name: sharedAiProfileName.trim(),
+          ollamaBaseUrl: orgAiForm.ollamaBaseUrl || null,
+          ollamaModel: orgAiForm.ollamaModel || null,
+          openaiKey: orgAiForm.openaiKey || undefined,
+          geminiKey: orgAiForm.geminiKey || undefined,
+          claudeKey: orgAiForm.claudeKey || undefined,
+          azureOpenaiEndpoint: orgAiForm.azureOpenaiEndpoint || null,
+          azureOpenaiKey: orgAiForm.azureOpenaiKey || undefined,
+          azureOpenaiDeployment: orgAiForm.azureOpenaiDeployment || null,
+          orgPreferredModel: orgAiForm.orgPreferredModel || null,
+          ollamaEnabled: orgAiForm.ollamaEnabled,
+          openaiEnabled: orgAiForm.openaiEnabled,
+          geminiEnabled: orgAiForm.geminiEnabled,
+          claudeEnabled: orgAiForm.claudeEnabled,
+          azureOpenaiEnabled: orgAiForm.azureOpenaiEnabled,
+          isActive: true,
+        },
+      });
+      if (result.data?.setSharedAiProfile?.ok) {
+        message.success(result.data.setSharedAiProfile.message || 'Shared AI profile saved.');
+        setSharedAiProfileName('');
+        refetchSharedAiProfiles();
+      } else {
+        message.error(result.data?.setSharedAiProfile?.message || 'Failed to save shared AI profile.');
+      }
+    } catch (e: any) {
+      message.error(e.message || 'Failed to save shared AI profile.');
+    }
+  };
+
+  const handleAssignSharedAiProfile = async () => {
+    if (!isSuperuser || !selectedOrgAiOrgId) return;
+    if (!selectedSharedAiProfileId) {
+      message.error('Select a shared AI profile first.');
+      return;
+    }
+    try {
+      const result = await assignSharedAiProfile({
+        variables: {
+          organizationId: selectedOrgAiOrgId,
+          sharedProfileId: selectedSharedAiProfileId,
+          sharedProfileLocked: lockSharedAi,
+        },
+      });
+      if (result.data?.assignSharedAiProfile?.ok) {
+        message.success(result.data.assignSharedAiProfile.message || 'Shared AI assignment updated.');
+        refetchOrgAi();
+      } else {
+        message.error(result.data?.assignSharedAiProfile?.message || 'Failed to update shared AI assignment.');
+      }
+    } catch (e: any) {
+      message.error(e.message || 'Failed to update shared AI assignment.');
+    }
+  };
+
   // Determine role for MISP tab (piggyback on repos query result via App.useApp context)
   const { data: repoData } = useQuery<{ me?: { role: string } | null; allRuleRepositories: Repo[] }>(
     GET_RULE_REPOSITORIES,
@@ -1414,6 +1901,8 @@ export const ConfigurationPage: React.FC = () => {
   );
   const repoRole = repoData?.me?.role || 'VIEWER';
   const canAdminConfig = isConfigAdmin;
+  const orgAiLocked = Boolean(orgAiData?.orgAiSettings?.sharedProfileLocked) && !isSuperuser;
+  const disableOrgAiEditing = !canAdminConfig || orgAiLocked;
   const effectiveTab = tabFromUrl;
 
   const tabItems = [
@@ -1503,7 +1992,7 @@ export const ConfigurationPage: React.FC = () => {
     {
       key: 'smtp',
       label: 'SMTP',
-      children: <App><SMTPTab canManage={canAdminConfig} /></App>,
+      children: <App><SMTPTab canManage={canAdminConfig} isSuperuser={Boolean(accessData?.me?.isSuperuser)} organizations={orgData?.allOrganizations || []} /></App>,
     },
     {
       key: 'sharing',
@@ -1519,12 +2008,68 @@ export const ConfigurationPage: React.FC = () => {
       key: 'orgai',
       label: 'Org AI',
       children: (
-        <div className={`space-y-8 ${!canAdminConfig ? 'pointer-events-none opacity-80' : ''}`}>
+        <div className={`space-y-8 ${disableOrgAiEditing ? 'pointer-events-none opacity-80' : ''}`}>
           <div className="bg-white rounded-lg shadow-sm border-2 border-hefaistos-border p-6">
             <h3 className="text-xl font-bold mb-1">Organization AI Settings</h3>
             <p className="text-sm text-gray-500 mb-6">
               Configure organization-wide AI models and API keys. Users can opt in to use these instead of their personal API keys.
             </p>
+            {isSuperuser && (orgData?.allOrganizations?.length || 0) > 0 && (
+              <div className="mb-4">
+                <label className="block text-xs font-semibold mb-1">Target Organization</label>
+                <Select
+                  value={selectedOrgAiOrgId}
+                  onChange={setSelectedOrgAiOrgId}
+                  options={(orgData?.allOrganizations || []).map((org) => ({ value: org.id, label: org.name }))}
+                />
+              </div>
+            )}
+            <p className="text-xs text-gray-500 mb-4">
+              Effective source: <span className="font-semibold">{orgAiData?.orgAiSettings?.configSource || 'CUSTOM'}</span>
+              {orgAiData?.orgAiSettings?.sharedProfileName ? ` (${orgAiData.orgAiSettings.sharedProfileName})` : ''}
+            </p>
+            {orgAiLocked && (
+              <p className="text-xs text-orange-700 mb-4">
+                Shared AI is locked by superuser for this organization. Custom organization AI editing is disabled.
+              </p>
+            )}
+            {isSuperuser && (
+              <div className="border border-gray-200 rounded-lg p-5 mb-4">
+                <h4 className="font-semibold text-base mb-3">Shared AI Assignment</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Shared AI Profile</label>
+                    <Select
+                      placeholder="Select shared AI profile"
+                      value={selectedSharedAiProfileId}
+                      onChange={(value) => setSelectedSharedAiProfileId(value)}
+                      options={(sharedAiData?.sharedAiProfiles || []).map((profile) => ({
+                        value: profile.id,
+                        label: profile.name,
+                      }))}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={lockSharedAi} onChange={setLockSharedAi} />
+                    <span className="text-xs font-medium text-gray-700">Lock shared AI for organization</span>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <AntButton type="default" onClick={handleAssignSharedAiProfile} loading={assigningSharedAiProfile} disabled={!selectedOrgAiOrgId || !selectedSharedAiProfileId}>
+                    Apply Shared AI Assignment
+                  </AntButton>
+                  <Input
+                    style={{ maxWidth: 260 }}
+                    placeholder="New shared profile name"
+                    value={sharedAiProfileName}
+                    onChange={(e) => setSharedAiProfileName(e.target.value)}
+                  />
+                  <AntButton onClick={handleSaveSharedAiProfile} loading={savingSharedAiProfile}>
+                    Save Current Settings As Shared
+                  </AntButton>
+                </div>
+              </div>
+            )}
 
             {/* Ollama */}
             <div className={`border rounded-lg p-5 mb-4 ${orgAiForm.ollamaEnabled ? 'border-gray-200' : 'border-gray-200 opacity-60'}`}>
@@ -1683,7 +2228,7 @@ export const ConfigurationPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end mt-4">
-              <Button variant="primary" disabled={savingOrgAi || !canAdminConfig} onClick={handleSaveOrgAi}>
+              <Button variant="primary" disabled={savingOrgAi || disableOrgAiEditing} onClick={handleSaveOrgAi}>
                 {savingOrgAi ? 'Saving...' : 'Save AI Settings'}
               </Button>
             </div>

@@ -298,7 +298,7 @@ class InviteUser(graphene.Mutation):
 
         try:
             from core.email_service import get_email_service
-            service = get_email_service()
+            service = get_email_service(organization=caller.organization)
             if service.is_configured() and new_user.email:
                 org_name = caller.organization.name if caller.organization else 'HEFAISTOS'
                 mfa_note = (
@@ -699,7 +699,7 @@ class ChangePassword(graphene.Mutation):
         try:
             from core.email_service import get_email_service
             from core.email_templates import login_link_text, login_link_html
-            service = get_email_service()
+            service = get_email_service(organization=user.organization)
             if service.is_configured() and user.email:
                 from django.utils import timezone
                 service.send_message(
@@ -1852,7 +1852,7 @@ class AdminResetUserPassword(graphene.Mutation):
         try:
             from core.email_service import get_email_service
             from core.email_templates import login_link_text, login_link_html
-            service = get_email_service()
+            service = get_email_service(organization=target.organization)
             if service.is_configured() and target.email:
                 service.send_message(
                     to=[target.email],
@@ -1943,7 +1943,7 @@ class RequestPasswordReset(graphene.Mutation):
         reset_token_to_return = None
         try:
             from core.email_service import get_email_service
-            service = get_email_service()
+            service = get_email_service(organization=target.organization)
             if service.is_configured() and target.email:
                 reset_url = _frontend_url(f"/reset-password?token={token_value}", request=info.context)
                 service.send_message(
@@ -2143,7 +2143,7 @@ class Mutation(graphene.ObjectType):
             try:
                 from core.email_service import get_email_service
                 from core.email_templates import login_link_text, login_link_html
-                service = get_email_service()
+                service = get_email_service(organization=target.organization)
                 if service.is_configured() and target.email:
                     changes_text = ', '.join(changed_fields)
                     service.send_message(

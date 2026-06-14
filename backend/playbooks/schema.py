@@ -1490,7 +1490,7 @@ class UpdatePlaybookGraphStatus(graphene.Mutation):
                 # Email dispatch respecting preferences
                 from core.email_service import get_email_service
                 if graph.author and getattr(graph.author, 'email_notify_workbench_edited', False) and graph.author.email:
-                    service = get_email_service()
+                    service = get_email_service(organization=user.organization)
                     if service.is_configured():
                         service.send_message(
                             to=[graph.author.email],
@@ -1604,7 +1604,7 @@ class UpdateOwnPlaybookGraphStatus(graphene.Mutation):
                 )
                 from core.email_service import get_email_service
                 if graph.author and getattr(graph.author, 'email_notify_workbench_edited', False) and graph.author.email:
-                    service = get_email_service()
+                    service = get_email_service(organization=user.organization)
                     if service.is_configured():
                         service.send_message(
                             to=[graph.author.email],
@@ -1691,7 +1691,7 @@ class UpdatePlaybookGraphTitle(graphene.Mutation):
                 )
                 from core.email_service import get_email_service
                 if graph.author and getattr(graph.author, 'email_notify_workbench_edited', False) and graph.author.email:
-                    service = get_email_service()
+                    service = get_email_service(organization=user.organization)
                     if service.is_configured():
                         service.send_message(
                             to=[graph.author.email],
@@ -1923,7 +1923,7 @@ class UpdatePlaybookGraphMetadata(graphene.Mutation):
                 )
                 from core.email_service import get_email_service
                 if graph.author and getattr(graph.author, 'email_notify_workbench_edited', False) and graph.author.email:
-                    service = get_email_service()
+                    service = get_email_service(organization=user.organization)
                     if service.is_configured():
                         service.send_message(
                             to=[graph.author.email],

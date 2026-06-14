@@ -26,9 +26,10 @@ def _get_effective_settings(user_settings):
         org = getattr(user_settings.user, 'organization', None)
         if org:
             try:
-                org_settings = OrgAISettings.objects.get(organization=org)
-                if org_settings.has_any_provider:
-                    return org_settings
+                org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+                effective = org_settings.get_effective_settings()
+                if getattr(effective, 'has_any_provider', False):
+                    return effective
             except OrgAISettings.DoesNotExist:
                 pass
     return user_settings
@@ -79,8 +80,8 @@ class ACHGenerator:
             org = getattr(user, 'organization', None)
             if org:
                 try:
-                    org_settings = OrgAISettings.objects.get(organization=org)
-                    if org_settings.has_any_provider:
+                    org_settings = OrgAISettings.objects.select_related('shared_profile').get(organization=org)
+                    if org_settings.get_effective_settings().has_any_provider:
                         use_org_ai = True
                 except OrgAISettings.DoesNotExist:
                     pass

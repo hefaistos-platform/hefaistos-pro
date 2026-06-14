@@ -10,7 +10,9 @@ from .models import (
     Entity,
     MISPInstance,
     MISP_INSTANCE_LIMIT,
-    SmtpSettings,
+    SharedSmtpProfile,
+    OrganizationSmtpSettings,
+    get_effective_smtp_for_organization,
     PlatformCredential,
     OpenTidePublishProfile,
     OpenTideHefPublishJob,
@@ -295,6 +297,53 @@ class SmtpSettingsType(graphene.ObjectType):
     has_password = graphene.Boolean()
     from_email = graphene.String()
     updated_at = graphene.DateTime()
+    source = graphene.String()
+    shared_profile_id = graphene.UUID()
+    shared_profile_name = graphene.String()
+    enforce_shared = graphene.Boolean()
+    custom_configured = graphene.Boolean()
+    can_edit_custom = graphene.Boolean()
+    organization_id = graphene.UUID()
+
+    def resolve_has_password(self, info):
+        return bool(getattr(self, 'has_password', False))
+
+    def resolve_source(self, info):
+        return getattr(self, 'source', 'UNKNOWN')
+
+    def resolve_shared_profile_id(self, info):
+        return getattr(self, 'shared_profile_id', None)
+
+    def resolve_shared_profile_name(self, info):
+        return getattr(self, 'shared_profile_name', '')
+
+    def resolve_enforce_shared(self, info):
+        return bool(getattr(self, 'enforce_shared', False))
+
+    def resolve_custom_configured(self, info):
+        return bool(getattr(self, 'custom_configured', False))
+
+    def resolve_can_edit_custom(self, info):
+        # Org admins cannot edit custom SMTP when shared profile is locked.
+        return not bool(getattr(self, 'enforce_shared', False))
+
+    def resolve_organization_id(self, info):
+        return getattr(self, 'organization_id', None)
+
+
+class SharedSmtpProfileType(graphene.ObjectType):
+    id = graphene.UUID()
+    name = graphene.String()
+    smtp_server = graphene.String()
+    smtp_port = graphene.Int()
+    encryption = graphene.String()
+    login_method = graphene.String()
+    smtp_username = graphene.String()
+    has_password = graphene.Boolean()
+    from_email = graphene.String()
+    is_active = graphene.Boolean()
+    created_at = graphene.DateTime()
+    updated_at = graphene.DateTime()
 
     def resolve_has_password(self, info):
         return bool(getattr(self, 'has_password', False))
@@ -553,7 +602,13 @@ class Query(graphene.ObjectType):
     )
     smtp_settings = graphene.Field(
         SmtpSettingsType,
-        description='Platform-wide SMTP settings (admin only).',
+        organization_id=graphene.UUID(required=False),
+        description='Effective SMTP settings for an organization (admin only).',
+    )
+    shared_smtp_profiles = graphene.List(
+        SharedSmtpProfileType,
+        include_inactive=graphene.Boolean(required=False, default_value=False),
+        description='System-wide shared SMTP profiles (superuser only).',
     )
     platform_credentials = graphene.List(
         PlatformCredentialType,
@@ -561,7 +616,7 @@ class Query(graphene.ObjectType):
     )
     hefaistos_instance_identity = graphene.Field(
         HefaistosInstanceIdentityType,
-        description='Singleton HEFAISTOS instance identifier (UUID v5).',
+        description='Organization-scoped HEFAISTOS sharing identifier (UUID v5).',
     )
     hefaistos_remote_peers = graphene.List(
         HefaistosRemotePeerType,
@@ -635,7 +690,7 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise GraphQLError('Authentication required')
-        return get_or_create_instance_identity()
+        return get_or_create_instance_identity(organization=user.organization)
 
     def resolve_hefaistos_remote_peers(self, info):
         user = info.context.user
@@ -725,13 +780,33 @@ class Query(graphene.ObjectType):
             for key in sorted(PLATFORM_DEPLOYER_MAP.keys())
         ]
 
-    def resolve_smtp_settings(self, info):
+    def resolve_smtp_settings(self, info, organization_id=None):
         user = info.context.user
         if user.is_anonymous:
             raise GraphQLError('Authentication required')
         if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
             raise GraphQLError('Permission denied')
-        return SmtpSettings.objects.filter(singleton_key='default').first()
+        target_org = user.organization
+        if organization_id is not None:
+            if not (user.is_superuser or user.is_staff):
+                raise GraphQLError('Only superusers can read SMTP settings for other organizations.')
+            try:
+                target_org = Organization.objects.get(pk=organization_id)
+            except Organization.DoesNotExist:
+                raise GraphQLError('Organization not found')
+
+        return get_effective_smtp_for_organization(target_org, create_if_missing=True)
+
+    def resolve_shared_smtp_profiles(self, info, include_inactive=False):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError('Permission denied. Superuser access required.')
+        qs = SharedSmtpProfile.objects.all()
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
+        return list(qs.order_by('name'))
 
     def resolve_preview_opentide_metadata(
         self, info, playbook_id, use_ai_enrichment=True, force_bdr_generation=False
@@ -2249,6 +2324,7 @@ class UpsertSmtpSettings(graphene.Mutation):
         smtp_username = graphene.String(required=False)
         smtp_password = graphene.String(required=False)
         from_email = graphene.String(required=False)
+        organization_id = graphene.UUID(required=False)
 
     success = graphene.Boolean()
     message = graphene.String()
@@ -2266,13 +2342,33 @@ class UpsertSmtpSettings(graphene.Mutation):
         smtp_username=None,
         smtp_password=None,
         from_email=None,
+        organization_id=None,
     ):
         from django.core.exceptions import ValidationError
 
+        user = info.context.user
+        target_org = user.organization
+        if organization_id is not None:
+            if not (user.is_superuser or user.is_staff):
+                raise GraphQLError('Only superusers can update SMTP settings for other organizations.')
+            try:
+                target_org = Organization.objects.get(pk=organization_id)
+            except Organization.DoesNotExist:
+                raise GraphQLError('Organization not found')
+
+        org_settings, _ = OrganizationSmtpSettings.objects.select_related('shared_profile').get_or_create(
+            organization=target_org
+        )
+        if org_settings.enforce_shared and not (user.is_superuser or user.is_staff):
+            raise GraphQLError(
+                'SMTP override is locked by superuser for this organization. '
+                'Ask a platform admin to unlock or update the shared profile.'
+            )
+
         normalized_encryption = str(encryption or '').strip().upper()
         normalized_login_method = str(login_method or '').strip().upper()
-        allowed_encryption = {choice for choice, _ in SmtpSettings.Encryption.choices}
-        allowed_login_methods = {choice for choice, _ in SmtpSettings.LoginMethod.choices}
+        allowed_encryption = {choice for choice, _ in SharedSmtpProfile.Encryption.choices}
+        allowed_login_methods = {choice for choice, _ in SharedSmtpProfile.LoginMethod.choices}
 
         if normalized_encryption not in allowed_encryption:
             raise GraphQLError(
@@ -2283,41 +2379,212 @@ class UpsertSmtpSettings(graphene.Mutation):
                 f"Invalid login method '{login_method}'. Valid values: {', '.join(sorted(allowed_login_methods))}"
             )
 
-        # IMPORTANT: avoid get_or_create because SmtpSettings.save() runs full_clean().
-        # Creating with incomplete defaults can fail before submitted fields are assigned.
-        settings_obj = SmtpSettings.objects.filter(singleton_key='default').first()
-        created = settings_obj is None
-        if settings_obj is None:
-            settings_obj = SmtpSettings(singleton_key='default')
-
-        settings_obj.smtp_server = (smtp_server or '').strip()
-        settings_obj.smtp_port = int(smtp_port)
-        settings_obj.encryption = normalized_encryption
-        settings_obj.login_method = normalized_login_method
+        org_settings.custom_enabled = True
+        org_settings.custom_smtp_server = (smtp_server or '').strip()
+        org_settings.custom_smtp_port = int(smtp_port)
+        org_settings.custom_encryption = normalized_encryption
+        org_settings.custom_login_method = normalized_login_method
 
         if smtp_username is not None:
-            settings_obj.smtp_username = smtp_username.strip()
-        elif normalized_login_method == SmtpSettings.LoginMethod.PLAIN:
-            settings_obj.smtp_username = ''
+            org_settings.custom_smtp_username = smtp_username.strip()
+        elif normalized_login_method == SharedSmtpProfile.LoginMethod.PLAIN:
+            org_settings.custom_smtp_username = ''
 
         if smtp_password is not None:
-            settings_obj.smtp_password = smtp_password
-        elif normalized_login_method == SmtpSettings.LoginMethod.PLAIN:
-            settings_obj.smtp_password = ''
+            org_settings.custom_smtp_password = smtp_password
+        elif normalized_login_method == SharedSmtpProfile.LoginMethod.PLAIN:
+            org_settings.custom_smtp_password = ''
 
         if from_email is not None:
-            settings_obj.from_email = from_email.strip()
+            org_settings.custom_from_email = from_email.strip()
+
+        org_settings.updated_by = user
 
         try:
-            settings_obj.save()
+            org_settings.save()
         except ValidationError as exc:
             details = getattr(exc, 'message_dict', None) or {'error': exc.messages}
             raise GraphQLError(str(details))
 
+        effective = get_effective_smtp_for_organization(target_org, create_if_missing=False)
         return UpsertSmtpSettings(
             success=True,
-            message='SMTP settings created successfully.' if created else 'SMTP settings updated successfully.',
-            smtp_settings=settings_obj,
+            message='Organization SMTP settings updated successfully.',
+            smtp_settings=effective,
+        )
+
+
+class SetSharedSmtpProfile(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=False)
+        name = graphene.String(required=False)
+        smtp_server = graphene.String(required=True)
+        smtp_port = graphene.Int(required=True)
+        encryption = graphene.String(required=True)
+        login_method = graphene.String(required=True)
+        smtp_username = graphene.String(required=False)
+        smtp_password = graphene.String(required=False)
+        from_email = graphene.String(required=False)
+        is_active = graphene.Boolean(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    profile = graphene.Field(SharedSmtpProfileType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(
+        root,
+        info,
+        smtp_server,
+        smtp_port,
+        encryption,
+        login_method,
+        id=None,
+        name=None,
+        smtp_username=None,
+        smtp_password=None,
+        from_email=None,
+        is_active=None,
+    ):
+        from django.core.exceptions import ValidationError
+
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError('Permission denied. Superuser access required.')
+
+        normalized_encryption = str(encryption or '').strip().upper()
+        normalized_login_method = str(login_method or '').strip().upper()
+        allowed_encryption = {choice for choice, _ in SharedSmtpProfile.Encryption.choices}
+        allowed_login_methods = {choice for choice, _ in SharedSmtpProfile.LoginMethod.choices}
+
+        if normalized_encryption not in allowed_encryption:
+            raise GraphQLError(
+                f"Invalid encryption '{encryption}'. Valid values: {', '.join(sorted(allowed_encryption))}"
+            )
+        if normalized_login_method not in allowed_login_methods:
+            raise GraphQLError(
+                f"Invalid login method '{login_method}'. Valid values: {', '.join(sorted(allowed_login_methods))}"
+            )
+
+        profile = None
+        created = False
+        if id is not None:
+            profile = SharedSmtpProfile.objects.filter(pk=id).first()
+            if profile is None:
+                raise GraphQLError('Shared SMTP profile not found.')
+        else:
+            profile = SharedSmtpProfile(created_by=user)
+            created = True
+
+        if name is not None:
+            profile.name = name.strip()
+        elif created:
+            raise GraphQLError('Profile name is required when creating a shared SMTP profile.')
+
+        profile.smtp_server = (smtp_server or '').strip()
+        profile.smtp_port = int(smtp_port)
+        profile.encryption = normalized_encryption
+        profile.login_method = normalized_login_method
+
+        if smtp_username is not None:
+            profile.smtp_username = smtp_username.strip()
+        elif normalized_login_method == SharedSmtpProfile.LoginMethod.PLAIN:
+            profile.smtp_username = ''
+
+        if smtp_password is not None:
+            profile.smtp_password = smtp_password
+        elif normalized_login_method == SharedSmtpProfile.LoginMethod.PLAIN:
+            profile.smtp_password = ''
+
+        if from_email is not None:
+            profile.from_email = from_email.strip()
+        if is_active is not None:
+            profile.is_active = bool(is_active)
+
+        try:
+            profile.save()
+        except ValidationError as exc:
+            details = getattr(exc, 'message_dict', None) or {'error': exc.messages}
+            raise GraphQLError(str(details))
+
+        return SetSharedSmtpProfile(
+            success=True,
+            message='Shared SMTP profile created successfully.' if created else 'Shared SMTP profile updated successfully.',
+            profile=profile,
+        )
+
+
+class DeleteSharedSmtpProfile(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, id):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError('Permission denied. Superuser access required.')
+
+        profile = SharedSmtpProfile.objects.filter(pk=id).first()
+        if profile is None:
+            return DeleteSharedSmtpProfile(success=False, message='Shared SMTP profile not found.')
+
+        # Preserve assignment references for history; deactivate instead of hard delete.
+        profile.is_active = False
+        profile.save(update_fields=['is_active', 'updated_at'])
+        return DeleteSharedSmtpProfile(success=True, message='Shared SMTP profile deactivated.')
+
+
+class SetOrganizationSmtpPolicy(graphene.Mutation):
+    class Arguments:
+        organization_id = graphene.UUID(required=True)
+        shared_profile_id = graphene.UUID(required=False)
+        enforce_shared = graphene.Boolean(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    smtp_settings = graphene.Field(SmtpSettingsType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, organization_id, shared_profile_id=None, enforce_shared=None):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError('Permission denied. Superuser access required.')
+
+        try:
+            target_org = Organization.objects.get(pk=organization_id)
+        except Organization.DoesNotExist:
+            raise GraphQLError('Organization not found')
+
+        org_settings, _ = OrganizationSmtpSettings.objects.get_or_create(organization=target_org)
+
+        if shared_profile_id is not None:
+            if str(shared_profile_id).strip():
+                profile = SharedSmtpProfile.objects.filter(pk=shared_profile_id, is_active=True).first()
+                if profile is None:
+                    raise GraphQLError('Shared SMTP profile not found or inactive.')
+                org_settings.shared_profile = profile
+            else:
+                org_settings.shared_profile = None
+
+        if enforce_shared is not None:
+            org_settings.enforce_shared = bool(enforce_shared)
+            if org_settings.enforce_shared and not org_settings.shared_profile_id:
+                raise GraphQLError('Cannot enable enforce_shared without assigning a shared profile.')
+
+        org_settings.updated_by = user
+        org_settings.save()
+
+        effective = get_effective_smtp_for_organization(target_org, create_if_missing=False)
+        return SetOrganizationSmtpPolicy(
+            success=True,
+            message='Organization SMTP policy updated successfully.',
+            smtp_settings=effective,
         )
 
 
@@ -2794,6 +3061,9 @@ class Mutation(graphene.ObjectType):
     delete_platform_credential = DeletePlatformCredential.Field()
     test_platform_connection = TestPlatformConnection.Field()
     upsert_smtp_settings = UpsertSmtpSettings.Field()
+    set_shared_smtp_profile = SetSharedSmtpProfile.Field()
+    delete_shared_smtp_profile = DeleteSharedSmtpProfile.Field()
+    set_organization_smtp_policy = SetOrganizationSmtpPolicy.Field()
     set_org_ai_task_config = SetOrgAiTaskConfig.Field()
     run_org_ai_task_now = RunOrgAiTaskNow.Field()
     update_dac_deployment_config = UpdateDacDeploymentConfig.Field()

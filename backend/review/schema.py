@@ -230,7 +230,7 @@ class ApproveReview(graphene.Mutation):
             # Email dispatch respecting preferences
             from core.email_service import get_email_service
             if getattr(review_request.author, 'email_notify_review_approved', False) and review_request.author.email:
-                service = get_email_service()
+                service = get_email_service(organization=user.organization)
                 if service.is_configured():
                     from core.email_templates import login_link_text, login_link_html
                     playbook_title = getattr(review_request.playbook, 'title', str(review_request.playbook_id))

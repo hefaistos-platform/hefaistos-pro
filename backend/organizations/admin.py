@@ -3,6 +3,8 @@ from .models import (
 	Entity,
 	Organization,
 	MISPInstance,
+	SharedSmtpProfile,
+	OrganizationSmtpSettings,
 	OpenTidePublishProfile,
 	OpenTideHefPublishJob,
 	OrganizationAITaskConfig,
@@ -32,6 +34,30 @@ class MISPInstanceAdmin(admin.ModelAdmin):
 	list_display = ("name", "organization", "url", "verify_ssl", "created_at")
 	list_filter = ("organization", "verify_ssl")
 	search_fields = ("name", "url")
+
+
+@admin.register(SharedSmtpProfile)
+class SharedSmtpProfileAdmin(admin.ModelAdmin):
+	list_display = ("name", "smtp_server", "smtp_port", "login_method", "is_active", "updated_at")
+	list_filter = ("is_active", "encryption", "login_method")
+	search_fields = ("name", "smtp_server", "smtp_username")
+	readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(OrganizationSmtpSettings)
+class OrganizationSmtpSettingsAdmin(admin.ModelAdmin):
+	list_display = (
+		"organization",
+		"shared_profile",
+		"enforce_shared",
+		"custom_enabled",
+		"custom_smtp_server",
+		"custom_smtp_port",
+		"updated_at",
+	)
+	list_filter = ("enforce_shared", "custom_enabled")
+	search_fields = ("organization__name", "custom_smtp_server")
+	readonly_fields = ("created_at", "updated_at")
 
 
 @admin.register(OpenTidePublishProfile)
@@ -115,8 +141,8 @@ class OrganizationAITaskRunAdmin(admin.ModelAdmin):
 
 @admin.register(HefaistosInstanceIdentity)
 class HefaistosInstanceIdentityAdmin(admin.ModelAdmin):
-	list_display = ("instance_id", "created_at", "updated_at")
-	readonly_fields = ("singleton_key", "instance_id", "created_at", "updated_at")
+	list_display = ("organization", "instance_id", "created_at", "updated_at")
+	readonly_fields = ("organization", "singleton_key", "instance_id", "created_at", "updated_at")
 
 	def has_add_permission(self, request):  # pragma: no cover
 		return False

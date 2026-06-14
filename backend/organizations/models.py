@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -315,6 +316,293 @@ class SmtpSettings(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+@dataclass
+class EffectiveSmtpConfig:
+    smtp_server: str
+    smtp_port: int
+    encryption: str
+    login_method: str
+    smtp_username: str
+    smtp_password: str
+    has_password: bool
+    from_email: str
+    updated_at: object | None
+    source: str
+    shared_profile_id: uuid.UUID | None = None
+    shared_profile_name: str = ''
+    enforce_shared: bool = False
+    custom_configured: bool = False
+    organization_id: uuid.UUID | None = None
+
+
+class SharedSmtpProfile(models.Model):
+    """System-wide SMTP profile managed by platform superusers."""
+
+    class Encryption(models.TextChoices):
+        NONE = 'NONE', 'None'
+        SSL = 'SSL', 'SSL'
+        STARTTLS = 'STARTTLS', 'STARTTLS'
+
+    class LoginMethod(models.TextChoices):
+        PLAIN = 'PLAIN', 'PLAIN'
+        LOGIN = 'LOGIN', 'LOGIN'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=120, unique=True)
+    smtp_server = models.CharField(max_length=255)
+    smtp_port = models.PositiveIntegerField(default=587)
+    encryption = models.CharField(max_length=16, choices=Encryption.choices, default=Encryption.STARTTLS)
+    login_method = models.CharField(max_length=16, choices=LoginMethod.choices, default=LoginMethod.PLAIN)
+    smtp_username = models.CharField(max_length=255, blank=True, default='')
+    _smtp_password = models.TextField(
+        db_column='smtp_password',
+        help_text='Encrypted SMTP password (do not access directly)',
+        blank=True,
+        default='',
+    )
+    from_email = models.EmailField(blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        'identity.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_shared_smtp_profiles',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Shared SMTP Profile'
+        verbose_name_plural = 'Shared SMTP Profiles'
+
+    def __str__(self):
+        return f"SharedSMTP({self.name})"
+
+    @property
+    def smtp_password(self) -> str:
+        return _decrypt(self._smtp_password) or ''
+
+    @smtp_password.setter
+    def smtp_password(self, value: str) -> None:
+        self._smtp_password = _encrypt(value or '') or ''
+
+    @property
+    def has_password(self) -> bool:
+        return bool(self._smtp_password)
+
+    def clean(self):
+        errors = {}
+
+        if not (self.name or '').strip():
+            errors['name'] = 'This field cannot be blank.'
+        if not (self.smtp_server or '').strip():
+            errors['smtp_server'] = 'This field cannot be blank.'
+        if not (1 <= int(self.smtp_port or 0) <= 65535):
+            errors['smtp_port'] = 'Port must be between 1 and 65535.'
+
+        if self.login_method == self.LoginMethod.LOGIN:
+            if not (self.smtp_username or '').strip():
+                errors['smtp_username'] = 'Username is required when login method is LOGIN.'
+            if not self.has_password:
+                errors['smtp_password'] = 'Password is required when login method is LOGIN.'
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class OrganizationSmtpSettings(models.Model):
+    """Per-organization SMTP policy and optional custom SMTP override."""
+
+    organization = models.OneToOneField(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='smtp_settings',
+    )
+    shared_profile = models.ForeignKey(
+        SharedSmtpProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='organization_assignments',
+    )
+    enforce_shared = models.BooleanField(
+        default=False,
+        help_text='When enabled, organization admins cannot override with custom SMTP.',
+    )
+    custom_enabled = models.BooleanField(
+        default=False,
+        help_text='Enable organization-local SMTP configuration.',
+    )
+    custom_smtp_server = models.CharField(max_length=255, blank=True, default='')
+    custom_smtp_port = models.PositiveIntegerField(default=587)
+    custom_encryption = models.CharField(
+        max_length=16,
+        choices=SharedSmtpProfile.Encryption.choices,
+        default=SharedSmtpProfile.Encryption.STARTTLS,
+    )
+    custom_login_method = models.CharField(
+        max_length=16,
+        choices=SharedSmtpProfile.LoginMethod.choices,
+        default=SharedSmtpProfile.LoginMethod.PLAIN,
+    )
+    custom_smtp_username = models.CharField(max_length=255, blank=True, default='')
+    _custom_smtp_password = models.TextField(
+        db_column='custom_smtp_password',
+        help_text='Encrypted custom SMTP password (do not access directly)',
+        blank=True,
+        default='',
+    )
+    custom_from_email = models.EmailField(blank=True, default='')
+    updated_by = models.ForeignKey(
+        'identity.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='updated_org_smtp_settings',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Organization SMTP Settings'
+        verbose_name_plural = 'Organization SMTP Settings'
+
+    def __str__(self):
+        return f"OrgSMTP({self.organization.name})"
+
+    @property
+    def custom_smtp_password(self) -> str:
+        return _decrypt(self._custom_smtp_password) or ''
+
+    @custom_smtp_password.setter
+    def custom_smtp_password(self, value: str) -> None:
+        self._custom_smtp_password = _encrypt(value or '') or ''
+
+    @property
+    def has_custom_password(self) -> bool:
+        return bool(self._custom_smtp_password)
+
+    @property
+    def has_custom_config(self) -> bool:
+        return bool(self.custom_enabled and (self.custom_smtp_server or '').strip())
+
+    def clean(self):
+        errors = {}
+        if self.enforce_shared and not self.shared_profile_id:
+            errors['shared_profile'] = 'Shared profile is required when enforce_shared is enabled.'
+
+        if self.custom_enabled:
+            if not (self.custom_smtp_server or '').strip():
+                errors['custom_smtp_server'] = 'SMTP server is required when custom SMTP is enabled.'
+            if not (1 <= int(self.custom_smtp_port or 0) <= 65535):
+                errors['custom_smtp_port'] = 'Port must be between 1 and 65535.'
+            if self.custom_login_method == SharedSmtpProfile.LoginMethod.LOGIN:
+                if not (self.custom_smtp_username or '').strip():
+                    errors['custom_smtp_username'] = 'Username is required when login method is LOGIN.'
+                if not self.has_custom_password:
+                    errors['custom_smtp_password'] = 'Password is required when login method is LOGIN.'
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def _config_from_shared(self, source: str) -> EffectiveSmtpConfig | None:
+        profile = self.shared_profile
+        if not profile or not profile.is_active:
+            return None
+        return EffectiveSmtpConfig(
+            smtp_server=profile.smtp_server or '',
+            smtp_port=int(profile.smtp_port or 0),
+            encryption=profile.encryption or SharedSmtpProfile.Encryption.NONE,
+            login_method=profile.login_method or SharedSmtpProfile.LoginMethod.PLAIN,
+            smtp_username=profile.smtp_username or '',
+            smtp_password=profile.smtp_password or '',
+            has_password=profile.has_password,
+            from_email=profile.from_email or '',
+            updated_at=profile.updated_at,
+            source=source,
+            shared_profile_id=profile.id,
+            shared_profile_name=profile.name,
+            enforce_shared=bool(self.enforce_shared),
+            custom_configured=self.has_custom_config,
+            organization_id=self.organization_id,
+        )
+
+    def _config_from_custom(self) -> EffectiveSmtpConfig:
+        return EffectiveSmtpConfig(
+            smtp_server=self.custom_smtp_server or '',
+            smtp_port=int(self.custom_smtp_port or 0),
+            encryption=self.custom_encryption or SharedSmtpProfile.Encryption.NONE,
+            login_method=self.custom_login_method or SharedSmtpProfile.LoginMethod.PLAIN,
+            smtp_username=self.custom_smtp_username or '',
+            smtp_password=self.custom_smtp_password or '',
+            has_password=self.has_custom_password,
+            from_email=self.custom_from_email or '',
+            updated_at=self.updated_at,
+            source='CUSTOM',
+            shared_profile_id=self.shared_profile_id,
+            shared_profile_name=self.shared_profile.name if self.shared_profile_id else '',
+            enforce_shared=bool(self.enforce_shared),
+            custom_configured=self.has_custom_config,
+            organization_id=self.organization_id,
+        )
+
+    def get_effective_config(self) -> EffectiveSmtpConfig | None:
+        if self.shared_profile_id and self.enforce_shared:
+            cfg = self._config_from_shared('SHARED_LOCKED')
+            if cfg is not None:
+                return cfg
+        if self.has_custom_config:
+            return self._config_from_custom()
+        if self.shared_profile_id:
+            cfg = self._config_from_shared('SHARED')
+            if cfg is not None:
+                return cfg
+        return _legacy_global_smtp_config(organization_id=self.organization_id)
+
+
+def _legacy_global_smtp_config(organization_id=None) -> EffectiveSmtpConfig | None:
+    legacy = SmtpSettings.objects.filter(singleton_key='default').first()
+    if legacy is None:
+        return None
+    return EffectiveSmtpConfig(
+        smtp_server=legacy.smtp_server or '',
+        smtp_port=int(legacy.smtp_port or 0),
+        encryption=legacy.encryption or SharedSmtpProfile.Encryption.NONE,
+        login_method=legacy.login_method or SharedSmtpProfile.LoginMethod.PLAIN,
+        smtp_username=legacy.smtp_username or '',
+        smtp_password=legacy.smtp_password or '',
+        has_password=legacy.has_password,
+        from_email=legacy.from_email or '',
+        updated_at=legacy.updated_at,
+        source='LEGACY_GLOBAL',
+        organization_id=organization_id,
+    )
+
+
+def get_effective_smtp_for_organization(organization, create_if_missing: bool = True) -> EffectiveSmtpConfig | None:
+    if organization is None:
+        return _legacy_global_smtp_config()
+
+    settings_obj = OrganizationSmtpSettings.objects.select_related('shared_profile').filter(
+        organization=organization
+    ).first()
+    if settings_obj is None and create_if_missing:
+        settings_obj = OrganizationSmtpSettings.objects.create(organization=organization)
+    if settings_obj is None:
+        return _legacy_global_smtp_config(organization_id=getattr(organization, 'id', None))
+    return settings_obj.get_effective_config()
 
 
 class OrganizationAITaskConfig(models.Model):
@@ -718,19 +1006,28 @@ class OpenTideHefImportJob(models.Model):
 
 
 class HefaistosInstanceIdentity(models.Model):
-    """Singleton model storing this HEFAISTOS instance identity (UUID v5)."""
+    """Organization-scoped HEFAISTOS sharing identity (UUID v5)."""
 
-    singleton_key = models.CharField(max_length=32, unique=True, default='default')
+    organization = models.OneToOneField(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='hefaistos_instance_identity',
+        null=True,
+        blank=True,
+    )
+    singleton_key = models.CharField(max_length=64, blank=True, default='', db_index=True)
     instance_id = models.UUIDField(unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = 'HEFAISTOS Instance Identity'
-        verbose_name_plural = 'HEFAISTOS Instance Identity'
+        verbose_name_plural = 'HEFAISTOS Instance Identities'
 
     def __str__(self):
-        return f'InstanceIdentity({self.instance_id})'
+        if self.organization_id:
+            return f'InstanceIdentity({self.organization.name}: {self.instance_id})'
+        return f'InstanceIdentity(global: {self.instance_id})'
 
 
 class HefaistosRemotePeer(models.Model):

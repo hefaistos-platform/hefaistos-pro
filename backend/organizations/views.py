@@ -39,7 +39,10 @@ def sharing_instance_info(request):
     except PermissionDenied as exc:
         return _permission_denied(str(exc))
 
-    identity = get_or_create_instance_identity(create_if_missing=False)
+    identity = get_or_create_instance_identity(
+        organization=share_key.organization,
+        create_if_missing=False,
+    )
     return JsonResponse({
         'instance_id': str(identity.instance_id),
         'organization': share_key.organization.name,
