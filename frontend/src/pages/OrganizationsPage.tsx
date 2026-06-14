@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Card, Typography, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Tag, Tabs, Select, Drawer, Divider } from 'antd';
+import React, { useState } from 'react';
+import { Card, Typography, Table, Button, Modal, Form, Input, InputNumber, Space, Popconfirm, message, Tag, Tabs, Select, Drawer, Divider } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, BankOutlined, TeamOutlined, ArrowRightOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
@@ -12,6 +12,7 @@ const ALL_ORGANIZATIONS = gql`
     allOrganizations {
       id
       name
+      maxUsers
       memberCount
       createdAt
       updatedAt
@@ -51,26 +52,28 @@ const ALL_ENTITIES = gql`
 
 // --- GraphQL Mutations ---
 const CREATE_ORGANIZATION = gql`
-  mutation CreateOrganization($name: String!, $entityId: UUID) {
-    createOrganization(name: $name, entityId: $entityId) {
+  mutation CreateOrganization($name: String!, $entityId: UUID, $maxUsers: Int) {
+    createOrganization(name: $name, entityId: $entityId, maxUsers: $maxUsers) {
       success
       message
       organization {
         id
         name
+        maxUsers
       }
     }
   }
 `;
 
 const UPDATE_ORGANIZATION = gql`
-  mutation UpdateOrganization($id: UUID!, $name: String, $entityId: UUID) {
-    updateOrganization(id: $id, name: $name, entityId: $entityId) {
+  mutation UpdateOrganization($id: UUID!, $name: String, $entityId: UUID, $maxUsers: Int) {
+    updateOrganization(id: $id, name: $name, entityId: $entityId, maxUsers: $maxUsers) {
       success
       message
       organization {
         id
         name
+        maxUsers
       }
     }
   }
@@ -111,6 +114,7 @@ const DELETE_ENTITY = gql`
 interface Organization {
   id: string;
   name: string;
+  maxUsers?: number | null;
   memberCount: number;
   createdAt: string;
   updatedAt: string;
@@ -133,11 +137,11 @@ interface MutationResponse {
 }
 
 interface CreateOrgData {
-  createOrganization: MutationResponse & { organization?: { id: string; name: string } };
+  createOrganization: MutationResponse & { organization?: { id: string; name: string; maxUsers?: number | null } };
 }
 
 interface UpdateOrgData {
-  updateOrganization: MutationResponse & { organization?: { id: string; name: string } };
+  updateOrganization: MutationResponse & { organization?: { id: string; name: string; maxUsers?: number | null } };
 }
 
 interface DeleteOrgData {
@@ -191,7 +195,7 @@ export const OrganizationsPage: React.FC = () => {
   // Queries
   const { data: orgData, loading: orgLoading, refetch: refetchOrgs } = useQuery<AllOrganizationsData>(ALL_ORGANIZATIONS);
   const { data: entityData, loading: entityLoading, refetch: refetchEntities } = useQuery<AllEntitiesData>(ALL_ENTITIES);
-  const { data: membersData, loading: membersLoading, refetch: refetchMembers } = useQuery<OrganizationMembersData>(ORGANIZATION_WITH_MEMBERS, {
+  const { data: membersData, loading: membersLoading } = useQuery<OrganizationMembersData>(ORGANIZATION_WITH_MEMBERS, {
     variables: { id: memberDrawerOrg?.id },
     skip: !memberDrawerOrg,
     fetchPolicy: 'network-only',
@@ -213,7 +217,7 @@ export const OrganizationsPage: React.FC = () => {
 
   const handleEditOrg = (org: Organization) => {
     setEditingOrg(org);
-    orgForm.setFieldsValue({ name: org.name, entityId: org.entity?.id });
+    orgForm.setFieldsValue({ name: org.name, entityId: org.entity?.id, maxUsers: org.maxUsers ?? null });
     setIsOrgModalOpen(true);
   };
 
@@ -246,10 +250,11 @@ export const OrganizationsPage: React.FC = () => {
       const values = await orgForm.validateFields();
       
       const entityId = values.entityId || null;
+      const maxUsers = values.maxUsers ?? null;
 
       if (editingOrg) {
         const { data } = await updateOrganization({
-          variables: { id: editingOrg.id, name: values.name, entityId }
+          variables: { id: editingOrg.id, name: values.name, entityId, maxUsers }
         });
         if (data?.updateOrganization?.success) {
           message.success('Organization updated successfully');
@@ -260,7 +265,7 @@ export const OrganizationsPage: React.FC = () => {
         }
       } else {
         const { data } = await createOrganization({
-          variables: { name: values.name, entityId }
+          variables: { name: values.name, entityId, maxUsers }
         });
         if (data?.createOrganization?.success) {
           message.success('Organization created successfully');
@@ -355,9 +360,14 @@ export const OrganizationsPage: React.FC = () => {
       dataIndex: 'memberCount',
       key: 'memberCount',
       render: (_: number, record: Organization) => (
-        <Button type="link" size="small" icon={<TeamOutlined />} onClick={() => setMemberDrawerOrg(record)}>
-          {record.memberCount}
-        </Button>
+        <Space size={6}>
+          <Button type="link" size="small" icon={<TeamOutlined />} onClick={() => setMemberDrawerOrg(record)}>
+            {record.memberCount}
+          </Button>
+          <Tag color={record.maxUsers != null && record.memberCount >= record.maxUsers ? 'red' : 'default'}>
+            {record.memberCount} / {record.maxUsers ?? 'Unlimited'}
+          </Tag>
+        </Space>
       ),
     },
     {
@@ -577,6 +587,14 @@ export const OrganizationsPage: React.FC = () => {
               showSearch
               optionFilterProp="label"
             />
+          </Form.Item>
+          <Form.Item
+            name="maxUsers"
+            label="Maximum Users (optional)"
+            extra="Leave empty for unlimited users."
+            rules={[{ type: 'number', min: 1, message: 'Maximum users must be at least 1.' }]}
+          >
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="Unlimited" />
           </Form.Item>
         </Form>
       </Modal>

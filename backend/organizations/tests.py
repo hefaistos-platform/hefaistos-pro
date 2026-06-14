@@ -2,7 +2,9 @@ from django.contrib.auth import get_user_model
 from graphene_django.utils.testing import GraphQLTestCase
 import json
 from django.test import TestCase
+from unittest.mock import MagicMock
 from .models import Organization, MISPInstance, MISP_INSTANCE_LIMIT
+from .schema import UpdateOrganization
 
 class OrganizationModelTests(TestCase):
 
@@ -104,3 +106,43 @@ class MISPInstanceModelTests(TestCase):
         MISPInstance.objects.create(organization=self.org, name="Shared", url="https://a.example.com", auth_key="k1")
         inst2 = MISPInstance.objects.create(organization=org2, name="Shared", url="https://b.example.com", auth_key="k2")
         self.assertIsNotNone(inst2.id)
+
+
+class OrganizationUserLimitMutationTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.org = Organization.objects.create(name="Limited Org", max_users=5)
+        self.superuser = self.user_model.objects.create_superuser(
+            username="org_limit_super",
+            email="org_limit_super@example.com",
+            password="SuperPass123!",
+        )
+        self.user_model.objects.create_user(
+            username="member_one",
+            email="member_one@example.com",
+            password="MemberPass123!",
+            organization=self.org,
+        )
+        self.user_model.objects.create_user(
+            username="member_two",
+            email="member_two@example.com",
+            password="MemberPass123!",
+            organization=self.org,
+        )
+
+    def _make_info(self, user):
+        info = MagicMock()
+        info.context.user = user
+        return info
+
+    def test_update_organization_rejects_max_users_below_current_members(self):
+        mutation = UpdateOrganization()
+        result = mutation.mutate(
+            self._make_info(self.superuser),
+            id=self.org.id,
+            max_users=1,
+        )
+        self.assertFalse(result.success)
+        self.assertIn("Cannot set max users below current member count", result.message)
+        self.org.refresh_from_db()
+        self.assertEqual(self.org.max_users, 5)

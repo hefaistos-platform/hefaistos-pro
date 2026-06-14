@@ -185,3 +185,67 @@ class AccountSetupFlowTests(TestCase):
         self.assertTrue(mfa_settings.totp_enabled)
         self.assertTrue(bool(mfa_settings.totp_secret))
         self.assertEqual(AccountSetupToken.objects.filter(user=invited, used=False).count(), 0)
+
+
+class OrganizationUserLimitEnforcementTests(TestCase):
+    def setUp(self):
+        self.full_org = Organization.objects.create(name="Full Org", max_users=2)
+        self.source_org = Organization.objects.create(name="Source Org", max_users=10)
+
+        # Fill full_org to capacity
+        self.resident = User.objects.create_user(
+            username="resident",
+            email="resident@example.com",
+            password="ResidentPass123!",
+            role=Roles.ANALYST,
+            organization=self.full_org,
+        )
+
+        self.org_admin = User.objects.create_user(
+            username="orgadmin_limit",
+            email="orgadmin_limit@example.com",
+            password="AdminPass123!",
+            role=Roles.ADMIN,
+            organization=self.full_org,
+        )
+        self.super_admin = User.objects.create_superuser(
+            username="superadmin_limit",
+            email="superadmin_limit@example.com",
+            password="SuperPass123!",
+        )
+        self.movable_user = User.objects.create_user(
+            username="movable_user",
+            email="movable@example.com",
+            password="MovePass123!",
+            role=Roles.ANALYST,
+            organization=self.source_org,
+        )
+
+    def test_invite_user_blocked_when_org_is_at_capacity(self):
+        info = _make_info(self.org_admin)
+        with self.assertRaises(Exception) as ctx:
+            InviteUser.mutate(
+                None,
+                info,
+                username="new_limited_user",
+                email="new_limited_user@example.com",
+                role=Roles.ANALYST,
+            )
+        self.assertIn("maximum user limit", str(ctx.exception))
+        self.assertFalse(User.objects.filter(username="new_limited_user").exists())
+
+    def test_admin_update_user_blocks_move_into_full_org(self):
+        info = _make_info(self.super_admin)
+        from identity.schema import Mutation as IdentityMutation
+        root = IdentityMutation()
+
+        with self.assertRaises(Exception) as ctx:
+            root.resolve_admin_update_user(
+                info,
+                user_id=self.movable_user.id,
+                organization_id=self.full_org.id,
+            )
+
+        self.assertIn("maximum user limit", str(ctx.exception))
+        self.movable_user.refresh_from_db()
+        self.assertEqual(self.movable_user.organization_id, self.source_org.id)

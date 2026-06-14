@@ -2,6 +2,7 @@ import graphene
 import logging
 import re
 from typing import List
+from django.core.exceptions import ValidationError
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 from .models import (
@@ -47,6 +48,7 @@ from identity.schema import UserType
 from rules.deployers import PLATFORM_DEPLOYER_MAP
 
 logger = logging.getLogger(__name__)
+_UNSET = object()
 
 VALID_DEPLOYMENT_PLATFORMS = {'defender', 'sentinel', 'splunk', 'qradar', 'wazuh'}
 PLATFORM_DISPLAY_LABELS = dict(PlatformCredential.PLATFORM_CHOICES)
@@ -105,7 +107,7 @@ class OrganizationType(DjangoObjectType):
 
     class Meta:
         model = Organization
-        fields = ("id", "name", "created_at", "updated_at", "entity")
+        fields = ("id", "name", "max_users", "created_at", "updated_at", "entity")
 
     def resolve_members(self, info, exclude_author_id=None):
         qs = CustomUser.objects.filter(organization=self)
@@ -1272,6 +1274,27 @@ def _extract_opentide_field_metadata(mdr_data: dict, bdr_data, dom_data: dict) -
     return metadata
 
 
+def _first_validation_error_message(exc: ValidationError) -> str:
+    if hasattr(exc, "message_dict") and exc.message_dict:
+        for field_errors in exc.message_dict.values():
+            if field_errors:
+                return str(field_errors[0])
+    if hasattr(exc, "messages") and exc.messages:
+        return str(exc.messages[0])
+    return str(exc)
+
+
+def _normalize_max_users_input(max_users):
+    if max_users is _UNSET:
+        return _UNSET
+    if max_users is None:
+        return None
+    normalized = int(max_users)
+    if normalized < 1:
+        raise ValueError("Max users must be at least 1.")
+    return normalized
+
+
 # --- Mutations ---
 
 class CreateOrganization(graphene.Mutation):
@@ -1280,12 +1303,13 @@ class CreateOrganization(graphene.Mutation):
     class Arguments:
         name = graphene.String(required=True)
         entity_id = graphene.UUID(required=False)
+        max_users = graphene.Int(required=False)
     
     organization = graphene.Field(OrganizationType)
     success = graphene.Boolean()
     message = graphene.String()
     
-    def mutate(self, info, name, entity_id=None):
+    def mutate(self, info, name, entity_id=None, max_users=None):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication credentials were not provided")
@@ -1310,8 +1334,25 @@ class CreateOrganization(graphene.Mutation):
                     success=False,
                     message="Entity not found."
                 )
-        
-        org = Organization.objects.create(name=name, entity=entity)
+        try:
+            normalized_max_users = _normalize_max_users_input(max_users)
+        except ValueError as exc:
+            return CreateOrganization(
+                organization=None,
+                success=False,
+                message=str(exc),
+            )
+
+        org = Organization(name=name, entity=entity, max_users=normalized_max_users)
+        try:
+            org.full_clean()
+        except ValidationError as exc:
+            return CreateOrganization(
+                organization=None,
+                success=False,
+                message=_first_validation_error_message(exc),
+            )
+        org.save()
         return CreateOrganization(
             organization=org,
             success=True,
@@ -1326,12 +1367,13 @@ class UpdateOrganization(graphene.Mutation):
         id = graphene.UUID(required=True)
         name = graphene.String(required=False)
         entity_id = graphene.UUID(required=False)
+        max_users = graphene.Int(required=False)
     
     organization = graphene.Field(OrganizationType)
     success = graphene.Boolean()
     message = graphene.String()
     
-    def mutate(self, info, id, name=None, entity_id=None):
+    def mutate(self, info, id, name=None, entity_id=_UNSET, max_users=_UNSET):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication credentials were not provided")
@@ -1356,18 +1398,40 @@ class UpdateOrganization(graphene.Mutation):
                     message=f"Organization with name '{name}' already exists."
                 )
             org.name = name
-        
-        if entity_id is not None:
+
+        if entity_id is not _UNSET:
+            if entity_id is None:
+                org.entity = None
+            else:
+                try:
+                    entity = Entity.objects.get(pk=entity_id)
+                    org.entity = entity
+                except Entity.DoesNotExist:
+                    return UpdateOrganization(
+                        organization=None,
+                        success=False,
+                        message="Entity not found."
+                    )
+
+        if max_users is not _UNSET:
             try:
-                entity = Entity.objects.get(pk=entity_id)
-                org.entity = entity
-            except Entity.DoesNotExist:
+                org.max_users = _normalize_max_users_input(max_users)
+            except ValueError as exc:
                 return UpdateOrganization(
                     organization=None,
                     success=False,
-                    message="Entity not found."
+                    message=str(exc),
                 )
-        
+
+        try:
+            org.full_clean()
+        except ValidationError as exc:
+            return UpdateOrganization(
+                organization=None,
+                success=False,
+                message=_first_validation_error_message(exc),
+            )
+
         org.save()
         return UpdateOrganization(
             organization=org,

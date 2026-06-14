@@ -22,7 +22,7 @@ class EntityAdmin(admin.ModelAdmin):
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-	list_display = ("name", "entity", "created_at", "updated_at")
+	list_display = ("name", "entity", "max_users", "created_at", "updated_at")
 	list_filter = ("entity",)
 	search_fields = ("name",)
 

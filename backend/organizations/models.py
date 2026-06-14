@@ -61,6 +61,12 @@ class Entity(models.Model):
 class Organization(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, unique=True)
+    max_users = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Maximum users allowed in this organization. Leave empty for unlimited.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -75,6 +81,24 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
+    def current_member_count(self) -> int:
+        return self.customuser_set.count()
+
+    def has_user_capacity(self, incoming_users: int = 1) -> bool:
+        if self.max_users is None:
+            return True
+        return (self.current_member_count() + max(0, int(incoming_users or 0))) <= self.max_users
+
+    def clean(self):
+        super().clean()
+        if self.max_users is None:
+            return
+        current_members = self.current_member_count() if self.pk else 0
+        if self.max_users < current_members:
+            raise ValidationError(
+                {"max_users": f"Cannot set max users below current member count ({current_members})."}
+            )
 
 
 class MISPInstance(models.Model):

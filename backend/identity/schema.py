@@ -233,6 +233,19 @@ def _allowed_roles_for_assignment(caller):
     return roles
 
 
+def _enforce_organization_user_limit(organization):
+    if not organization:
+        return
+    max_users = getattr(organization, 'max_users', None)
+    if max_users is None:
+        return
+    current_members = CustomUser.objects.filter(organization=organization).count()
+    if current_members >= max_users:
+        raise Exception(
+            f"Organization '{organization.name}' has reached its maximum user limit ({max_users})."
+        )
+
+
 class InviteUser(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
@@ -258,14 +271,27 @@ class InviteUser(graphene.Mutation):
         if role not in allowed_roles:
             raise Exception(f"Invalid role. Must be one of: {Roles.labels}")
 
-        new_user = CustomUser(
-            username=(username or '').strip(),
-            email=(email or '').strip(),
-            role=role,
-            organization=caller.organization,
-        )
-        new_user.set_unusable_password()
-        new_user.save()
+        if caller.organization_id:
+            with transaction.atomic():
+                locked_org = Organization.objects.select_for_update().get(pk=caller.organization_id)
+                _enforce_organization_user_limit(locked_org)
+                new_user = CustomUser(
+                    username=(username or '').strip(),
+                    email=(email or '').strip(),
+                    role=role,
+                    organization=locked_org,
+                )
+                new_user.set_unusable_password()
+                new_user.save()
+        else:
+            new_user = CustomUser(
+                username=(username or '').strip(),
+                email=(email or '').strip(),
+                role=role,
+                organization=caller.organization,
+            )
+            new_user.set_unusable_password()
+            new_user.save()
 
         setup_url = _issue_account_setup_link(target_user=new_user, caller_user=caller, request=info.context)
         setup_link_to_return = None
@@ -2100,7 +2126,18 @@ class Mutation(graphene.ObjectType):
             changed_fields.append('organization_id')
 
         if changed_fields:
-            target.save(update_fields=changed_fields)
+            if 'organization_id' in changed_fields and target.organization_id:
+                with transaction.atomic():
+                    locked_org = Organization.objects.select_for_update().get(pk=target.organization_id)
+                    already_member = CustomUser.objects.filter(
+                        pk=target.pk,
+                        organization=locked_org,
+                    ).exists()
+                    if not already_member:
+                        _enforce_organization_user_limit(locked_org)
+                    target.save(update_fields=changed_fields)
+            else:
+                target.save(update_fields=changed_fields)
 
             # Send notification email to user about profile changes by admin
             try:
