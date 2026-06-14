@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gql, useQuery } from '@apollo/client';
-import { Alert, Spin, Tabs, Typography } from 'antd';
+import { Spin, Tabs, Typography } from 'antd';
 import { BarChartOutlined, CrownOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { PromptLibrary } from '../components/PromptLibrary';
 import { MailingListAdmin } from '../components/mgmt/MailingListAdmin';
@@ -15,6 +15,9 @@ const GET_ACCESS_QUERY = gql`
       username
       role
       isSuperuser
+      organization {
+        id
+      }
     }
   }
 `;
@@ -25,22 +28,18 @@ export const MGMTCavePage: React.FC = () => {
   const navigate = useNavigate();
   const { data: accessData, loading: accessLoading } = useQuery(GET_ACCESS_QUERY);
 
-  const isBotAuditor = useMemo(() => {
-    if (!accessData?.me) return false;
-    const role = (accessData.me.role || '').toUpperCase();
-    return role === 'BOT_AUDITOR_ORG' || role === 'BOT_AUDITOR_GLOBAL';
-  }, [accessData]);
-
   const isMGMTUser = useMemo(() => {
     if (!accessData?.me) return false;
     const role = (accessData.me.role || '').toUpperCase();
-    return role === 'ADMIN' || role === 'REVIEWER' || Boolean(accessData.me.isSuperuser) || isBotAuditor;
-  }, [accessData, isBotAuditor]);
+    const hasOrganization = Boolean(accessData.me.organization?.id);
+    return hasOrganization && (role === 'ADMIN' || role === 'REVIEWER');
+  }, [accessData]);
 
   const isAdmin = useMemo(() => {
     if (!accessData?.me) return false;
     const role = (accessData.me.role || '').toUpperCase();
-    return role === 'ADMIN' || Boolean(accessData.me.isSuperuser);
+    const hasOrganization = Boolean(accessData.me.organization?.id);
+    return hasOrganization && role === 'ADMIN';
   }, [accessData]);
 
   useEffect(() => {
@@ -109,15 +108,6 @@ export const MGMTCavePage: React.FC = () => {
 
   return (
     <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
-      {isBotAuditor && (
-        <Alert
-          type="warning"
-          showIcon
-          message="Read-only bot auditor mode"
-          description="You can inspect MGMT Cave data, but all write operations are blocked."
-          style={{ marginBottom: 16 }}
-        />
-      )}
       <div style={{ marginBottom: 24 }}>
         <Title level={2}>
           <CrownOutlined style={{ marginRight: 8, color: '#faad14' }} />

@@ -135,6 +135,15 @@ def _monthly_cache_timeout(now):
     return max(300, int((start_next_month - now).total_seconds()))
 
 
+def _require_org_context(user):
+    org = getattr(user, 'organization', None)
+    if org is None:
+        raise GraphQLError(
+            'MGMT Cave is organization-scoped. Assign this account to an organization first.'
+        )
+    return org
+
+
 def _compute_mgmt_cave_stats_payload(org, last_30d):
     # --- ACH ---
     from ach.models import ACHAnalysis
@@ -306,6 +315,7 @@ class Query(graphene.ObjectType):
     @role_required([Roles.ADMIN, Roles.REVIEWER])
     def resolve_ai_prompts(self, info):
         user = info.context.user
+        _require_org_context(user)
         queryset = AIPrompt.objects.filter(is_active=True)
 
         if user.role == Roles.REVIEWER:
@@ -316,7 +326,7 @@ class Query(graphene.ObjectType):
     @role_required([Roles.ADMIN, Roles.REVIEWER])
     def resolve_mgmt_cave_stats(self, info):
         user = info.context.user
-        org = user.organization
+        org = _require_org_context(user)
         now = timezone.now()
         last_30d = now - timedelta(days=30)
         cache_key = f'mgmt_cave_stats:{getattr(org, "id", "none")}:{now.strftime("%Y-%m")}'
@@ -332,7 +342,7 @@ class Query(graphene.ObjectType):
     def resolve_monthly_trends(self, info, months=6):
         import calendar
         user = info.context.user
-        org = user.organization
+        org = _require_org_context(user)
         months = max(1, min(months, 24))
         now = timezone.now()
         snapshots = MonthlyReportSnapshot.objects.filter(organization=org).order_by('-year', '-month')[:months]
@@ -350,7 +360,7 @@ class Query(graphene.ObjectType):
     @role_required([Roles.ADMIN])
     def resolve_mailing_list_members(self, info):
         user = info.context.user
-        org = user.organization
+        org = _require_org_context(user)
         entries = ReportMailingList.objects.filter(organization=org).select_related('user')
         result = []
         for entry in entries:
@@ -396,6 +406,7 @@ class ExecuteAIPrompt(graphene.Mutation):
     @role_required([Roles.ADMIN, Roles.REVIEWER])
     def mutate(root, info, prompt_id, custom_input=None, custom_context=None):
         user = info.context.user
+        _require_org_context(user)
         try:
             prompt = AIPrompt.objects.get(id=prompt_id, is_active=True)
         except AIPrompt.DoesNotExist:
@@ -460,6 +471,7 @@ class ExportAIPromptResultPdf(graphene.Mutation):
     @staticmethod
     @role_required([Roles.ADMIN, Roles.REVIEWER])
     def mutate(root, info, title, result_markdown):
+        _require_org_context(info.context.user)
         try:
             pdf_bytes = build_prompt_result_pdf(title=title, markdown_text=result_markdown)
         except Exception as exc:
@@ -502,7 +514,7 @@ class ExportReportExcel(graphene.Mutation):
     @role_required([Roles.ADMIN, Roles.REVIEWER])
     def mutate(root, info, sections=None):
         user = info.context.user
-        org = user.organization
+        org = _require_org_context(user)
         now = timezone.now()
         last_30d = now - timedelta(days=30)
 
@@ -551,7 +563,7 @@ class UpdateMailingListMember(graphene.Mutation):
         from django.contrib.auth import get_user_model
         User = get_user_model()
         admin_user = info.context.user
-        org = admin_user.organization
+        org = _require_org_context(admin_user)
 
         try:
             target_user = User.objects.get(username=username, organization=org)

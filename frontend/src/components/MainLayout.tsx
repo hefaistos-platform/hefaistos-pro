@@ -113,7 +113,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       { key: 'tools-dld', icon: <RadarChartOutlined />, label: 'Logic Deconstructor', onClick: () => navigate('/tools/dld') },
       { key: 'kb', icon: <BookOutlined />, label: 'Knowledge Base', onClick: () => navigate('/kb') },
       { key: 'pain-points', icon: <ExclamationCircleOutlined />, label: 'Pain Points', onClick: () => navigate('/pain-points') },
-      ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' || isSuperuser || isBotAuditor ? [{
+      ...(currentRole === 'ADMIN' || currentRole === 'REVIEWER' ? [{
         key: 'mgmt-cave',
         icon: <CrownOutlined />,
         label: 'MGMT Cave',

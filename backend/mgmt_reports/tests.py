@@ -20,6 +20,7 @@ def make_user(role, username='tester', is_superuser=False, is_staff=False):
         is_anonymous=False,
         is_superuser=is_superuser,
         is_staff=is_staff,
+        organization=SimpleNamespace(id=1),
     )
 
 
