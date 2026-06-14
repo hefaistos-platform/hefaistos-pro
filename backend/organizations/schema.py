@@ -2,9 +2,10 @@ import graphene
 import logging
 import re
 from datetime import timedelta
-from typing import List, Set
+from typing import Dict, List, Set
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Max, Q
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
@@ -531,6 +532,10 @@ class PlatformOrganizationStatType(graphene.ObjectType):
     ai_shared_enabled = graphene.Boolean()
     smtp_shared_enabled = graphene.Boolean()
     last_activity_at = graphene.DateTime()
+    users_growth_30d = graphene.Int()
+    rules_growth_30d = graphene.Int()
+    deployments_30d = graphene.Int()
+    activity_score_30d = graphene.Int()
 
 
 class PlatformAlertType(graphene.ObjectType):
@@ -541,12 +546,42 @@ class PlatformAlertType(graphene.ObjectType):
     message = graphene.String()
 
 
+class PlatformTrendSummaryType(graphene.ObjectType):
+    users_current = graphene.Int()
+    users_30d_ago = graphene.Int()
+    users_growth_30d = graphene.Int()
+    rules_current = graphene.Int()
+    rules_30d_ago = graphene.Int()
+    rules_growth_30d = graphene.Int()
+    deployments_30d = graphene.Int()
+
+
+class PlatformTrendPointType(graphene.ObjectType):
+    date = graphene.Date()
+    users_total = graphene.Int()
+    rules_total = graphene.Int()
+    deployments = graphene.Int()
+
+
+class PlatformTopOrganizationType(graphene.ObjectType):
+    organization_id = graphene.UUID()
+    organization_name = graphene.String()
+    users_growth_30d = graphene.Int()
+    rules_growth_30d = graphene.Int()
+    deployments_30d = graphene.Int()
+    activity_score_30d = graphene.Int()
+    last_activity_at = graphene.DateTime()
+
+
 class PlatformStatsType(graphene.ObjectType):
     generated_at = graphene.DateTime()
     inactivity_days = graphene.Int()
     global_kpis = graphene.Field(PlatformGlobalKpisType)
     organizations = graphene.List(PlatformOrganizationStatType)
     alerts = graphene.List(PlatformAlertType)
+    trend_30d = graphene.Field(PlatformTrendSummaryType)
+    daily_trends = graphene.List(PlatformTrendPointType)
+    top_organizations = graphene.List(PlatformTopOrganizationType)
 
 
 # ---------------------------------------------------------------------------
@@ -829,8 +864,13 @@ class Query(graphene.ObjectType):
         if not user.is_superuser:
             raise GraphQLError('Permission denied. Superuser access required.')
 
+        now = timezone.now()
         inactivity_days = max(7, min(int(inactivity_days or 30), 365))
-        inactivity_cutoff = timezone.now() - timedelta(days=inactivity_days)
+        inactivity_cutoff = now - timedelta(days=inactivity_days)
+
+        trend_window_days = 30
+        trend_cutoff = now - timedelta(days=trend_window_days)
+        trend_window_start_date = (now - timedelta(days=trend_window_days - 1)).date()
 
         orgs_qs = Organization.objects.annotate(
             member_count=Count('customuser', distinct=True),
@@ -840,6 +880,13 @@ class Query(graphene.ObjectType):
             workbenches_total=Count('playbookgraph', distinct=True),
             deployed_workbenches=Count('playbookgraph', filter=Q(playbookgraph__status='DEPLOYED'), distinct=True),
             l1_entries=Count('l1_portal_entries', distinct=True),
+            new_users_30d=Count('customuser', filter=Q(customuser__date_joined__gte=trend_cutoff), distinct=True),
+            new_rules_30d=Count('detection_rules', filter=Q(detection_rules__created_at__gte=trend_cutoff), distinct=True),
+            deployments_30d=Count(
+                'playbookgraph',
+                filter=Q(playbookgraph__status='DEPLOYED', playbookgraph__updated_at__gte=trend_cutoff),
+                distinct=True,
+            ),
             last_user_login=Max('customuser__last_login'),
             last_rule_update=Max('detection_rules__updated_at'),
             last_workbench_update=Max('playbookgraph__updated_at'),
@@ -885,6 +932,7 @@ class Query(graphene.ObjectType):
         without_admin_count = 0
         alerts: List[PlatformAlertType] = []
         org_rows: List[PlatformOrganizationStatType] = []
+        top_candidates: List[PlatformTopOrganizationType] = []
 
         for org in orgs:
             org_id_str = str(org.id)
@@ -896,6 +944,10 @@ class Query(graphene.ObjectType):
             workbenches_total = int(getattr(org, 'workbenches_total', 0) or 0)
             deployed_workbenches = int(getattr(org, 'deployed_workbenches', 0) or 0)
             l1_entries = int(getattr(org, 'l1_entries', 0) or 0)
+            users_growth_30d = int(getattr(org, 'new_users_30d', 0) or 0)
+            rules_growth_30d = int(getattr(org, 'new_rules_30d', 0) or 0)
+            deployments_30d = int(getattr(org, 'deployments_30d', 0) or 0)
+            activity_score_30d = users_growth_30d + rules_growth_30d + deployments_30d
 
             utilization_percent = None
             if max_users:
@@ -974,13 +1026,119 @@ class Query(graphene.ObjectType):
                     ai_shared_enabled=org_id_str in ai_shared_org_ids,
                     smtp_shared_enabled=org_id_str in smtp_shared_org_ids,
                     last_activity_at=last_activity_at,
+                    users_growth_30d=users_growth_30d,
+                    rules_growth_30d=rules_growth_30d,
+                    deployments_30d=deployments_30d,
+                    activity_score_30d=activity_score_30d,
+                )
+            )
+            top_candidates.append(
+                PlatformTopOrganizationType(
+                    organization_id=org.id,
+                    organization_name=org.name,
+                    users_growth_30d=users_growth_30d,
+                    rules_growth_30d=rules_growth_30d,
+                    deployments_30d=deployments_30d,
+                    activity_score_30d=activity_score_30d,
+                    last_activity_at=last_activity_at,
+                )
+            )
+
+        top_organizations = sorted(
+            top_candidates,
+            key=lambda item: (
+                -(item.activity_score_30d or 0),
+                -(item.users_growth_30d or 0),
+                -(item.rules_growth_30d or 0),
+                -(item.deployments_30d or 0),
+                (item.organization_name or '').lower(),
+            ),
+        )[:5]
+
+        users_current = CustomUser.objects.filter(organization_id__in=org_ids).count()
+        users_30d_ago = CustomUser.objects.filter(
+            organization_id__in=org_ids,
+            date_joined__lt=trend_cutoff,
+        ).count()
+        users_growth_30d = users_current - users_30d_ago
+
+        rules_current = DetectionRule.objects.filter(organization_id__in=org_ids).count()
+        rules_30d_ago = DetectionRule.objects.filter(
+            organization_id__in=org_ids,
+            created_at__lt=trend_cutoff,
+        ).count()
+        rules_growth_30d = rules_current - rules_30d_ago
+
+        deployments_30d_total = PlaybookGraph.objects.filter(
+            organization_id__in=org_ids,
+            status='DEPLOYED',
+            updated_at__gte=trend_cutoff,
+        ).count()
+
+        trend_30d = PlatformTrendSummaryType(
+            users_current=users_current,
+            users_30d_ago=users_30d_ago,
+            users_growth_30d=users_growth_30d,
+            rules_current=rules_current,
+            rules_30d_ago=rules_30d_ago,
+            rules_growth_30d=rules_growth_30d,
+            deployments_30d=deployments_30d_total,
+        )
+
+        user_daily_created: Dict[str, int] = {
+            row['day'].isoformat(): int(row['total'] or 0)
+            for row in CustomUser.objects.filter(
+                organization_id__in=org_ids,
+                date_joined__date__gte=trend_window_start_date,
+            ).annotate(day=TruncDate('date_joined')).values('day').annotate(total=Count('id'))
+            if row['day']
+        }
+        rule_daily_created: Dict[str, int] = {
+            row['day'].isoformat(): int(row['total'] or 0)
+            for row in DetectionRule.objects.filter(
+                organization_id__in=org_ids,
+                created_at__date__gte=trend_window_start_date,
+            ).annotate(day=TruncDate('created_at')).values('day').annotate(total=Count('id'))
+            if row['day']
+        }
+        deployment_daily_counts: Dict[str, int] = {
+            row['day'].isoformat(): int(row['total'] or 0)
+            for row in PlaybookGraph.objects.filter(
+                organization_id__in=org_ids,
+                status='DEPLOYED',
+                updated_at__date__gte=trend_window_start_date,
+            ).annotate(day=TruncDate('updated_at')).values('day').annotate(total=Count('id'))
+            if row['day']
+        }
+
+        users_running_total = CustomUser.objects.filter(
+            organization_id__in=org_ids,
+            date_joined__date__lt=trend_window_start_date,
+        ).count()
+        rules_running_total = DetectionRule.objects.filter(
+            organization_id__in=org_ids,
+            created_at__date__lt=trend_window_start_date,
+        ).count()
+
+        daily_trends: List[PlatformTrendPointType] = []
+        for day_offset in range(trend_window_days):
+            day_value = trend_window_start_date + timedelta(days=day_offset)
+            day_key = day_value.isoformat()
+            users_running_total += user_daily_created.get(day_key, 0)
+            rules_running_total += rule_daily_created.get(day_key, 0)
+            daily_trends.append(
+                PlatformTrendPointType(
+                    date=day_value,
+                    users_total=users_running_total,
+                    rules_total=rules_running_total,
+                    deployments=deployment_daily_counts.get(day_key, 0),
                 )
             )
 
         global_kpis = PlatformGlobalKpisType(
             organizations=len(orgs),
-            users=CustomUser.objects.filter(organization_id__in=org_ids).count(),
-            rules_total=DetectionRule.objects.filter(organization_id__in=org_ids).count(),
+            users=users_current,
+            rules_total=rules_current,
             active_rules=DetectionRule.objects.filter(
                 organization_id__in=org_ids,
                 playbook__status='DEPLOYED',
@@ -1003,11 +1161,14 @@ class Query(graphene.ObjectType):
         )
 
         return PlatformStatsType(
-            generated_at=timezone.now(),
+            generated_at=now,
             inactivity_days=inactivity_days,
             global_kpis=global_kpis,
             organizations=org_rows,
             alerts=alerts,
+            trend_30d=trend_30d,
+            daily_trends=daily_trends,
+            top_organizations=top_organizations,
         )
 
     def resolve_opentide_hef_publish_profiles(self, info, enabled=None):

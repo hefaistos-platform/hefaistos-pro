@@ -33,6 +33,8 @@ import {
   MailOutlined,
   RobotOutlined,
   BarChartOutlined,
+  DownloadOutlined,
+  RiseOutlined,
 } from '@ant-design/icons';
 import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
@@ -175,6 +177,30 @@ const GET_PLATFORM_STATS = gql`
         organizationId
         organizationName
         message
+      }
+      trend30d {
+        usersCurrent
+        users30dAgo
+        usersGrowth30d
+        rulesCurrent
+        rules30dAgo
+        rulesGrowth30d
+        deployments30d
+      }
+      dailyTrends {
+        date
+        usersTotal
+        rulesTotal
+        deployments
+      }
+      topOrganizations {
+        organizationId
+        organizationName
+        usersGrowth30d
+        rulesGrowth30d
+        deployments30d
+        activityScore30d
+        lastActivityAt
       }
     }
   }
@@ -495,6 +521,10 @@ interface PlatformOrganizationStat {
   aiSharedEnabled: boolean;
   smtpSharedEnabled: boolean;
   lastActivityAt?: string | null;
+  usersGrowth30d: number;
+  rulesGrowth30d: number;
+  deployments30d: number;
+  activityScore30d: number;
 }
 
 interface PlatformAlertRow {
@@ -505,6 +535,33 @@ interface PlatformAlertRow {
   message: string;
 }
 
+interface PlatformTrendSummary {
+  usersCurrent: number;
+  users30dAgo: number;
+  usersGrowth30d: number;
+  rulesCurrent: number;
+  rules30dAgo: number;
+  rulesGrowth30d: number;
+  deployments30d: number;
+}
+
+interface PlatformTrendPoint {
+  date: string;
+  usersTotal: number;
+  rulesTotal: number;
+  deployments: number;
+}
+
+interface PlatformTopOrganization {
+  organizationId: string;
+  organizationName: string;
+  usersGrowth30d: number;
+  rulesGrowth30d: number;
+  deployments30d: number;
+  activityScore30d: number;
+  lastActivityAt?: string | null;
+}
+
 interface PlatformStatsData {
   platformStats: {
     generatedAt: string;
@@ -512,6 +569,9 @@ interface PlatformStatsData {
     globalKpis: PlatformGlobalKpis;
     organizations: PlatformOrganizationStat[];
     alerts: PlatformAlertRow[];
+    trend30d?: PlatformTrendSummary | null;
+    dailyTrends?: PlatformTrendPoint[];
+    topOrganizations?: PlatformTopOrganization[];
   } | null;
 }
 
@@ -590,6 +650,80 @@ export const OrganizationsPage: React.FC = () => {
   const platformStats = platformStatsData?.platformStats || null;
   const platformOrgRows = platformStats?.organizations || [];
   const platformAlerts = platformStats?.alerts || [];
+  const platformTrendSummary = platformStats?.trend30d || null;
+  const platformDailyTrends = platformStats?.dailyTrends || [];
+  const platformTopOrganizations = platformStats?.topOrganizations || [];
+
+  const csvEscape = (value: string | number | null | undefined): string => {
+    if (value === null || value === undefined) return '';
+    const text = String(value);
+    if (/[",\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+
+  const handleExportPlatformCsv = () => {
+    if (!platformOrgRows.length) {
+      message.warning('No organization data available to export.');
+      return;
+    }
+
+    const headers = [
+      'Organization',
+      'Members',
+      'Max Users',
+      'Utilization %',
+      'Admins',
+      'Rules Total',
+      'Active Rules',
+      'Workbenches Total',
+      'Deployed Workbenches',
+      'L1 Entries',
+      'AI Shared',
+      'SMTP Shared',
+      'Users Growth 30d',
+      'Rules Growth 30d',
+      'Deployments 30d',
+      'Activity Score 30d',
+      'Last Activity',
+    ];
+
+    const lines = platformOrgRows.map((row) => [
+      row.organizationName,
+      row.memberCount,
+      row.maxUsers ?? '',
+      row.userUtilizationPercent != null ? row.userUtilizationPercent.toFixed(2) : '',
+      row.adminCount,
+      row.rulesTotal,
+      row.activeRules,
+      row.workbenchesTotal,
+      row.deployedWorkbenches,
+      row.l1Entries,
+      row.aiSharedEnabled ? 'ON' : 'OFF',
+      row.smtpSharedEnabled ? 'ON' : 'OFF',
+      row.usersGrowth30d,
+      row.rulesGrowth30d,
+      row.deployments30d,
+      row.activityScore30d,
+      row.lastActivityAt || '',
+    ]);
+
+    const csv = [headers, ...lines]
+      .map((row) => row.map((item) => csvEscape(item)).join(','))
+      .join('\n');
+
+    const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `platform-stats-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    message.success('Platform stats CSV exported.');
+  };
 
   useEffect(() => {
     if (primarySmtpProfile) {
@@ -1083,6 +1217,82 @@ export const OrganizationsPage: React.FC = () => {
       ),
     },
     {
+      title: '30d Growth/Activity',
+      key: 'growth',
+      render: (_: unknown, row: PlatformOrganizationStat) => (
+        <Space direction="vertical" size={0}>
+          <Text>Users +{row.usersGrowth30d} | Rules +{row.rulesGrowth30d}</Text>
+          <Text type="secondary">Deploy {row.deployments30d} | Score {row.activityScore30d}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: 'Last Activity',
+      dataIndex: 'lastActivityAt',
+      key: 'lastActivityAt',
+      render: (ts?: string | null) => ts ? new Date(ts).toLocaleString() : 'No activity',
+    },
+  ];
+
+  const platformDailyTrendColumns = [
+    {
+      title: 'Date',
+      dataIndex: 'date',
+      key: 'date',
+      render: (day: string) => new Date(day).toLocaleDateString(),
+    },
+    {
+      title: 'Users Total',
+      dataIndex: 'usersTotal',
+      key: 'usersTotal',
+      render: (value: number) => <Text>{value}</Text>,
+    },
+    {
+      title: 'Rules Total',
+      dataIndex: 'rulesTotal',
+      key: 'rulesTotal',
+      render: (value: number) => <Text>{value}</Text>,
+    },
+    {
+      title: 'Deployments',
+      dataIndex: 'deployments',
+      key: 'deployments',
+      render: (value: number) => <Tag>{value}</Tag>,
+    },
+  ];
+
+  const platformTopOrgColumns = [
+    {
+      title: 'Organization',
+      dataIndex: 'organizationName',
+      key: 'organizationName',
+      render: (value: string) => <strong>{value}</strong>,
+    },
+    {
+      title: 'Users +30d',
+      dataIndex: 'usersGrowth30d',
+      key: 'usersGrowth30d',
+      render: (value: number) => <Tag color={value > 0 ? 'green' : 'default'}>{value}</Tag>,
+    },
+    {
+      title: 'Rules +30d',
+      dataIndex: 'rulesGrowth30d',
+      key: 'rulesGrowth30d',
+      render: (value: number) => <Tag color={value > 0 ? 'blue' : 'default'}>{value}</Tag>,
+    },
+    {
+      title: 'Deployments 30d',
+      dataIndex: 'deployments30d',
+      key: 'deployments30d',
+      render: (value: number) => <Tag color={value > 0 ? 'cyan' : 'default'}>{value}</Tag>,
+    },
+    {
+      title: 'Activity Score',
+      dataIndex: 'activityScore30d',
+      key: 'activityScore30d',
+      render: (value: number) => <Tag color={value > 0 ? 'volcano' : 'default'}>{value}</Tag>,
+    },
+    {
       title: 'Last Activity',
       dataIndex: 'lastActivityAt',
       key: 'lastActivityAt',
@@ -1358,9 +1568,14 @@ export const OrganizationsPage: React.FC = () => {
                 {platformStats?.generatedAt ? new Date(platformStats.generatedAt).toLocaleString() : 'n/a'}
               </Text>
             </Paragraph>
-            <Button onClick={() => refetchPlatformStats()} loading={platformStatsLoading}>
-              Refresh stats
-            </Button>
+            <Space>
+              <Button icon={<DownloadOutlined />} onClick={handleExportPlatformCsv} disabled={!platformOrgRows.length}>
+                Export CSV
+              </Button>
+              <Button onClick={() => refetchPlatformStats()} loading={platformStatsLoading}>
+                Refresh stats
+              </Button>
+            </Space>
           </Space>
 
           <Row gutter={[12, 12]}>
@@ -1381,6 +1596,31 @@ export const OrganizationsPage: React.FC = () => {
             <Col xs={24} md={12} lg={6}><Card><Statistic title="Custom SMTP Orgs" value={platformStats?.globalKpis.orgsWithCustomSmtp || 0} /></Card></Col>
           </Row>
 
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={8}>
+              <Card>
+                <Statistic title="Users Growth (30d)" value={platformTrendSummary?.usersGrowth30d || 0} prefix={<RiseOutlined />} />
+                <Text type="secondary">
+                  {platformTrendSummary?.users30dAgo || 0} → {platformTrendSummary?.usersCurrent || 0}
+                </Text>
+              </Card>
+            </Col>
+            <Col xs={24} md={8}>
+              <Card>
+                <Statistic title="Rules Growth (30d)" value={platformTrendSummary?.rulesGrowth30d || 0} prefix={<RiseOutlined />} />
+                <Text type="secondary">
+                  {platformTrendSummary?.rules30dAgo || 0} → {platformTrendSummary?.rulesCurrent || 0}
+                </Text>
+              </Card>
+            </Col>
+            <Col xs={24} md={8}>
+              <Card>
+                <Statistic title="Deployments (30d)" value={platformTrendSummary?.deployments30d || 0} />
+                <Text type="secondary">Deployed workbenches updated in last 30 days.</Text>
+              </Card>
+            </Col>
+          </Row>
+
           <Card title="Actionable Alerts" loading={platformStatsLoading}>
             {platformAlerts.length === 0 ? (
               <Alert type="success" showIcon message="No critical platform alerts right now." />
@@ -1397,6 +1637,26 @@ export const OrganizationsPage: React.FC = () => {
                 ))}
               </Space>
             )}
+          </Card>
+
+          <Card title="Top 5 Organizations by Growth/Activity (30d)" loading={platformStatsLoading}>
+            <Table<PlatformTopOrganization>
+              rowKey="organizationId"
+              columns={platformTopOrgColumns}
+              dataSource={platformTopOrganizations}
+              pagination={false}
+              size="small"
+            />
+          </Card>
+
+          <Card title="30-Day Trend Timeline" loading={platformStatsLoading}>
+            <Table<PlatformTrendPoint>
+              rowKey="date"
+              columns={platformDailyTrendColumns}
+              dataSource={platformDailyTrends}
+              pagination={{ pageSize: 10 }}
+              size="small"
+            />
           </Card>
 
           <Card title="Per-Organization Breakdown" loading={platformStatsLoading}>
