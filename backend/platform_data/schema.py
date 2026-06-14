@@ -4,6 +4,7 @@ import uuid as _uuid
 from django.core.cache import cache
 from django.db import models
 from graphene_django import DjangoObjectType
+from graphql import GraphQLError
 from .scraper import (
     scrape_mitre_analytic_details,
     scrape_mitre_log_sources_json,
@@ -15,7 +16,6 @@ from .models import (
     ShareTideIndexEntry, PlatformDataVersion, MitreImportJob,
 )
 from playbooks.models import PlaybookGraph
-from identity.decorators import role_required, Roles
 
 # --- TYPES ---
 
@@ -324,12 +324,22 @@ class Query(graphene.ObjectType):
             return None
 
     def resolve_mitre_import_job(self, info, id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError("Authentication required")
+        if not user.is_superuser:
+            raise GraphQLError("Permission denied. Superuser access required.")
         try:
             return MitreImportJob.objects.get(id=id)
         except MitreImportJob.DoesNotExist:
             return None
 
     def resolve_mitre_import_jobs(self, info, limit=20):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError("Authentication required")
+        if not user.is_superuser:
+            raise GraphQLError("Permission denied. Superuser access required.")
         return MitreImportJob.objects.all()[:limit]
 
     def resolve_enrich_analytic_data(self, info, strategy_url, analytic_id):
@@ -570,16 +580,19 @@ class RunMitreImport(graphene.Mutation):
     job = graphene.Field(MitreImportJobType)
 
     @staticmethod
-    @role_required([Roles.ADMIN])
     def mutate(root, info, version, mode="remote"):
         from .tasks import run_mitre_import_job
+
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError("Authentication required")
+        if not user.is_superuser:
+            raise GraphQLError("Permission denied. Superuser access required.")
 
         version = str(version).lstrip("v").strip()
         mode_upper = mode.upper()
         if mode_upper not in (MitreImportJob.Mode.REMOTE, MitreImportJob.Mode.LOCAL):
             mode_upper = MitreImportJob.Mode.REMOTE
-
-        user = info.context.user if info.context.user.is_authenticated else None
 
         job = MitreImportJob.objects.create(
             version=version,

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import { Button, Card, Form, Input, Select, Tag, Table, Collapse, Typography, Space, Alert, message } from 'antd';
 import { SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 
 const { Text, Title } = Typography;
 const { Panel } = Collapse;
@@ -86,6 +86,7 @@ const ME_QUERY = gql`
     me {
       id
       role
+      isSuperuser
     }
   }
 `;
@@ -188,10 +189,9 @@ export const FrameworkUpdatesPage: React.FC = () => {
 
   const { data: meData } = useQuery(ME_QUERY);
   const userRole = meData?.me?.role;
-  const normalizedRole = (userRole || '').toUpperCase();
-  const isBotAuditor = normalizedRole === 'BOT_AUDITOR_ORG' || normalizedRole === 'BOT_AUDITOR_GLOBAL';
-  const canView = normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN' || isBotAuditor;
-  const canManage = normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN';
+  const isSuperuser = Boolean(meData?.me?.isSuperuser);
+  const canView = isSuperuser;
+  const canManage = isSuperuser;
 
   const { data: versionsData } = useQuery(LOADED_ATTACK_VERSIONS_QUERY);
   const { data: latestData } = useQuery(LATEST_AVAILABLE_ATTACK_VERSION_QUERY, { fetchPolicy: 'cache-and-network' });
@@ -240,11 +240,7 @@ export const FrameworkUpdatesPage: React.FC = () => {
   }, [refetchJobs, messageApi]);
 
   if (userRole && !canView) {
-    return (
-      <div style={{ padding: 32 }}>
-        <Alert type="error" showIcon message="Forbidden" description="You need ADMIN or BOT_AUDITOR role to access this page." />
-      </div>
-    );
+    return <Navigate to="/" replace />;
   }
 
   const jobs: JobRecord[] = jobsData?.mitreImportJobs ?? [];
@@ -294,16 +290,6 @@ export const FrameworkUpdatesPage: React.FC = () => {
         <ThunderboltOutlined style={{ marginRight: 8 }} />
         ATT&CK Framework Updates
       </Title>
-
-      {isBotAuditor && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="Read-only bot auditor mode"
-          description="You can inspect versions and history, but running imports is disabled."
-        />
-      )}
 
       {/* Current version status */}
       <Card title="Currently Loaded Frameworks" style={{ marginBottom: 24 }}>

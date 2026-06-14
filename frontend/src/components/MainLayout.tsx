@@ -125,8 +125,11 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
   if (!isElOne && (currentRole === 'ADMIN' || isSuperuser || isBotAuditor)) {
     items.push({ key: 'news', icon: <BulbOutlined />, label: 'News Management', onClick: () => navigate('/mgmt/news') });
     items.push({ key: 'config', icon: <AppstoreOutlined />, label: 'Configuration', onClick: () => navigate('/mgmt/config') });
-    items.push({ key: 'framework-updates', icon: <SyncOutlined />, label: 'Framework Updates', onClick: () => navigate('/mgmt/framework-updates') });
     items.push({ key: 'logs', icon: <FileSearchOutlined />, label: 'Logs', onClick: () => navigate('/mgmt/logs') });
+  }
+
+  if (!isElOne && isSuperuser) {
+    items.push({ key: 'framework-updates', icon: <SyncOutlined />, label: 'Framework Updates', onClick: () => navigate('/mgmt/framework-updates') });
   }
 
   // Superuser management - only for Django superusers

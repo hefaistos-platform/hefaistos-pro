@@ -19,6 +19,7 @@ const ME_ROLE_QUERY = gql`
     me {
       id
       role
+      isSuperuser
     }
   }
 `;
@@ -37,6 +38,7 @@ export const CoverageMapPage = () => {
   const { data: meData } = useQuery(ME_ROLE_QUERY);
 
   const userRole = meData?.me?.role;
+  const isSuperuser = Boolean(meData?.me?.isSuperuser);
   const enterpriseEntry = (versionsData?.loadedAttackVersions ?? []).find(
     (v: { framework: string; version: string; importedAt: string }) => v.framework === 'enterprise-attack'
   );
@@ -147,7 +149,7 @@ export const CoverageMapPage = () => {
           <span style={{ color: '#6b7280', fontSize: 12 }}>
             {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Not updated yet'}
           </span>
-          {userRole === 'ADMIN' && (
+          {isSuperuser && (
             <Button
               type="link"
               size="small"
@@ -165,13 +167,15 @@ export const CoverageMapPage = () => {
           >
             Open raw JSON
           </Button>
-          <Button
-            type="default"
-            onClick={() => setReloadToken((t) => t + 1)}
-          >
-            <PixelIcon name="search" className="w-5 h-5" />
-            Refresh
-          </Button>
+          {isSuperuser && (
+            <Button
+              type="default"
+              onClick={() => setReloadToken((t) => t + 1)}
+            >
+              <PixelIcon name="search" className="w-5 h-5" />
+              Refresh
+            </Button>
+          )}
         </div>
       </div>
 
