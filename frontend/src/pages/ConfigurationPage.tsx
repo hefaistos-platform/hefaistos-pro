@@ -1719,7 +1719,9 @@ export const ConfigurationPage: React.FC = () => {
   const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const isSuperuser = Boolean(accessData?.me?.isSuperuser);
+  // Shared AI/SMTP superuser controls were moved to /mgmt/superuser.
+  // Keep Configuration focused on organization-level admin settings.
+  const isSuperuser = false;
   const [selectedOrgAiOrgId, setSelectedOrgAiOrgId] = useState<string | undefined>(undefined);
   const [sharedAiProfileName, setSharedAiProfileName] = useState('');
   const [selectedSharedAiProfileId, setSelectedSharedAiProfileId] = useState<string | undefined>(undefined);
@@ -1992,7 +1994,7 @@ export const ConfigurationPage: React.FC = () => {
     {
       key: 'smtp',
       label: 'SMTP',
-      children: <App><SMTPTab canManage={canAdminConfig} isSuperuser={Boolean(accessData?.me?.isSuperuser)} organizations={orgData?.allOrganizations || []} /></App>,
+      children: <App><SMTPTab canManage={canAdminConfig} isSuperuser={false} organizations={orgData?.allOrganizations || []} /></App>,
     },
     {
       key: 'sharing',

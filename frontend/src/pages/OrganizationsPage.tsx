@@ -1,10 +1,42 @@
-import React, { useState } from 'react';
-import { Card, Typography, Table, Button, Modal, Form, Input, InputNumber, Space, Popconfirm, message, Tag, Tabs, Select, Drawer, Divider } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, BankOutlined, TeamOutlined, ArrowRightOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Card,
+  Typography,
+  Table,
+  Button,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Space,
+  Popconfirm,
+  message,
+  Tag,
+  Tabs,
+  Select,
+  Drawer,
+  Divider,
+  Switch,
+  Alert,
+} from 'antd';
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  BankOutlined,
+  TeamOutlined,
+  ArrowRightOutlined,
+  ExclamationCircleOutlined,
+  MailOutlined,
+  RobotOutlined,
+} from '@ant-design/icons';
 import { gql } from '@apollo/client';
-import { useQuery, useMutation } from '@apollo/client/react';
+import { useMutation, useQuery } from '@apollo/client/react';
 
-const { Title } = Typography;
+const { Title, Text, Paragraph } = Typography;
+
+const SYSTEM_SHARED_SMTP_NAME = 'System Shared SMTP';
+const SYSTEM_SHARED_AI_NAME = 'System Shared AI';
 
 // --- GraphQL Queries ---
 const ALL_ORGANIZATIONS = gql`
@@ -14,6 +46,8 @@ const ALL_ORGANIZATIONS = gql`
       name
       maxUsers
       memberCount
+      smtpSharedEnabled
+      aiSharedEnabled
       createdAt
       updatedAt
       entity {
@@ -46,6 +80,51 @@ const ALL_ENTITIES = gql`
       name
       organizationCount
       createdAt
+    }
+  }
+`;
+
+const GET_SHARED_SMTP_PROFILES = gql`
+  query GetSharedSmtpProfiles($includeInactive: Boolean) {
+    sharedSmtpProfiles(includeInactive: $includeInactive) {
+      id
+      name
+      smtpServer
+      smtpPort
+      encryption
+      loginMethod
+      smtpUsername
+      hasPassword
+      fromEmail
+      isActive
+      updatedAt
+    }
+  }
+`;
+
+const GET_SHARED_AI_PROFILES = gql`
+  query GetSharedAiProfiles($includeInactive: Boolean) {
+    sharedAiProfiles(includeInactive: $includeInactive) {
+      id
+      name
+      ollamaBaseUrl
+      ollamaModel
+      orgPreferredModel
+      azureOpenaiEndpoint
+      azureOpenaiDeployment
+      ollamaEnabled
+      openaiEnabled
+      geminiEnabled
+      claudeEnabled
+      azureOpenaiEnabled
+      hasOllama
+      hasOpenai
+      hasGemini
+      hasClaude
+      hasAzureOpenai
+      hasAnyProvider
+      isActive
+      updatedAt
     }
   }
 `;
@@ -110,12 +189,120 @@ const DELETE_ENTITY = gql`
   }
 `;
 
+const SET_ORGANIZATION_SHARED_FLAGS = gql`
+  mutation SetOrganizationSharedFlags(
+    $organizationIds: [UUID!]!
+    $smtpSharedEnabled: Boolean
+    $aiSharedEnabled: Boolean
+  ) {
+    setOrganizationSharedFlags(
+      organizationIds: $organizationIds
+      smtpSharedEnabled: $smtpSharedEnabled
+      aiSharedEnabled: $aiSharedEnabled
+    ) {
+      success
+      message
+      updatedCount
+    }
+  }
+`;
+
+const SET_SHARED_SMTP_PROFILE = gql`
+  mutation SetSharedSmtpProfile(
+    $id: UUID
+    $name: String
+    $smtpServer: String!
+    $smtpPort: Int!
+    $encryption: String!
+    $loginMethod: String!
+    $smtpUsername: String
+    $smtpPassword: String
+    $fromEmail: String
+    $isActive: Boolean
+  ) {
+    setSharedSmtpProfile(
+      id: $id
+      name: $name
+      smtpServer: $smtpServer
+      smtpPort: $smtpPort
+      encryption: $encryption
+      loginMethod: $loginMethod
+      smtpUsername: $smtpUsername
+      smtpPassword: $smtpPassword
+      fromEmail: $fromEmail
+      isActive: $isActive
+    ) {
+      success
+      message
+      profile {
+        id
+        name
+        hasPassword
+        updatedAt
+      }
+    }
+  }
+`;
+
+const SET_SHARED_AI_PROFILE = gql`
+  mutation SetSharedAiProfile(
+    $id: UUID
+    $name: String
+    $ollamaBaseUrl: String
+    $ollamaModel: String
+    $openaiKey: String
+    $geminiKey: String
+    $claudeKey: String
+    $azureOpenaiEndpoint: String
+    $azureOpenaiKey: String
+    $azureOpenaiDeployment: String
+    $orgPreferredModel: String
+    $ollamaEnabled: Boolean
+    $openaiEnabled: Boolean
+    $geminiEnabled: Boolean
+    $claudeEnabled: Boolean
+    $azureOpenaiEnabled: Boolean
+    $isActive: Boolean
+  ) {
+    setSharedAiProfile(
+      id: $id
+      name: $name
+      ollamaBaseUrl: $ollamaBaseUrl
+      ollamaModel: $ollamaModel
+      openaiKey: $openaiKey
+      geminiKey: $geminiKey
+      claudeKey: $claudeKey
+      azureOpenaiEndpoint: $azureOpenaiEndpoint
+      azureOpenaiKey: $azureOpenaiKey
+      azureOpenaiDeployment: $azureOpenaiDeployment
+      orgPreferredModel: $orgPreferredModel
+      ollamaEnabled: $ollamaEnabled
+      openaiEnabled: $openaiEnabled
+      geminiEnabled: $geminiEnabled
+      claudeEnabled: $claudeEnabled
+      azureOpenaiEnabled: $azureOpenaiEnabled
+      isActive: $isActive
+    ) {
+      ok
+      message
+      profile {
+        id
+        name
+        hasAnyProvider
+        updatedAt
+      }
+    }
+  }
+`;
+
 // --- TypeScript Interfaces ---
 interface Organization {
   id: string;
   name: string;
   maxUsers?: number | null;
   memberCount: number;
+  smtpSharedEnabled?: boolean;
+  aiSharedEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
   entity?: {
@@ -181,6 +368,51 @@ interface OrganizationMembersData {
   organization: OrganizationWithMembers;
 }
 
+interface SharedSmtpProfile {
+  id: string;
+  name: string;
+  smtpServer: string;
+  smtpPort: number;
+  encryption: 'NONE' | 'SSL' | 'STARTTLS';
+  loginMethod: 'PLAIN' | 'LOGIN';
+  smtpUsername?: string | null;
+  hasPassword?: boolean | null;
+  fromEmail?: string | null;
+  isActive: boolean;
+  updatedAt?: string | null;
+}
+
+interface SharedAiProfile {
+  id: string;
+  name: string;
+  ollamaBaseUrl?: string | null;
+  ollamaModel?: string | null;
+  orgPreferredModel?: string | null;
+  azureOpenaiEndpoint?: string | null;
+  azureOpenaiDeployment?: string | null;
+  ollamaEnabled?: boolean;
+  openaiEnabled?: boolean;
+  geminiEnabled?: boolean;
+  claudeEnabled?: boolean;
+  azureOpenaiEnabled?: boolean;
+  hasOllama?: boolean;
+  hasOpenai?: boolean;
+  hasGemini?: boolean;
+  hasClaude?: boolean;
+  hasAzureOpenai?: boolean;
+  hasAnyProvider: boolean;
+  isActive: boolean;
+  updatedAt?: string | null;
+}
+
+interface SetOrganizationSharedFlagsData {
+  setOrganizationSharedFlags: {
+    success: boolean;
+    message: string;
+    updatedCount: number;
+  };
+}
+
 export const OrganizationsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('organizations');
   const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
@@ -189,8 +421,11 @@ export const OrganizationsPage: React.FC = () => {
   const [selectedOrgIds, setSelectedOrgIds] = useState<string[]>([]);
   const [memberDrawerOrg, setMemberDrawerOrg] = useState<Organization | null>(null);
   const [bulkEntityId, setBulkEntityId] = useState<string | undefined>();
+  const [togglingOrgIds, setTogglingOrgIds] = useState<string[]>([]);
   const [orgForm] = Form.useForm();
   const [entityForm] = Form.useForm();
+  const [smtpForm] = Form.useForm();
+  const [aiForm] = Form.useForm();
 
   // Queries
   const { data: orgData, loading: orgLoading, refetch: refetchOrgs } = useQuery<AllOrganizationsData>(ALL_ORGANIZATIONS);
@@ -200,6 +435,14 @@ export const OrganizationsPage: React.FC = () => {
     skip: !memberDrawerOrg,
     fetchPolicy: 'network-only',
   });
+  const { data: sharedSmtpData, loading: loadingSharedSmtp, refetch: refetchSharedSmtp } = useQuery<{ sharedSmtpProfiles: SharedSmtpProfile[] }>(
+    GET_SHARED_SMTP_PROFILES,
+    { variables: { includeInactive: false }, fetchPolicy: 'cache-and-network' },
+  );
+  const { data: sharedAiData, loading: loadingSharedAi, refetch: refetchSharedAi } = useQuery<{ sharedAiProfiles: SharedAiProfile[] }>(
+    GET_SHARED_AI_PROFILES,
+    { variables: { includeInactive: false }, fetchPolicy: 'cache-and-network' },
+  );
 
   // Mutations
   const [createOrganization, { loading: createOrgLoading }] = useMutation<CreateOrgData>(CREATE_ORGANIZATION);
@@ -207,6 +450,193 @@ export const OrganizationsPage: React.FC = () => {
   const [deleteOrganization] = useMutation<DeleteOrgData>(DELETE_ORGANIZATION);
   const [createEntity, { loading: createEntityLoading }] = useMutation<CreateEntityData>(CREATE_ENTITY);
   const [deleteEntity] = useMutation<DeleteEntityData>(DELETE_ENTITY);
+  const [setOrganizationSharedFlags, { loading: savingSharedFlags }] = useMutation<SetOrganizationSharedFlagsData>(SET_ORGANIZATION_SHARED_FLAGS);
+  const [setSharedSmtpProfile, { loading: savingSharedSmtpProfile }] = useMutation(SET_SHARED_SMTP_PROFILE);
+  const [setSharedAiProfile, { loading: savingSharedAiProfile }] = useMutation(SET_SHARED_AI_PROFILE);
+
+  const smtpProfiles = useMemo(
+    () => sharedSmtpData?.sharedSmtpProfiles || [],
+    [sharedSmtpData?.sharedSmtpProfiles],
+  );
+  const aiProfiles = useMemo(
+    () => sharedAiData?.sharedAiProfiles || [],
+    [sharedAiData?.sharedAiProfiles],
+  );
+
+  const primarySmtpProfile = useMemo(() => {
+    return smtpProfiles.find((profile) => profile.name.toLowerCase() === SYSTEM_SHARED_SMTP_NAME.toLowerCase())
+      || smtpProfiles[0]
+      || null;
+  }, [smtpProfiles]);
+
+  const primaryAiProfile = useMemo(() => {
+    return aiProfiles.find((profile) => profile.name.toLowerCase() === SYSTEM_SHARED_AI_NAME.toLowerCase())
+      || aiProfiles[0]
+      || null;
+  }, [aiProfiles]);
+
+  const smtpLoginMethod = Form.useWatch('loginMethod', smtpForm) || 'PLAIN';
+
+  useEffect(() => {
+    if (primarySmtpProfile) {
+      smtpForm.setFieldsValue({
+        smtpServer: primarySmtpProfile.smtpServer || '',
+        smtpPort: primarySmtpProfile.smtpPort || 587,
+        encryption: primarySmtpProfile.encryption || 'STARTTLS',
+        loginMethod: primarySmtpProfile.loginMethod || 'PLAIN',
+        smtpUsername: primarySmtpProfile.smtpUsername || '',
+        smtpPassword: '',
+        fromEmail: primarySmtpProfile.fromEmail || '',
+      });
+      return;
+    }
+    smtpForm.setFieldsValue({
+      smtpServer: '',
+      smtpPort: 587,
+      encryption: 'STARTTLS',
+      loginMethod: 'PLAIN',
+      smtpUsername: '',
+      smtpPassword: '',
+      fromEmail: '',
+    });
+  }, [primarySmtpProfile, smtpForm]);
+
+  useEffect(() => {
+    aiForm.setFieldsValue({
+      ollamaBaseUrl: primaryAiProfile?.ollamaBaseUrl || '',
+      ollamaModel: primaryAiProfile?.ollamaModel || '',
+      openaiKey: '',
+      geminiKey: '',
+      claudeKey: '',
+      azureOpenaiEndpoint: primaryAiProfile?.azureOpenaiEndpoint || '',
+      azureOpenaiKey: '',
+      azureOpenaiDeployment: primaryAiProfile?.azureOpenaiDeployment || '',
+      orgPreferredModel: primaryAiProfile?.orgPreferredModel || '',
+      ollamaEnabled: primaryAiProfile?.ollamaEnabled ?? true,
+      openaiEnabled: primaryAiProfile?.openaiEnabled ?? true,
+      geminiEnabled: primaryAiProfile?.geminiEnabled ?? true,
+      claudeEnabled: primaryAiProfile?.claudeEnabled ?? true,
+      azureOpenaiEnabled: primaryAiProfile?.azureOpenaiEnabled ?? true,
+    });
+  }, [aiForm, primaryAiProfile]);
+
+  const isTogglingOrg = (orgId: string): boolean => togglingOrgIds.includes(orgId);
+
+  const applySharedFlags = async (
+    organizationIds: string[],
+    flags: { smtpSharedEnabled?: boolean; aiSharedEnabled?: boolean },
+  ) => {
+    if (!organizationIds.length) {
+      message.warning('Select at least one organization.');
+      return;
+    }
+
+    if (flags.smtpSharedEnabled === true && !primarySmtpProfile) {
+      message.error('Shared SMTP profile is not configured. Configure it first in Shared Profiles tab.');
+      return;
+    }
+    if (flags.aiSharedEnabled === true && !primaryAiProfile) {
+      message.error('Shared AI profile is not configured. Configure it first in Shared Profiles tab.');
+      return;
+    }
+
+    setTogglingOrgIds((prev) => Array.from(new Set([...prev, ...organizationIds])));
+    try {
+      const { data } = await setOrganizationSharedFlags({
+        variables: {
+          organizationIds,
+          smtpSharedEnabled: flags.smtpSharedEnabled,
+          aiSharedEnabled: flags.aiSharedEnabled,
+        },
+      });
+
+      if (data?.setOrganizationSharedFlags?.success) {
+        message.success(data.setOrganizationSharedFlags.message || 'Shared policy updated.');
+        refetchOrgs();
+      } else {
+        message.error(data?.setOrganizationSharedFlags?.message || 'Failed to update shared policy.');
+      }
+    } catch (err: any) {
+      message.error(err.message || 'Failed to update shared policy.');
+    } finally {
+      setTogglingOrgIds((prev) => prev.filter((id) => !organizationIds.includes(id)));
+    }
+  };
+
+  const handleSaveSharedSmtpProfile = async () => {
+    try {
+      const values = await smtpForm.validateFields();
+      const result = await setSharedSmtpProfile({
+        variables: {
+          id: primarySmtpProfile?.id,
+          name: primarySmtpProfile?.name || SYSTEM_SHARED_SMTP_NAME,
+          smtpServer: values.smtpServer,
+          smtpPort: Number(values.smtpPort),
+          encryption: values.encryption,
+          loginMethod: values.loginMethod,
+          smtpUsername: values.loginMethod === 'LOGIN' ? (values.smtpUsername || null) : null,
+          smtpPassword: values.loginMethod === 'LOGIN'
+            ? ((values.smtpPassword && String(values.smtpPassword).trim()) ? values.smtpPassword : null)
+            : null,
+          fromEmail: values.fromEmail || null,
+          isActive: true,
+        },
+      });
+
+      if (result.data?.setSharedSmtpProfile?.success) {
+        message.success(result.data.setSharedSmtpProfile.message || 'Shared SMTP profile saved.');
+        smtpForm.setFieldsValue({ smtpPassword: '' });
+        refetchSharedSmtp();
+      } else {
+        message.error(result.data?.setSharedSmtpProfile?.message || 'Failed to save shared SMTP profile.');
+      }
+    } catch (err: any) {
+      if (err?.errorFields) {
+        return;
+      }
+      message.error(err.message || 'Failed to save shared SMTP profile.');
+    }
+  };
+
+  const handleSaveSharedAiProfile = async () => {
+    try {
+      const values = await aiForm.validateFields();
+      const result = await setSharedAiProfile({
+        variables: {
+          id: primaryAiProfile?.id,
+          name: primaryAiProfile?.name || SYSTEM_SHARED_AI_NAME,
+          ollamaBaseUrl: values.ollamaBaseUrl || null,
+          ollamaModel: values.ollamaModel || null,
+          openaiKey: values.openaiKey || undefined,
+          geminiKey: values.geminiKey || undefined,
+          claudeKey: values.claudeKey || undefined,
+          azureOpenaiEndpoint: values.azureOpenaiEndpoint || null,
+          azureOpenaiKey: values.azureOpenaiKey || undefined,
+          azureOpenaiDeployment: values.azureOpenaiDeployment || null,
+          orgPreferredModel: values.orgPreferredModel || null,
+          ollamaEnabled: values.ollamaEnabled,
+          openaiEnabled: values.openaiEnabled,
+          geminiEnabled: values.geminiEnabled,
+          claudeEnabled: values.claudeEnabled,
+          azureOpenaiEnabled: values.azureOpenaiEnabled,
+          isActive: true,
+        },
+      });
+
+      if (result.data?.setSharedAiProfile?.ok) {
+        message.success(result.data.setSharedAiProfile.message || 'Shared AI profile saved.');
+        aiForm.setFieldsValue({ openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiKey: '' });
+        refetchSharedAi();
+      } else {
+        message.error(result.data?.setSharedAiProfile?.message || 'Failed to save shared AI profile.');
+      }
+    } catch (err: any) {
+      if (err?.errorFields) {
+        return;
+      }
+      message.error(err.message || 'Failed to save shared AI profile.');
+    }
+  };
 
   // --- Organization handlers ---
   const handleCreateOrg = () => {
@@ -248,13 +678,13 @@ export const OrganizationsPage: React.FC = () => {
   const handleOrgSubmit = async () => {
     try {
       const values = await orgForm.validateFields();
-      
+
       const entityId = values.entityId || null;
       const maxUsers = values.maxUsers ?? null;
 
       if (editingOrg) {
         const { data } = await updateOrganization({
-          variables: { id: editingOrg.id, name: values.name, entityId, maxUsers }
+          variables: { id: editingOrg.id, name: values.name, entityId, maxUsers },
         });
         if (data?.updateOrganization?.success) {
           message.success('Organization updated successfully');
@@ -265,7 +695,7 @@ export const OrganizationsPage: React.FC = () => {
         }
       } else {
         const { data } = await createOrganization({
-          variables: { name: values.name, entityId, maxUsers }
+          variables: { name: values.name, entityId, maxUsers },
         });
         if (data?.createOrganization?.success) {
           message.success('Organization created successfully');
@@ -275,8 +705,8 @@ export const OrganizationsPage: React.FC = () => {
           message.error(data?.createOrganization?.message || 'Failed to create organization');
         }
       }
-    } catch (err) {
-      console.error('Form validation failed:', err);
+    } catch {
+      // form validation errors are shown inline
     }
   };
 
@@ -313,7 +743,7 @@ export const OrganizationsPage: React.FC = () => {
     try {
       const values = await entityForm.validateFields();
       const { data } = await createEntity({ variables: { name: values.name } });
-      
+
       if (data?.createEntity?.success) {
         message.success('Entity created successfully');
         setIsEntityModalOpen(false);
@@ -321,8 +751,8 @@ export const OrganizationsPage: React.FC = () => {
       } else {
         message.error(data?.createEntity?.message || 'Failed to create entity');
       }
-    } catch (err) {
-      console.error('Form validation failed:', err);
+    } catch {
+      // form validation errors are shown inline
     }
   };
 
@@ -352,7 +782,7 @@ export const OrganizationsPage: React.FC = () => {
       title: 'Entity',
       dataIndex: 'entity',
       key: 'entity',
-      render: (entity: Organization['entity']) => 
+      render: (entity: Organization['entity']) =>
         entity ? <Tag icon={<BankOutlined />} color="blue">{entity.name}</Tag> : <Tag>No Entity</Tag>,
     },
     {
@@ -371,6 +801,34 @@ export const OrganizationsPage: React.FC = () => {
       ),
     },
     {
+      title: 'AI Shared',
+      dataIndex: 'aiSharedEnabled',
+      key: 'aiSharedEnabled',
+      render: (enabled: boolean, record: Organization) => (
+        <Switch
+          checked={Boolean(enabled)}
+          size="small"
+          loading={isTogglingOrg(record.id)}
+          disabled={isTogglingOrg(record.id)}
+          onChange={(checked) => applySharedFlags([record.id], { aiSharedEnabled: checked })}
+        />
+      ),
+    },
+    {
+      title: 'SMTP Shared',
+      dataIndex: 'smtpSharedEnabled',
+      key: 'smtpSharedEnabled',
+      render: (enabled: boolean, record: Organization) => (
+        <Switch
+          checked={Boolean(enabled)}
+          size="small"
+          loading={isTogglingOrg(record.id)}
+          disabled={isTogglingOrg(record.id)}
+          onChange={(checked) => applySharedFlags([record.id], { smtpSharedEnabled: checked })}
+        />
+      ),
+    },
+    {
       title: 'Created',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -381,9 +839,9 @@ export const OrganizationsPage: React.FC = () => {
       key: 'actions',
       render: (_: any, record: Organization) => (
         <Space>
-          <Button 
-            type="text" 
-            icon={<EditOutlined />} 
+          <Button
+            type="text"
+            icon={<EditOutlined />}
             onClick={() => handleEditOrg(record)}
           />
           <Select
@@ -457,7 +915,7 @@ export const OrganizationsPage: React.FC = () => {
       ),
       children: (
         <>
-          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <div style={{ marginBottom: 16, display: 'grid', gap: 12 }}>
             <Space wrap>
               <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateOrg}>
                 New Organization
@@ -483,7 +941,53 @@ export const OrganizationsPage: React.FC = () => {
                 <Button danger disabled={!selectedOrgIds.length} icon={<DeleteOutlined />}>Delete Selected</Button>
               </Popconfirm>
             </Space>
-            <Tag>{selectedOrgIds.length} selected</Tag>
+            <Space wrap>
+              <Button
+                icon={<RobotOutlined />}
+                onClick={() => applySharedFlags(selectedOrgIds, { aiSharedEnabled: true })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                AI ON
+              </Button>
+              <Button
+                onClick={() => applySharedFlags(selectedOrgIds, { aiSharedEnabled: false })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                AI OFF
+              </Button>
+              <Button
+                icon={<MailOutlined />}
+                onClick={() => applySharedFlags(selectedOrgIds, { smtpSharedEnabled: true })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                SMTP ON
+              </Button>
+              <Button
+                onClick={() => applySharedFlags(selectedOrgIds, { smtpSharedEnabled: false })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                SMTP OFF
+              </Button>
+              <Button
+                onClick={() => applySharedFlags(selectedOrgIds, { aiSharedEnabled: true, smtpSharedEnabled: true })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                AI+SMTP ON
+              </Button>
+              <Button
+                onClick={() => applySharedFlags(selectedOrgIds, { aiSharedEnabled: false, smtpSharedEnabled: false })}
+                disabled={!selectedOrgIds.length}
+                loading={savingSharedFlags}
+              >
+                AI+SMTP OFF
+              </Button>
+              <Tag>{selectedOrgIds.length} selected</Tag>
+            </Space>
           </div>
           <Table
             columns={orgColumns}
@@ -494,6 +998,163 @@ export const OrganizationsPage: React.FC = () => {
             pagination={{ pageSize: 10 }}
           />
         </>
+      ),
+    },
+    {
+      key: 'shared-profiles',
+      label: (
+        <span>
+          <MailOutlined /> Shared Profiles
+        </span>
+      ),
+      children: (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            Configure one system-wide shared SMTP profile and one system-wide shared AI profile. Then use Organization tab switches to apply ON/OFF per organization.
+          </Paragraph>
+
+          {smtpProfiles.length > 1 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Multiple active shared SMTP profiles detected"
+              description={`Superuser Mgmt edits ${primarySmtpProfile?.name || SYSTEM_SHARED_SMTP_NAME}. Consider deactivating unused profiles in DB/admin if needed.`}
+            />
+          )}
+
+          {aiProfiles.length > 1 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Multiple active shared AI profiles detected"
+              description={`Superuser Mgmt edits ${primaryAiProfile?.name || SYSTEM_SHARED_AI_NAME}. Consider deactivating unused profiles in DB/admin if needed.`}
+            />
+          )}
+
+          <Card loading={loadingSharedSmtp} title="Shared SMTP Profile">
+            <Paragraph type="secondary">
+              Profile name: <Text code>{primarySmtpProfile?.name || SYSTEM_SHARED_SMTP_NAME}</Text>
+            </Paragraph>
+            <Form form={smtpForm} layout="vertical">
+              <Form.Item name="smtpServer" label="SMTP server" rules={[{ required: true, message: 'SMTP server is required' }]}>
+                <Input placeholder="smtp.example.com" />
+              </Form.Item>
+              <Form.Item name="smtpPort" label="SMTP port" rules={[{ required: true, message: 'SMTP port is required' }]}>
+                <Input type="number" min={1} max={65535} placeholder="587" />
+              </Form.Item>
+              <Form.Item name="encryption" label="Encryption" rules={[{ required: true, message: 'Select encryption mode' }]}>
+                <Select
+                  options={[
+                    { value: 'SSL', label: 'SSL' },
+                    { value: 'STARTTLS', label: 'STARTTLS' },
+                    { value: 'NONE', label: 'None' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="loginMethod" label="Login method" rules={[{ required: true, message: 'Select login method' }]}>
+                <Select
+                  options={[
+                    { value: 'PLAIN', label: 'PLAIN' },
+                    { value: 'LOGIN', label: 'LOGIN' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item
+                name="smtpUsername"
+                label="SMTP username"
+                rules={smtpLoginMethod === 'LOGIN' ? [{ required: true, message: 'SMTP username is required for LOGIN' }] : []}
+              >
+                <Input placeholder="username or email" />
+              </Form.Item>
+              <Form.Item
+                name="smtpPassword"
+                label="SMTP password"
+                rules={smtpLoginMethod === 'LOGIN' && !primarySmtpProfile?.hasPassword
+                  ? [{ required: true, message: 'SMTP password is required for LOGIN' }]
+                  : []}
+                extra={primarySmtpProfile?.hasPassword ? 'Leave empty to keep existing password.' : undefined}
+              >
+                <Input.Password placeholder={primarySmtpProfile?.hasPassword ? '(unchanged)' : 'SMTP password'} />
+              </Form.Item>
+              <Form.Item name="fromEmail" label="From (optional)" rules={[{ type: 'email', message: 'Enter a valid email address' }]}>
+                <Input placeholder="noreply@example.com" />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button type="primary" onClick={handleSaveSharedSmtpProfile} loading={savingSharedSmtpProfile}>
+                  Save Shared SMTP Profile
+                </Button>
+              </Form.Item>
+            </Form>
+          </Card>
+
+          <Card loading={loadingSharedAi} title="Shared AI Profile">
+            <Paragraph type="secondary">
+              Profile name: <Text code>{primaryAiProfile?.name || SYSTEM_SHARED_AI_NAME}</Text>
+            </Paragraph>
+            <Form form={aiForm} layout="vertical">
+              <Form.Item name="ollamaBaseUrl" label="Ollama Base URL">
+                <Input placeholder="http://ollama:11434" />
+              </Form.Item>
+              <Form.Item name="ollamaModel" label="Ollama Model">
+                <Input placeholder="llama3" />
+              </Form.Item>
+              <Form.Item name="openaiKey" label="OpenAI API Key">
+                <Input.Password placeholder={primaryAiProfile?.hasOpenai ? 'set - enter new value to rotate' : 'sk-...'} />
+              </Form.Item>
+              <Form.Item name="geminiKey" label="Gemini API Key">
+                <Input.Password placeholder={primaryAiProfile?.hasGemini ? 'set - enter new value to rotate' : 'AIza...'} />
+              </Form.Item>
+              <Form.Item name="claudeKey" label="Claude API Key">
+                <Input.Password placeholder={primaryAiProfile?.hasClaude ? 'set - enter new value to rotate' : 'sk-ant-...'} />
+              </Form.Item>
+              <Form.Item name="azureOpenaiEndpoint" label="Azure OpenAI Endpoint">
+                <Input placeholder="https://YOUR_RESOURCE.openai.azure.com" />
+              </Form.Item>
+              <Form.Item name="azureOpenaiKey" label="Azure OpenAI API Key">
+                <Input.Password placeholder={primaryAiProfile?.hasAzureOpenai ? 'set - enter new value to rotate' : 'Azure API key'} />
+              </Form.Item>
+              <Form.Item name="azureOpenaiDeployment" label="Azure OpenAI Deployment">
+                <Input placeholder="gpt-5-deployment" />
+              </Form.Item>
+              <Form.Item name="orgPreferredModel" label="Default Preferred Model">
+                <Select
+                  allowClear
+                  options={[
+                    { value: 'OLLAMA', label: 'OLLAMA' },
+                    { value: 'GPT-5.5', label: 'GPT-5.5' },
+                    { value: 'GPT-5.4', label: 'GPT-5.4' },
+                    { value: 'GEMINI-3.5-FLASH', label: 'GEMINI-3.5-FLASH' },
+                    { value: 'CLAUDE-SONNET-4.6', label: 'CLAUDE-SONNET-4.6' },
+                    { value: 'AZURE-OPENAI', label: 'AZURE-OPENAI' },
+                  ]}
+                />
+              </Form.Item>
+              <Divider />
+              <Space wrap>
+                <Form.Item name="ollamaEnabled" label="Ollama" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="openaiEnabled" label="OpenAI" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="geminiEnabled" label="Gemini" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="claudeEnabled" label="Claude" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch />
+                </Form.Item>
+                <Form.Item name="azureOpenaiEnabled" label="Azure OpenAI" valuePropName="checked" style={{ marginBottom: 0 }}>
+                  <Switch />
+                </Form.Item>
+              </Space>
+              <Form.Item style={{ marginTop: 16, marginBottom: 0 }}>
+                <Button type="primary" onClick={handleSaveSharedAiProfile} loading={savingSharedAiProfile}>
+                  Save Shared AI Profile
+                </Button>
+              </Form.Item>
+            </Form>
+          </Card>
+        </Space>
       ),
     },
     {
@@ -527,96 +1188,96 @@ export const OrganizationsPage: React.FC = () => {
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>Superuser Management</Title>
       </Space>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        Manage organizations and holding entities. Only superusers have access to this page.
-      </Typography.Paragraph>
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        Manage organizations, entities, and centralized shared AI/SMTP profiles. Only superusers have access to this page.
+      </Paragraph>
 
       <Card>
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
 
-      {/* Members Drawer */}
-      <Drawer
-        title={memberDrawerOrg ? `Members of ${memberDrawerOrg.name}` : 'Members'}
-        open={!!memberDrawerOrg}
-        onClose={() => setMemberDrawerOrg(null)}
-        width={420}
-      >
-        <Typography.Paragraph type="secondary">
-          Read-only roster. Role changes or invites are managed from the org user admin.
-        </Typography.Paragraph>
-        <Divider />
-        {membersLoading ? (
-          <div>Loading members…</div>
-        ) : (
-          <Table
-            size="small"
-            pagination={false}
-            rowKey="id"
-            dataSource={membersData?.organization?.members || []}
-            columns={[
-              { title: 'User', dataIndex: 'username', key: 'username' },
-              { title: 'Email', dataIndex: 'email', key: 'email' },
-              { title: 'Role', dataIndex: 'role', key: 'role', render: (r: string) => <Tag>{r}</Tag> },
-            ]}
-          />
-        )}
-      </Drawer>
-
-      {/* Organization Modal */}
-      <Modal
-        title={editingOrg ? 'Edit Organization' : 'Create Organization'}
-        open={isOrgModalOpen}
-        onOk={handleOrgSubmit}
-        onCancel={() => setIsOrgModalOpen(false)}
-        confirmLoading={createOrgLoading || updateOrgLoading}
-      >
-        <Form form={orgForm} layout="vertical">
-          <Form.Item
-            name="name"
-            label="Organization Name"
-            rules={[{ required: true, message: 'Please enter organization name' }]}
-          >
-            <Input placeholder="Enter organization name" />
-          </Form.Item>
-          <Form.Item name="entityId" label="Entity (optional)">
-            <Select
-              allowClear
-              placeholder="Select entity / holding company"
-              loading={entityLoading}
-              options={(entityData?.allEntities || []).map((e) => ({ label: e.name, value: e.id }))}
-              showSearch
-              optionFilterProp="label"
+        {/* Members Drawer */}
+        <Drawer
+          title={memberDrawerOrg ? `Members of ${memberDrawerOrg.name}` : 'Members'}
+          open={!!memberDrawerOrg}
+          onClose={() => setMemberDrawerOrg(null)}
+          width={420}
+        >
+          <Paragraph type="secondary">
+            Read-only roster. Role changes or invites are managed from the org user admin.
+          </Paragraph>
+          <Divider />
+          {membersLoading ? (
+            <div>Loading members...</div>
+          ) : (
+            <Table
+              size="small"
+              pagination={false}
+              rowKey="id"
+              dataSource={membersData?.organization?.members || []}
+              columns={[
+                { title: 'User', dataIndex: 'username', key: 'username' },
+                { title: 'Email', dataIndex: 'email', key: 'email' },
+                { title: 'Role', dataIndex: 'role', key: 'role', render: (r: string) => <Tag>{r}</Tag> },
+              ]}
             />
-          </Form.Item>
-          <Form.Item
-            name="maxUsers"
-            label="Maximum Users (optional)"
-            extra="Leave empty for unlimited users."
-            rules={[{ type: 'number', min: 1, message: 'Maximum users must be at least 1.' }]}
-          >
-            <InputNumber min={1} style={{ width: '100%' }} placeholder="Unlimited" />
-          </Form.Item>
-        </Form>
-      </Modal>
+          )}
+        </Drawer>
 
-      {/* Entity Modal */}
-      <Modal
-        title="Create Entity"
-        open={isEntityModalOpen}
-        onOk={handleEntitySubmit}
-        onCancel={() => setIsEntityModalOpen(false)}
-        confirmLoading={createEntityLoading}
-      >
-        <Form form={entityForm} layout="vertical">
-          <Form.Item
-            name="name"
-            label="Entity Name"
-            rules={[{ required: true, message: 'Please enter entity name' }]}
-          >
-            <Input placeholder="Enter entity/holding company name" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        {/* Organization Modal */}
+        <Modal
+          title={editingOrg ? 'Edit Organization' : 'Create Organization'}
+          open={isOrgModalOpen}
+          onOk={handleOrgSubmit}
+          onCancel={() => setIsOrgModalOpen(false)}
+          confirmLoading={createOrgLoading || updateOrgLoading}
+        >
+          <Form form={orgForm} layout="vertical">
+            <Form.Item
+              name="name"
+              label="Organization Name"
+              rules={[{ required: true, message: 'Please enter organization name' }]}
+            >
+              <Input placeholder="Enter organization name" />
+            </Form.Item>
+            <Form.Item name="entityId" label="Entity (optional)">
+              <Select
+                allowClear
+                placeholder="Select entity / holding company"
+                loading={entityLoading}
+                options={(entityData?.allEntities || []).map((e) => ({ label: e.name, value: e.id }))}
+                showSearch
+                optionFilterProp="label"
+              />
+            </Form.Item>
+            <Form.Item
+              name="maxUsers"
+              label="Maximum Users (optional)"
+              extra="Leave empty for unlimited users."
+              rules={[{ type: 'number', min: 1, message: 'Maximum users must be at least 1.' }]}
+            >
+              <InputNumber min={1} style={{ width: '100%' }} placeholder="Unlimited" />
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* Entity Modal */}
+        <Modal
+          title="Create Entity"
+          open={isEntityModalOpen}
+          onOk={handleEntitySubmit}
+          onCancel={() => setIsEntityModalOpen(false)}
+          confirmLoading={createEntityLoading}
+        >
+          <Form form={entityForm} layout="vertical">
+            <Form.Item
+              name="name"
+              label="Entity Name"
+              rules={[{ required: true, message: 'Please enter entity name' }]}
+            >
+              <Input placeholder="Enter entity/holding company name" />
+            </Form.Item>
+          </Form>
+        </Modal>
       </Card>
     </div>
   );

@@ -1,10 +1,11 @@
 import graphene
 import logging
 import re
-from typing import List
+from typing import List, Set
 from django.core.exceptions import ValidationError
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
+from ai_assistant.models import OrgAISettings, SharedAIProfile
 from .models import (
     Organization,
     Entity,
@@ -106,6 +107,8 @@ class OrganizationType(DjangoObjectType):
     members = graphene.List(UserType, exclude_author_id=graphene.ID())
     member_count = graphene.Int()
     entity = graphene.Field(EntityType)
+    smtp_shared_enabled = graphene.Boolean()
+    ai_shared_enabled = graphene.Boolean()
 
     class Meta:
         model = Organization
@@ -119,6 +122,20 @@ class OrganizationType(DjangoObjectType):
     
     def resolve_member_count(self, info):
         return CustomUser.objects.filter(organization=self).count()
+
+    def resolve_smtp_shared_enabled(self, info):
+        try:
+            settings_obj = self.smtp_settings
+        except OrganizationSmtpSettings.DoesNotExist:
+            return False
+        return bool(getattr(settings_obj, 'enforce_shared', False))
+
+    def resolve_ai_shared_enabled(self, info):
+        try:
+            settings_obj = self.ai_settings
+        except OrgAISettings.DoesNotExist:
+            return False
+        return bool(getattr(settings_obj, 'shared_profile_locked', False))
 
 
 class MISPInstanceType(DjangoObjectType):
@@ -664,7 +681,11 @@ class Query(graphene.ObjectType):
         # Only superusers can list all organizations
         if not user.is_superuser:
             raise Exception("Permission denied. Superuser access required.")
-        return Organization.objects.all().order_by('name')
+        return Organization.objects.select_related(
+            'entity',
+            'smtp_settings',
+            'ai_settings',
+        ).all().order_by('name')
     
     def resolve_all_entities(self, info):
         user = info.context.user
@@ -2588,6 +2609,126 @@ class SetOrganizationSmtpPolicy(graphene.Mutation):
         )
 
 
+class SetOrganizationSharedFlags(graphene.Mutation):
+    class Arguments:
+        organization_ids = graphene.List(graphene.UUID, required=True)
+        smtp_shared_enabled = graphene.Boolean(required=False)
+        ai_shared_enabled = graphene.Boolean(required=False)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    updated_count = graphene.Int()
+    organizations = graphene.List(OrganizationType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(
+        root,
+        info,
+        organization_ids,
+        smtp_shared_enabled=None,
+        ai_shared_enabled=None,
+    ):
+        user = info.context.user
+        if not (user.is_superuser or user.is_staff):
+            raise GraphQLError('Permission denied. Superuser access required.')
+
+        if smtp_shared_enabled is None and ai_shared_enabled is None:
+            raise GraphQLError('Provide at least one flag to update (smtp_shared_enabled or ai_shared_enabled).')
+
+        normalized_ids: List[str] = []
+        seen_ids: Set[str] = set()
+        for raw_id in organization_ids or []:
+            if raw_id is None:
+                continue
+            string_id = str(raw_id).strip()
+            if not string_id or string_id in seen_ids:
+                continue
+            seen_ids.add(string_id)
+            normalized_ids.append(string_id)
+
+        if not normalized_ids:
+            raise GraphQLError('At least one organization id is required.')
+
+        org_map = {
+            str(org.id): org
+            for org in Organization.objects.filter(id__in=normalized_ids)
+        }
+        missing_ids = [oid for oid in normalized_ids if oid not in org_map]
+        if missing_ids:
+            raise GraphQLError(f'Organization(s) not found: {", ".join(missing_ids)}')
+
+        smtp_profile = None
+        if smtp_shared_enabled is True:
+            smtp_profile = (
+                SharedSmtpProfile.objects.filter(is_active=True, name__iexact='System Shared SMTP')
+                .order_by('-updated_at')
+                .first()
+            )
+            if smtp_profile is None:
+                smtp_profile = (
+                    SharedSmtpProfile.objects.filter(is_active=True)
+                    .order_by('-updated_at', 'name')
+                    .first()
+                )
+            if smtp_profile is None:
+                raise GraphQLError(
+                    'No active shared SMTP profile found. Configure the shared SMTP profile first.'
+                )
+
+        ai_profile = None
+        if ai_shared_enabled is True:
+            ai_profile = (
+                SharedAIProfile.objects.filter(is_active=True, name__iexact='System Shared AI')
+                .order_by('-updated_at')
+                .first()
+            )
+            if ai_profile is None:
+                ai_profile = (
+                    SharedAIProfile.objects.filter(is_active=True)
+                    .order_by('-updated_at', 'name')
+                    .first()
+                )
+            if ai_profile is None:
+                raise GraphQLError(
+                    'No active shared AI profile found. Configure the shared AI profile first.'
+                )
+
+        updated_orgs: List[Organization] = []
+        for org_id in normalized_ids:
+            target_org = org_map[org_id]
+
+            if smtp_shared_enabled is not None:
+                smtp_settings, _ = OrganizationSmtpSettings.objects.get_or_create(
+                    organization=target_org
+                )
+                if smtp_shared_enabled:
+                    smtp_settings.shared_profile = smtp_profile
+                    smtp_settings.enforce_shared = True
+                else:
+                    smtp_settings.enforce_shared = False
+                smtp_settings.updated_by = user
+                smtp_settings.save()
+
+            if ai_shared_enabled is not None:
+                ai_settings, _ = OrgAISettings.objects.get_or_create(organization=target_org)
+                if ai_shared_enabled:
+                    ai_settings.shared_profile = ai_profile
+                    ai_settings.shared_profile_locked = True
+                else:
+                    ai_settings.shared_profile_locked = False
+                ai_settings.save()
+
+            updated_orgs.append(target_org)
+
+        return SetOrganizationSharedFlags(
+            success=True,
+            message='Organization shared profile flags updated successfully.',
+            updated_count=len(updated_orgs),
+            organizations=updated_orgs,
+        )
+
+
 class SetHefaistosRemotePeer(graphene.Mutation):
     class Arguments:
         id = graphene.UUID(required=False)
@@ -3064,6 +3205,7 @@ class Mutation(graphene.ObjectType):
     set_shared_smtp_profile = SetSharedSmtpProfile.Field()
     delete_shared_smtp_profile = DeleteSharedSmtpProfile.Field()
     set_organization_smtp_policy = SetOrganizationSmtpPolicy.Field()
+    set_organization_shared_flags = SetOrganizationSharedFlags.Field()
     set_org_ai_task_config = SetOrgAiTaskConfig.Field()
     run_org_ai_task_now = RunOrgAiTaskNow.Field()
     update_dac_deployment_config = UpdateDacDeploymentConfig.Field()
