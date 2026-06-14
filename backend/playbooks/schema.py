@@ -831,7 +831,7 @@ class Query(graphene.ObjectType):
     l1_portal_entry_by_token = graphene.Field(
         L1PortalEntryType,
         token=graphene.UUID(required=True),
-        description="Read-only L1 portal entry by share token (authenticated users only).",
+        description="Read-only L1 portal entry by share token (organization-scoped).",
     )
     capability_abstractions = graphene.List(
         CapabilityAbstractionType,
@@ -1013,16 +1013,16 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
+        if not getattr(user, 'organization', None):
+            raise Exception("Organization context is required")
 
         limit = max(1, min(limit or 50, 200))
         offset = max(0, offset or 0)
 
         qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
-            graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED
+            graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+            organization=user.organization,
         )
-
-        if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
-            qs = qs.filter(organization=user.organization)
 
         if search:
             raw = search.strip()
@@ -1044,13 +1044,14 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
+        if not getattr(user, 'organization', None):
+            raise Exception("Organization context is required")
 
         qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
             url_token=token,
             graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+            organization=user.organization,
         )
-        if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
-            qs = qs.filter(organization=user.organization)
         return qs.first()
 
     @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])

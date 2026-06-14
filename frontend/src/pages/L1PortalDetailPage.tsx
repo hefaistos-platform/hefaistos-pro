@@ -84,7 +84,7 @@ export const L1PortalDetailPage: React.FC = () => {
         type="warning"
         showIcon
         message="Entry not available"
-        description="This entry was not found or the related workbench is not currently deployed."
+        description="This entry was not found, is outside your organization, or the related workbench is not currently deployed."
       />
     );
   }

@@ -141,7 +141,7 @@ export const L1PortalPage: React.FC = () => {
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-          Read-only playbook snapshots generated from deployed Workbenches. Search matches title and content fields.
+          Read-only playbook snapshots generated from deployed Workbenches in your organization only. Search matches title and content fields.
         </Typography.Paragraph>
         <Table<L1PortalRow>
           rowKey="id"
