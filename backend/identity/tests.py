@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pyotp
 
 from identity.models import AccountSetupToken, UserMfaSettings
-from identity.schema import InviteUser, PrepareAccountActivation, CompleteAccountActivation
+from identity.schema import InviteUser, PrepareAccountActivation, CompleteAccountActivation, StartMfaLogin
 from identity.decorators import role_required, Roles
 
 User = get_user_model()
@@ -249,3 +249,63 @@ class OrganizationUserLimitEnforcementTests(TestCase):
         self.assertIn("maximum user limit", str(ctx.exception))
         self.movable_user.refresh_from_db()
         self.assertEqual(self.movable_user.organization_id, self.source_org.id)
+
+
+class BotMfaBypassLoginTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Bot MFA Org")
+        self.bot_org = User.objects.create_user(
+            username="bot_org_user",
+            email="bot_org@example.com",
+            password="BotPass123!",
+            role=Roles.BOT_AUDITOR_ORG,
+            organization=self.org,
+        )
+        self.bot_global = User.objects.create_user(
+            username="bot_global_user",
+            email="bot_global@example.com",
+            password="BotPass123!",
+            role=Roles.BOT_AUDITOR_GLOBAL,
+            organization=self.org,
+        )
+
+        # Even if MFA is configured, BOT users must not be challenged.
+        org_settings, _ = UserMfaSettings.objects.get_or_create(user=self.bot_org)
+        org_settings.totp_enabled = True
+        org_settings.totp_secret = pyotp.random_base32()
+        org_settings.save()
+
+        global_settings, _ = UserMfaSettings.objects.get_or_create(user=self.bot_global)
+        global_settings.totp_enabled = True
+        global_settings.totp_secret = pyotp.random_base32()
+        global_settings.save()
+
+    def _make_login_info(self):
+        info = MagicMock()
+        info.context = MagicMock()
+        info.context.META = {"REMOTE_ADDR": "127.0.0.1"}
+        return info
+
+    @patch("identity.schema.emit_security_event")
+    def test_org_bot_bypasses_mfa_challenge(self, _mock_emit):
+        result = StartMfaLogin.mutate(
+            None,
+            self._make_login_info(),
+            username="bot_org_user",
+            password="BotPass123!",
+        )
+        self.assertFalse(result.mfa_required)
+        self.assertIsNone(result.challenge_id)
+        self.assertTrue(bool(result.token))
+
+    @patch("identity.schema.emit_security_event")
+    def test_global_bot_bypasses_mfa_challenge(self, _mock_emit):
+        result = StartMfaLogin.mutate(
+            None,
+            self._make_login_info(),
+            username="bot_global_user",
+            password="BotPass123!",
+        )
+        self.assertFalse(result.mfa_required)
+        self.assertIsNone(result.challenge_id)
+        self.assertTrue(bool(result.token))

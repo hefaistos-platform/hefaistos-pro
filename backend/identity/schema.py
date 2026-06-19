@@ -17,7 +17,12 @@ from .models import (
     WebAuthnChallenge,
 )
 from organizations.models import Organization
-from .decorators import role_required, Roles, is_global_bot_auditor_user
+from .decorators import (
+    role_required,
+    Roles,
+    is_bot_auditor_user,
+    is_global_bot_auditor_user,
+)
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
 from django.contrib.auth.signals import user_logged_in
@@ -829,6 +834,11 @@ def _mfa_required_for_user(user):
     return getattr(user, 'role', None) == Roles.ADMIN
 
 
+def _should_bypass_mfa_for_user(user):
+    """Bot auditor accounts are non-interactive and must authenticate with username/password only."""
+    return is_bot_auditor_user(user)
+
+
 def _has_mfa_method(user, settings_obj):
     has_totp = bool(settings_obj.totp_enabled and settings_obj.totp_secret)
     has_webauthn = WebAuthnCredential.objects.filter(user=user).exists()
@@ -896,6 +906,36 @@ class StartMfaLogin(graphene.Mutation):
             raise Exception("Invalid credentials")
 
         mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
+        if _should_bypass_mfa_for_user(user):
+            token = get_token(user)
+            user_logged_in.send(sender=user.__class__, request=request, user=user)
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='informational',
+                logger_name='AuthService',
+                message=(
+                    f"Bot account '{user_name}' successfully logged in from IP {source_ip} "
+                    "using primary credentials only."
+                ),
+                event_action='user_login_success',
+                event_outcome='success',
+                asvs_event_code='AUTHN-SUCCESS-PRIMARY-01',
+                event_reason='Bot auditor MFA bypass policy applied.',
+                event_category=['authentication'],
+                event_type=['end', 'success'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=200,
+            )
+            return StartMfaLogin(
+                token=token,
+                mfa_required=False,
+                challenge_id=None,
+                message="Login successful",
+                has_webauthn=False,
+            )
         if mfa_settings.is_locked():
             user_id, user_name = _user_identity(user)
             emit_security_event(
