@@ -38,7 +38,7 @@ from rules.models import DetectionRule, RuleRepository
 from data_catalog.models import DataSource
 from rules.schema import RuleType
 from data_catalog.schema import DataSourceType
-from identity.decorators import role_required, Roles, is_global_bot_auditor_user
+from identity.decorators import role_required, Roles, is_bot_auditor_user
 from identity.schema import UserType
 from review.schema import ReviewRequestType, ReviewCommentType
 from organizations.schema import OrganizationType
@@ -845,7 +845,7 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             raise Exception("Authentication credentials were not provided")
 
-        if is_global_bot_auditor_user(user):
+        if is_bot_auditor_user(user):
             return DetectionPlaybook.objects.all().distinct().select_related("organization")
 
         # 1. Get playbooks my organization owns
@@ -878,7 +878,7 @@ class Query(graphene.ObjectType):
             playbook = DetectionPlaybook.objects.get(pk=id)
         except DetectionPlaybook.DoesNotExist:
             raise Exception("Playbook not found")
-        if is_global_bot_auditor_user(user):
+        if is_bot_auditor_user(user):
             return playbook
         if playbook.organization != user.organization:
             raise Exception("You do not have permission to view this playbook")
@@ -987,7 +987,7 @@ class Query(graphene.ObjectType):
             # Allow connector_svc to see all graphs for notifications/sync
             is_connector = getattr(user, 'username', '') == 'connector_svc'
 
-            if is_global_bot_auditor_user(user) or is_owned or is_shared or is_connector:
+            if is_bot_auditor_user(user) or is_owned or is_shared or is_connector:
                 return graph
             else:
                 raise PermissionError("You do not have permission to view this graph.")
@@ -1004,7 +1004,7 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             raise Exception("Authentication required")
 
-        if is_global_bot_auditor_user(user):
+        if is_bot_auditor_user(user):
             return PlaybookGraph.objects.all().distinct().select_related('organization')
 
         my_org_graphs = Q(organization=user.organization)
@@ -1021,7 +1021,7 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
-        if not getattr(user, 'organization', None):
+        if not is_bot_auditor_user(user) and not getattr(user, 'organization', None):
             raise Exception("Organization context is required")
 
         limit = max(1, min(limit or 50, 200))
@@ -1029,8 +1029,9 @@ class Query(graphene.ObjectType):
 
         qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
             graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
-            organization=user.organization,
         )
+        if not is_bot_auditor_user(user):
+            qs = qs.filter(organization=user.organization)
 
         if search:
             raw = search.strip()
@@ -1052,14 +1053,15 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
-        if not getattr(user, 'organization', None):
+        if not is_bot_auditor_user(user) and not getattr(user, 'organization', None):
             raise Exception("Organization context is required")
 
         qs = L1PortalEntry.objects.select_related('graph', 'organization').filter(
             url_token=token,
             graph__status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
-            organization=user.organization,
         )
+        if not is_bot_auditor_user(user):
+            qs = qs.filter(organization=user.organization)
         return qs.first()
 
     @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])

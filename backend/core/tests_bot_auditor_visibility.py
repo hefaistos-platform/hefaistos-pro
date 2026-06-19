@@ -5,8 +5,9 @@ from graphene_django.utils.testing import GraphQLTestCase
 
 from ach.models import ACHAnalysis
 from advops.models import ADVOPSReport
+from news.models import NewsPost
 from organizations.models import Organization
-from playbooks.models import PlaybookGraph
+from playbooks.models import PlaybookGraph, L1PortalEntry
 
 
 class BotAuditorReadVisibilityTests(GraphQLTestCase):
@@ -47,15 +48,33 @@ class BotAuditorReadVisibilityTests(GraphQLTestCase):
             title="Graph A",
             organization=self.org_a,
             author=self.user_a,
-            status="IDEA",
+            status="DEPLOYED",
             is_shared=False,
         )
-        PlaybookGraph.objects.create(
+        graph_b = PlaybookGraph.objects.create(
             title="Graph B",
             organization=self.org_b,
             author=self.user_b,
-            status="IDEA",
+            status="DEPLOYED",
             is_shared=False,
+        )
+        graph_a = PlaybookGraph.objects.get(title="Graph A")
+
+        L1PortalEntry.objects.create(
+            graph=graph_a,
+            organization=self.org_a,
+            title="L1 A",
+            response_playbook="RP A",
+            known_false_positives="KFP A",
+            blind_spots_coverage_gaps="BS A",
+        )
+        L1PortalEntry.objects.create(
+            graph=graph_b,
+            organization=self.org_b,
+            title="L1 B",
+            response_playbook="RP B",
+            known_false_positives="KFP B",
+            blind_spots_coverage_gaps="BS B",
         )
 
         ACHAnalysis.objects.create(
@@ -85,6 +104,22 @@ class BotAuditorReadVisibilityTests(GraphQLTestCase):
             organization=self.org_b,
             status=ADVOPSReport.Status.IDEA,
         )
+        NewsPost.objects.create(
+            title="Draft A",
+            content="Draft news A",
+            author=self.user_a,
+            is_published=False,
+            category="ANNOUNCEMENT",
+            priority="MEDIUM",
+        )
+        NewsPost.objects.create(
+            title="Draft B",
+            content="Draft news B",
+            author=self.user_b,
+            is_published=False,
+            category="ANNOUNCEMENT",
+            priority="MEDIUM",
+        )
 
     def _query_counts(self):
         query = """
@@ -92,6 +127,8 @@ class BotAuditorReadVisibilityTests(GraphQLTestCase):
                 allPlaybookGraphs { id }
                 achAnalyses { id }
                 allAdvopsReports { id }
+                l1PortalEntries(limit: 200) { id }
+                allNews(includeExpired: true, includeUnpublished: true, limit: 200) { id }
             }
         """
         response = self.query(query)
@@ -101,18 +138,24 @@ class BotAuditorReadVisibilityTests(GraphQLTestCase):
             len(payload["allPlaybookGraphs"]),
             len(payload["achAnalyses"]),
             len(payload["allAdvopsReports"]),
+            len(payload["l1PortalEntries"]),
+            len(payload["allNews"]),
         )
 
-    def test_org_bot_sees_org_scoped_items(self):
+    def test_org_bot_sees_platform_scoped_items(self):
         self.client.force_login(self.bot_org)
-        graph_count, ach_count, advops_count = self._query_counts()
-        self.assertEqual(graph_count, 1)
-        self.assertEqual(ach_count, 1)
-        self.assertEqual(advops_count, 1)
-
-    def test_global_bot_sees_platform_scoped_items(self):
-        self.client.force_login(self.bot_global)
-        graph_count, ach_count, advops_count = self._query_counts()
+        graph_count, ach_count, advops_count, l1_count, news_count = self._query_counts()
         self.assertEqual(graph_count, 2)
         self.assertEqual(ach_count, 2)
         self.assertEqual(advops_count, 2)
+        self.assertEqual(l1_count, 2)
+        self.assertEqual(news_count, 2)
+
+    def test_global_bot_sees_platform_scoped_items(self):
+        self.client.force_login(self.bot_global)
+        graph_count, ach_count, advops_count, l1_count, news_count = self._query_counts()
+        self.assertEqual(graph_count, 2)
+        self.assertEqual(ach_count, 2)
+        self.assertEqual(advops_count, 2)
+        self.assertEqual(l1_count, 2)
+        self.assertEqual(news_count, 2)

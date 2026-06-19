@@ -6,7 +6,7 @@ from datetime import timedelta
 import logging
 
 from .models import NewsPost, UserNewsRead, NewsSettings
-from identity.decorators import role_required, Roles
+from identity.decorators import role_required, Roles, is_bot_auditor_user
 from core.rabbitmq import publish_event
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class Query(graphene.ObjectType):
 
         # Allow admins to list drafts for management; others stay limited to published posts
         if include_unpublished:
-            if getattr(user, 'role', None) != Roles.ADMIN:
+            if getattr(user, 'role', None) != Roles.ADMIN and not is_bot_auditor_user(user):
                 raise PermissionDenied("Admin role required to view unpublished news")
             qs = NewsPost.objects.all()
         else:
