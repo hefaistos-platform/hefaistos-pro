@@ -84,9 +84,20 @@ def role_required(roles: list):
                     # Service accounts bypass role checks for connector operations
                     return func(*args, **kwargs)
 
-                # Check 3: Bot auditors are strictly read-only and may never call
-                # role-gated actions (mutations, privileged commands).
+                operation = getattr(getattr(info, 'operation', None), 'operation', None)
+                if hasattr(operation, 'value'):
+                    operation = operation.value
+                operation_kind = str(operation or '').lower()
+
+                # Check 3: Bot auditors are strictly read-only.
+                # Allow role-gated QUERY resolvers so bots can inspect the platform.
+                # Deny non-query operations (mutations/other write-like operations).
                 if is_bot_auditor_user(user):
+                    if operation_kind == 'query':
+                        logger.info(
+                            f"[role_required] Bot auditor '{user.username}' allowed read access to {func.__name__}"
+                        )
+                        return func(*args, **kwargs)
                     logger.warning(f"[role_required] Bot auditor '{user.username}' denied write access to {func.__name__}")
                     emit_security_event(
                         level='warning',

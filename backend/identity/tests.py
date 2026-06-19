@@ -83,6 +83,15 @@ class RoleRequiredDecoratorTests(TestCase):
         with self.assertRaises(PermissionDenied):
             wrapped(info)
 
+    def test_bot_auditor_allowed_for_query_operation(self):
+        """Bot auditor roles can call role-gated QUERY resolvers (read-only visibility)."""
+        user = self._make_user(role=Roles.BOT_AUDITOR_ORG)
+        info = _make_info(user)
+        info.operation = MagicMock()
+        info.operation.operation = "query"
+        wrapped = role_required([Roles.ADMIN])(_dummy_func)
+        self.assertEqual(wrapped(info), "ok")
+
     def test_superuser_bypasses_role_check(self):
         """A superuser (platform admin) bypasses org-scoped role checks regardless of their role field."""
         user = self._make_user(role=Roles.VIEWER, is_superuser=True)
