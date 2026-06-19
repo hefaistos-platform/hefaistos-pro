@@ -9,6 +9,7 @@ import re
 from .models import ADVOPSReport
 from .misp_integration import MISPClient, MISPIntegrationError, parse_infrastructure_summary, extract_mitre_techniques
 from organizations.models import MISPInstance
+from identity.decorators import is_global_bot_auditor_user
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             return []
+        if is_global_bot_auditor_user(user):
+            return ADVOPSReport.objects.all().order_by("-updated_at")
         return ADVOPSReport.objects.filter(organization=user.organization).order_by("-updated_at")
 
     def resolve_advops_report(self, info, id):
@@ -101,6 +104,8 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             return None
         try:
+            if is_global_bot_auditor_user(user):
+                return ADVOPSReport.objects.get(id=id)
             return ADVOPSReport.objects.get(id=id, organization=user.organization)
         except ADVOPSReport.DoesNotExist:
             return None

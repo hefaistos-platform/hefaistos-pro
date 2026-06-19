@@ -1,7 +1,7 @@
 import graphene
 from graphene_django import DjangoObjectType
 from django.utils import timezone
-from identity.decorators import role_required, Roles
+from identity.decorators import role_required, Roles, is_global_bot_auditor_user
 from .models import ACHAnalysis, Hypothesis, Evidence, MatrixCell, ACHTemplate
 from .engine import ACHScoringEngine
 from .ai import ACHGenerator
@@ -761,6 +761,8 @@ class Query(graphene.ObjectType):
         if info.context.user.is_anonymous:
             return ACHAnalysis.objects.none()
         user = info.context.user
+        if is_global_bot_auditor_user(user):
+            return ACHAnalysis.objects.all()
         if user.role in [Roles.ADMIN, Roles.REVIEWER] and user.organization_id:
             return ACHAnalysis.objects.filter(owner__organization=user.organization)
         return ACHAnalysis.objects.filter(owner=user)
@@ -770,6 +772,8 @@ class Query(graphene.ObjectType):
             return None
         try:
             user = info.context.user
+            if is_global_bot_auditor_user(user):
+                return ACHAnalysis.objects.get(id=id)
             if user.role in [Roles.ADMIN, Roles.REVIEWER] and user.organization_id:
                 return ACHAnalysis.objects.get(id=id, owner__organization=user.organization)
             return ACHAnalysis.objects.get(id=id, owner=user)
