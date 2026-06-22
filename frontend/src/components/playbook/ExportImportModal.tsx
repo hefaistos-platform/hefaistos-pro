@@ -1015,7 +1015,15 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                         <div>Deployed: {currentPublishJob.deployedPlatforms.join(', ')}</div>
                       )}
                       {(() => {
-                        let results: Array<{ platform: string; success: boolean; message?: string; errors?: string[] }> = [];
+                        let results: Array<{
+                          platform: string;
+                          success: boolean;
+                          message?: string;
+                          errors?: string[];
+                          failure_type?: string;
+                          probable_cause?: string;
+                          operator_hint?: string;
+                        }> = [];
                         try {
                           results = currentPublishJob.deploymentResults
                             ? JSON.parse(currentPublishJob.deploymentResults)
@@ -1032,6 +1040,27 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                               <div key={i} style={{ marginTop: 4, paddingLeft: 8, borderLeft: '3px solid var(--ant-color-error, #ff4d4f)' }}>
                                 <Text strong>{r.platform}: </Text>
                                 <Text>{r.message || 'Unknown error'}</Text>
+                                {r.failure_type && (
+                                  <div>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      Type: {r.failure_type}
+                                    </Text>
+                                  </div>
+                                )}
+                                {r.probable_cause && (
+                                  <div>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      Cause: {r.probable_cause}
+                                    </Text>
+                                  </div>
+                                )}
+                                {r.operator_hint && (
+                                  <div>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      Hint: {r.operator_hint}
+                                    </Text>
+                                  </div>
+                                )}
                                 {r.errors && r.errors.length > 0 && (
                                   <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                                     {r.errors.map((e, j) => (

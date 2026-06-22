@@ -19,6 +19,57 @@ class OpenTideMDRValidationError(ValueError):
     """Raised when MDR payload fails schema validation for HEF publish."""
 
 
+def _classify_deployment_failure(
+    *,
+    platform: str,
+    message: str,
+    errors: list[str],
+) -> dict[str, str]:
+    """Return a structured failure taxonomy for operator-facing diagnostics."""
+    blob = ' '.join([platform or '', message or '', *(errors or [])]).lower()
+
+    if 'invalid_scope' in blob or 'customdetections.readwrite.all' in blob:
+        return {
+            'failure_type': 'AUTH_SCOPE',
+            'probable_cause': 'API app registration is missing required Microsoft Graph application scopes/consent.',
+            'operator_hint': 'Grant/consent CustomDetections.ReadWrite.All and re-test token acquisition.',
+        }
+    if 'unauthorized' in blob or 'http 401' in blob:
+        return {
+            'failure_type': 'AUTHN',
+            'probable_cause': 'Token acquisition failed or bearer token is invalid/expired.',
+            'operator_hint': 'Verify tenant/client credentials and secret validity; then test platform connection.',
+        }
+    if 'forbidden' in blob or 'http 403' in blob:
+        return {
+            'failure_type': 'AUTHZ',
+            'probable_cause': 'Authenticated identity lacks platform permissions for rule write/update.',
+            'operator_hint': 'Grant required role/permissions for detection rule management and retry.',
+        }
+    if (
+        'query validation failed' in blob
+        or 'invalid query' in blob
+        or 'parser' in blob
+        or 'kql query' in blob
+    ):
+        return {
+            'failure_type': 'QUERY_VALIDATION',
+            'probable_cause': 'Detection query syntax/schema does not match target platform expectations.',
+            'operator_hint': 'Validate query tables/columns for the selected platform and re-publish.',
+        }
+    if 'timeout' in blob or 'request error' in blob or 'connection' in blob:
+        return {
+            'failure_type': 'NETWORK',
+            'probable_cause': 'Transient network/API connectivity issue during deployment.',
+            'operator_hint': 'Retry publish; if persistent, verify platform endpoint reachability and proxy/SSL settings.',
+        }
+    return {
+        'failure_type': 'PLATFORM_REJECTED',
+        'probable_cause': 'Target platform rejected the deployment payload.',
+        'operator_hint': 'Review detailed platform errors and compare payload fields against platform API requirements.',
+    }
+
+
 def _is_uuid4(value: Any) -> bool:
     if not value:
         return False
@@ -367,13 +418,24 @@ def deploy_opentide_rule_to_platforms(rule, organization, platforms: List[str]) 
                 outcomes.append(result)
 
     results = [
-        {
-            'platform': r.platform,
-            'success': r.success,
-            'rule_id': r.rule_id,
-            'message': r.message,
-            'errors': r.errors or [],
-        }
+        (
+            {
+                'platform': r.platform,
+                'success': r.success,
+                'rule_id': r.rule_id,
+                'message': r.message,
+                'errors': r.errors or [],
+            }
+            | (
+                {}
+                if r.success
+                else _classify_deployment_failure(
+                    platform=r.platform,
+                    message=r.message,
+                    errors=r.errors or [],
+                )
+            )
+        )
         for r in outcomes
     ]
     overall_success = all(r['success'] for r in results) if results else True

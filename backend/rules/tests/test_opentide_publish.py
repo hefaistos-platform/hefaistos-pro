@@ -8,8 +8,10 @@ from rules.opentide_publish import (
     mdr_to_deployer_payload,
     _ensure_mdr_uuid4,
     _is_uuid4,
+    _classify_deployment_failure,
     deploy_opentide_rule_to_platforms,
 )
+from rules.deployers.base import DeploymentResult
 
 
 class TestMdrToDeployerPayload(SimpleTestCase):
@@ -198,6 +200,72 @@ class TestDeployOpenTideRuleToPlatforms(SimpleTestCase):
         self.assertTrue(success)
         self.assertIn('0/0 platform', message)
         mock_to_payload.assert_called_once()
+
+    @patch('rules.opentide_publish.PlatformCredential.preferred_credentials_map')
+    @patch('rules.opentide_publish.PLATFORM_DEPLOYER_MAP')
+    @patch('rules.opentide_publish.pyyaml.safe_load')
+    def test_enriches_failed_results_with_failure_taxonomy(
+        self,
+        mock_safe_load,
+        mock_deployer_map,
+        mock_preferred_creds,
+    ):
+        mock_safe_load.return_value = {
+            'metadata': {'title': 'Rule'},
+            'platforms': {'kql': {'query': 'DeviceProcessEvents | take 1'}},
+        }
+        mock_preferred_creds.return_value = {'defender': {'tenant_id': 'x'}}
+
+        class _FakeDeployer:
+            PLATFORM_NAME = 'Microsoft Defender'
+
+            def __init__(self, _credentials):
+                pass
+
+            def run(self, _payload):
+                return DeploymentResult(
+                    platform='Microsoft Defender',
+                    success=False,
+                    message='Authentication error: HTTP 401 from Microsoft Graph token endpoint: invalid_scope',
+                    errors=['invalid_scope'],
+                )
+
+        mock_deployer_map.keys.return_value = ['defender']
+        mock_deployer_map.__contains__.side_effect = lambda x: x == 'defender'
+        mock_deployer_map.__getitem__.side_effect = lambda x: _FakeDeployer if x == 'defender' else None
+
+        class _Rule:
+            format = 'OPENTIDE'
+            raw_content = 'yaml-content'
+
+        results, success, _message = deploy_opentide_rule_to_platforms(
+            _Rule(),
+            organization=object(),
+            platforms=['defender'],
+        )
+
+        self.assertFalse(success)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['failure_type'], 'AUTH_SCOPE')
+        self.assertIn('CustomDetections.ReadWrite.All', results[0]['operator_hint'])
+
+
+class TestDeploymentFailureClassification(SimpleTestCase):
+    def test_classifies_query_validation(self):
+        enriched = _classify_deployment_failure(
+            platform='Azure Sentinel',
+            message='KQL query validation failed.',
+            errors=['queryFrequency must be a valid ISO 8601 duration'],
+        )
+        self.assertEqual(enriched['failure_type'], 'QUERY_VALIDATION')
+
+    def test_classifies_authz(self):
+        enriched = _classify_deployment_failure(
+            platform='Microsoft Defender',
+            message='Microsoft Graph rejected the rule (HTTP 403 - Forbidden). See errors for details.',
+            errors=['Insufficient privileges to complete the operation.'],
+        )
+        self.assertEqual(enriched['failure_type'], 'AUTHZ')
 
 
 class TestMitreTechniqueFallbacks(SimpleTestCase):
