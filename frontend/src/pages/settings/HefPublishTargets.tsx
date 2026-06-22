@@ -82,6 +82,7 @@ interface ProfileFormValues {
   pushPlatformRules?: boolean;
   enabledPlatforms?: string[];
   useGraphConfiguredPlatforms?: boolean;
+  kqlTargetPolicy?: 'defender' | 'sentinel' | 'both';
   enabled?: boolean;
 }
 
@@ -118,6 +119,7 @@ const HefPublishTargets: React.FC = () => {
       pushPlatformRules: false,
       useGraphConfiguredPlatforms: true,
       enabledPlatforms: [],
+      kqlTargetPolicy: 'defender',
     });
     setModalOpen(true);
   };
@@ -132,6 +134,7 @@ const HefPublishTargets: React.FC = () => {
       pushPlatformRules: profile.pushPlatformRules ?? false,
       enabledPlatforms: profile.enabledPlatforms || [],
       useGraphConfiguredPlatforms: profile.useGraphConfiguredPlatforms,
+      kqlTargetPolicy: profile.kqlTargetPolicy || 'defender',
       enabled: profile.enabled,
     });
     setModalOpen(true);
@@ -156,6 +159,7 @@ const HefPublishTargets: React.FC = () => {
           pushPlatformRules: values.pushPlatformRules ?? false,
           enabledPlatforms: values.enabledPlatforms ?? [],
           useGraphConfiguredPlatforms: values.useGraphConfiguredPlatforms ?? true,
+          kqlTargetPolicy: values.kqlTargetPolicy ?? 'defender',
           enabled: values.enabled ?? true,
         },
       });
@@ -249,6 +253,20 @@ const HefPublishTargets: React.FC = () => {
             ))}
           </Space>
         );
+      },
+    },
+    {
+      title: 'KQL Target',
+      key: 'kqlTargetPolicy',
+      width: 160,
+      render: (_: unknown, profile: HefPublishProfile) => {
+        const value = profile.kqlTargetPolicy || 'defender';
+        const labelMap: Record<string, string> = {
+          defender: 'Defender',
+          sentinel: 'Sentinel',
+          both: 'Both',
+        };
+        return <Tag color="geekblue">{labelMap[value] || value}</Tag>;
       },
     },
     {
@@ -360,6 +378,7 @@ const HefPublishTargets: React.FC = () => {
             pushPlatformRules: false,
             useGraphConfiguredPlatforms: true,
             enabledPlatforms: [],
+            kqlTargetPolicy: 'defender',
           }}
         >
           <Form.Item
@@ -423,6 +442,20 @@ const HefPublishTargets: React.FC = () => {
             extra="When enabled and no default platforms are set, use the platforms configured on the workbench."
           >
             <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="kqlTargetPolicy"
+            label="KQL Target Policy"
+            extra="How KQL platform values are resolved during publish."
+          >
+            <Select
+              options={[
+                { label: 'Defender only', value: 'defender' },
+                { label: 'Sentinel only', value: 'sentinel' },
+                { label: 'Defender + Sentinel', value: 'both' },
+              ]}
+            />
           </Form.Item>
 
           <Form.Item name="enabled" label="Enabled" valuePropName="checked">

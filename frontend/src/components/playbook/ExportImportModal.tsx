@@ -95,6 +95,7 @@ const GET_HEF_PUBLISH_PROFILES = gql`
       pushPlatformRules
       enabledPlatforms
       useGraphConfiguredPlatforms
+      kqlTargetPolicy
     }
   }
 `;
@@ -408,6 +409,11 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
       profile.enabledPlatforms?.length
         ? profile.enabledPlatforms
         : []
+    );
+    setKqlTargetPolicy(
+      (profile.kqlTargetPolicy === 'sentinel' || profile.kqlTargetPolicy === 'both')
+        ? profile.kqlTargetPolicy
+        : 'defender'
     );
     setPushPlatformRules(Boolean(profile.pushPlatformRules));
   }, [selectedProfileId, profilesData]);

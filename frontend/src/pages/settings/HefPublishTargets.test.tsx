@@ -36,6 +36,7 @@ describe('HefPublishTargets pushPlatformRules field', () => {
               pushPlatformRules: true,
               enabledPlatforms: [],
               useGraphConfiguredPlatforms: true,
+              kqlTargetPolicy: 'defender',
               enabled: true,
               createdAt: '2026-01-01',
               updatedAt: '2026-01-01',

@@ -111,3 +111,87 @@ class TestPublishWorkbenchOpenTide(SimpleTestCase):
         self.assertTrue(result.success)
         self.assertIn('Deployment targets: splunk', result.message)
         self.assertEqual(mock_job_create.call_args.kwargs['requested_platforms'], ['splunk'])
+
+    @patch('core.rabbitmq.publish_event', return_value=True)
+    @patch('organizations.schema.OpenTideHefPublishJob.objects.create')
+    @patch('organizations.schema.PlatformCredential.objects.filter')
+    @patch('organizations.schema.OpenTidePublishProfile.objects')
+    @patch('playbooks.models.PlaybookGraph.objects')
+    def test_profile_kql_policy_is_used_when_request_omits_override(
+        self,
+        mock_graph_objects,
+        mock_profile_objects,
+        mock_platform_filter,
+        mock_job_create,
+        _mock_publish_event,
+    ):
+        graph = self._make_graph()
+        graph.configured_platforms = ['kql']
+        repository = SimpleNamespace(id='repo-1', git_url='https://github.com/acme/repo', token='token')
+        profile = SimpleNamespace(
+            repository=repository,
+            enabled_platforms=[],
+            use_graph_configured_platforms=True,
+            branch='main',
+            target_folder='content/hef',
+            push_platform_rules=False,
+            kql_target_policy='sentinel',
+        )
+        mock_graph_objects.prefetch_related.return_value.get.return_value = graph
+        mock_profile_objects.select_related.return_value.get.return_value = profile
+        mock_platform_filter.return_value.values_list.return_value = ['sentinel']
+        mock_job_create.return_value = SimpleNamespace(id='job-3')
+
+        result = PublishWorkbenchOpenTide.mutate(
+            None,
+            self._make_info(),
+            graph_id='graph-1',
+            profile_id='profile-1',
+            platforms=None,
+            kql_target_policy=None,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(mock_job_create.call_args.kwargs['requested_platforms'], ['sentinel'])
+
+    @patch('core.rabbitmq.publish_event', return_value=True)
+    @patch('organizations.schema.OpenTideHefPublishJob.objects.create')
+    @patch('organizations.schema.PlatformCredential.objects.filter')
+    @patch('organizations.schema.OpenTidePublishProfile.objects')
+    @patch('playbooks.models.PlaybookGraph.objects')
+    def test_request_kql_policy_overrides_profile_default(
+        self,
+        mock_graph_objects,
+        mock_profile_objects,
+        mock_platform_filter,
+        mock_job_create,
+        _mock_publish_event,
+    ):
+        graph = self._make_graph()
+        graph.configured_platforms = ['kql']
+        repository = SimpleNamespace(id='repo-1', git_url='https://github.com/acme/repo', token='token')
+        profile = SimpleNamespace(
+            repository=repository,
+            enabled_platforms=[],
+            use_graph_configured_platforms=True,
+            branch='main',
+            target_folder='content/hef',
+            push_platform_rules=False,
+            kql_target_policy='sentinel',
+        )
+        mock_graph_objects.prefetch_related.return_value.get.return_value = graph
+        mock_profile_objects.select_related.return_value.get.return_value = profile
+        mock_platform_filter.return_value.values_list.return_value = ['defender', 'sentinel']
+        mock_job_create.return_value = SimpleNamespace(id='job-4')
+
+        result = PublishWorkbenchOpenTide.mutate(
+            None,
+            self._make_info(),
+            graph_id='graph-1',
+            profile_id='profile-1',
+            platforms=None,
+            kql_target_policy='both',
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(mock_job_create.call_args.kwargs['requested_platforms'], ['defender', 'sentinel'])

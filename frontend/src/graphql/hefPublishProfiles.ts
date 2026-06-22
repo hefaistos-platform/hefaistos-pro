@@ -29,6 +29,7 @@ export const GET_HEF_PUBLISH_PROFILES = gql`
       pushPlatformRules
       enabledPlatforms
       useGraphConfiguredPlatforms
+      kqlTargetPolicy
       enabled
       createdAt
       updatedAt
@@ -50,6 +51,7 @@ export const SET_HEF_PUBLISH_PROFILE = gql`
     $pushPlatformRules: Boolean
     $enabledPlatforms: [String]
     $useGraphConfiguredPlatforms: Boolean
+    $kqlTargetPolicy: String
     $enabled: Boolean
   ) {
     setOpenTidePublishProfile(
@@ -61,6 +63,7 @@ export const SET_HEF_PUBLISH_PROFILE = gql`
       pushPlatformRules: $pushPlatformRules
       enabledPlatforms: $enabledPlatforms
       useGraphConfiguredPlatforms: $useGraphConfiguredPlatforms
+      kqlTargetPolicy: $kqlTargetPolicy
       enabled: $enabled
     ) {
       success
@@ -76,6 +79,7 @@ export const SET_HEF_PUBLISH_PROFILE = gql`
         pushPlatformRules
         enabledPlatforms
         useGraphConfiguredPlatforms
+        kqlTargetPolicy
         enabled
         createdAt
         updatedAt
@@ -108,6 +112,7 @@ export interface HefPublishProfile {
   pushPlatformRules: boolean;
   enabledPlatforms: string[];
   useGraphConfiguredPlatforms: boolean;
+  kqlTargetPolicy: 'defender' | 'sentinel' | 'both';
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

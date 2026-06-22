@@ -211,6 +211,7 @@ class OpenTidePublishProfileType(graphene.ObjectType):
     push_platform_rules = graphene.Boolean()
     enabled_platforms = graphene.List(graphene.String)
     use_graph_configured_platforms = graphene.Boolean()
+    kql_target_policy = graphene.String()
     enabled = graphene.Boolean()
     created_at = graphene.DateTime()
     updated_at = graphene.DateTime()
@@ -2239,6 +2240,7 @@ class SetOpenTidePublishProfile(graphene.Mutation):
         push_platform_rules = graphene.Boolean(required=False)
         enabled_platforms = graphene.List(graphene.String, required=False)
         use_graph_configured_platforms = graphene.Boolean(required=False)
+        kql_target_policy = graphene.String(required=False)
         enabled = graphene.Boolean(required=False)
 
     success = graphene.Boolean()
@@ -2246,7 +2248,7 @@ class SetOpenTidePublishProfile(graphene.Mutation):
     profile = graphene.Field(OpenTidePublishProfileType)
 
     @staticmethod
-    def mutate(root, info, name, repository_id, id=None, branch=None, target_folder=None, push_platform_rules=None, enabled_platforms=None, use_graph_configured_platforms=None, enabled=None):
+    def mutate(root, info, name, repository_id, id=None, branch=None, target_folder=None, push_platform_rules=None, enabled_platforms=None, use_graph_configured_platforms=None, kql_target_policy=None, enabled=None):
         from identity.decorators import Roles
         from rules.models import RuleRepository
 
@@ -2281,6 +2283,14 @@ class SetOpenTidePublishProfile(graphene.Mutation):
             profile.enabled_platforms = [p.lower() for p in enabled_platforms]
         if use_graph_configured_platforms is not None:
             profile.use_graph_configured_platforms = use_graph_configured_platforms
+        if kql_target_policy is not None:
+            normalized_policy = str(kql_target_policy or '').strip().lower()
+            if normalized_policy not in KQL_TARGET_POLICIES:
+                raise Exception(
+                    f"Unsupported kql_target_policy '{kql_target_policy}'. "
+                    f"Valid values: {', '.join(sorted(KQL_TARGET_POLICIES))}"
+                )
+            profile.kql_target_policy = normalized_policy
         if enabled is not None:
             profile.enabled = enabled
         profile.save()
@@ -2332,7 +2342,7 @@ class PublishWorkbenchOpenTide(graphene.Mutation):
     task_id = graphene.String()
 
     @staticmethod
-    def mutate(root, info, graph_id, profile_id=None, repository_id=None, branch=None, target_folder=None, platforms=None, commit_message=None, push_opentide_bundle=None, push_platform_rules=None, kql_target_policy='defender'):
+    def mutate(root, info, graph_id, profile_id=None, repository_id=None, branch=None, target_folder=None, platforms=None, commit_message=None, push_opentide_bundle=None, push_platform_rules=None, kql_target_policy=None):
         from core.rabbitmq import publish_event
         from identity.decorators import Roles
         from playbooks.models import PlaybookGraph
@@ -2417,6 +2427,16 @@ class PublishWorkbenchOpenTide(graphene.Mutation):
             logger.warning('HEF publish rejected: repository missing token repo_id=%s', repository.id)
             return PublishWorkbenchOpenTide(success=False, message='Selected repository has no access token configured', task_id=None)
 
+        effective_kql_target_policy = str(kql_target_policy or '').strip().lower()
+        if not effective_kql_target_policy:
+            effective_kql_target_policy = (
+                str(getattr(profile, 'kql_target_policy', '') or '').strip().lower()
+                if profile is not None
+                else 'defender'
+            )
+        if effective_kql_target_policy not in KQL_TARGET_POLICIES:
+            effective_kql_target_policy = 'defender'
+
         requested_platforms = [p.lower() for p in (platforms or []) if p]
         if platforms is None and not requested_platforms and profile and profile.enabled_platforms:
             requested_platforms = [p.lower() for p in (profile.enabled_platforms or []) if p]
@@ -2424,7 +2444,7 @@ class PublishWorkbenchOpenTide(graphene.Mutation):
             requested_platforms = [p.lower() for p in (graph.configured_platforms or []) if p]
         requested_platforms, dropped_platforms = normalize_deployment_platforms(
             requested_platforms,
-            kql_target_policy=kql_target_policy,
+            kql_target_policy=effective_kql_target_policy,
         )
         if dropped_platforms:
             logger.warning(

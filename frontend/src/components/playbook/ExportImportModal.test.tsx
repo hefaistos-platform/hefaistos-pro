@@ -23,7 +23,7 @@ describe('ExportImportModal HEF publish options', () => {
     mockUseQuery.mockReturnValue({
       data: {
         allRuleRepositories: [{ id: 'repo-1', name: 'Repo', url: 'https://github.com/acme/repo' }],
-        opentideHefPublishProfiles: [{ id: 'profile-1', name: 'Primary', repositoryId: 'repo-1', repositoryName: 'Repo', pushPlatformRules: false, enabledPlatforms: [] }],
+        opentideHefPublishProfiles: [{ id: 'profile-1', name: 'Primary', repositoryId: 'repo-1', repositoryName: 'Repo', pushPlatformRules: false, enabledPlatforms: [], kqlTargetPolicy: 'defender' }],
         platformCredentials: [],
         opentideHefPublishJobStatus: null,
       },

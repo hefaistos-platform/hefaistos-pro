@@ -817,6 +817,10 @@ class OrganizationAITaskRun(models.Model):
 
 class OpenTidePublishProfile(models.Model):
     """Reusable HEF publish configuration linking a repository to deployment targets."""
+    class KqlTargetPolicy(models.TextChoices):
+        DEFENDER = 'defender', 'Defender'
+        SENTINEL = 'sentinel', 'Sentinel'
+        BOTH = 'both', 'Defender + Sentinel'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
@@ -844,6 +848,12 @@ class OpenTidePublishProfile(models.Model):
     use_graph_configured_platforms = models.BooleanField(
         default=True,
         help_text='Use workbench configured_platforms when no explicit platforms are set on the profile.',
+    )
+    kql_target_policy = models.CharField(
+        max_length=16,
+        choices=KqlTargetPolicy.choices,
+        default=KqlTargetPolicy.DEFENDER,
+        help_text="Default target mapping for 'kql' platform values: defender, sentinel, or both.",
     )
     enabled = models.BooleanField(default=True)
     created_by = models.ForeignKey(
