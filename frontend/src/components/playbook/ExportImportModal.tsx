@@ -124,6 +124,7 @@ const GET_HEF_PUBLISH_JOB_STATUS = gql`
       requestedPlatforms
       deployedPlatforms
       deploymentResults
+      failureSummary
       errorMessage
       createdAt
       startedAt
@@ -1014,6 +1015,20 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                       {currentPublishJob.deployedPlatforms?.length > 0 && (
                         <div>Deployed: {currentPublishJob.deployedPlatforms.join(', ')}</div>
                       )}
+                      {(() => {
+                        let summary: { failure_type_counts?: Record<string, number> } | null = null;
+                        try {
+                          summary = currentPublishJob.failureSummary
+                            ? JSON.parse(currentPublishJob.failureSummary)
+                            : null;
+                        } catch {
+                          summary = null;
+                        }
+                        const counts = summary?.failure_type_counts || {};
+                        const labels = Object.entries(counts).map(([k, v]) => `${k}=${v}`);
+                        if (!labels.length) return null;
+                        return <div>Failure types: {labels.join(', ')}</div>;
+                      })()}
                       {(() => {
                         let results: Array<{
                           platform: string;

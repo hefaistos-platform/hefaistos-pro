@@ -991,6 +991,7 @@ class OpenTideHefPublishJob(models.Model):
     requested_platforms = models.JSONField(default=list, blank=True)
     deployed_platforms = models.JSONField(default=list, blank=True)
     deployment_results = models.JSONField(default=list, blank=True)
+    failure_summary = models.JSONField(default=dict, blank=True)
     commit_sha = models.CharField(max_length=40, blank=True, default='')
     github_url = models.CharField(max_length=1024, blank=True, default='')
     file_paths = models.JSONField(default=list, blank=True)

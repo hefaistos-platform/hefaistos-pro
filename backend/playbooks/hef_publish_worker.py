@@ -271,6 +271,7 @@ def process_publish_job(task_id: str) -> None:
 
         deployment_results = []
         deployed_platforms = []
+        failure_summary = {}
         overall_success = True
         if job.requested_platforms:
             job.progress = 'Deploying OpenTIDE rule to configured platforms...'
@@ -309,10 +310,11 @@ def process_publish_job(task_id: str) -> None:
             job.progress = f'Publish completed but deployment failed: {", ".join(failed_platforms)}'
         else:
             job.progress = f'Published successfully: {commit_sha[:8]}'
+        job.failure_summary = failure_summary
         job.completed_at = timezone.now()
         job.save(update_fields=[
             'status', 'rule', 'commit_sha', 'github_url', 'file_paths', 'deployed_platforms',
-            'deployment_results', 'progress', 'error_message', 'completed_at'
+            'deployment_results', 'failure_summary', 'progress', 'error_message', 'completed_at'
         ])
 
         payload = {
@@ -325,7 +327,6 @@ def process_publish_job(task_id: str) -> None:
             'deployed_platforms': deployed_platforms,
         }
         if final_job_status == 'FAILED':
-            failure_summary = build_deployment_failure_summary(deployment_results)
             payload['deployment_results'] = deployment_results
             payload['failure_summary'] = failure_summary
             payload['error'] = job.error_message
@@ -337,24 +338,38 @@ def process_publish_job(task_id: str) -> None:
         logger.exception('HEF publish job %s FAILED [MDR_VALIDATION]: %s', task_id, exc)
         job.status = 'FAILED'
         job.error_message = f'MDR validation failed: {exc}'
+        job.failure_summary = {
+            'failed_count': 1,
+            'failed_platforms': [],
+            'failure_type_counts': {'MDR_VALIDATION': 1},
+            'operator_hints': ['Fix MDR schema/validation issues before retrying publish.'],
+        }
         job.progress = f'Failed [MDR_VALIDATION]: {exc}'
         job.completed_at = timezone.now()
-        job.save(update_fields=['status', 'error_message', 'progress', 'completed_at'])
+        job.save(update_fields=['status', 'error_message', 'failure_summary', 'progress', 'completed_at'])
         publish_event(ROUTING_KEY_FAILED, {
             'task_id': str(task_id),
             'playbook_id': str(playbook.id) if getattr(job, 'playbook_id', None) else None,
+            'failure_summary': job.failure_summary,
             'error': f'MDR_VALIDATION: {exc}',
         })
     except ValueError as exc:
         logger.exception('HEF publish job %s FAILED [PAYLOAD_CONTRACT]: %s', task_id, exc)
         job.status = 'FAILED'
         job.error_message = f'Payload contract error: {exc}'
+        job.failure_summary = {
+            'failed_count': 1,
+            'failed_platforms': [],
+            'failure_type_counts': {'PAYLOAD_CONTRACT': 1},
+            'operator_hints': ['Review payload shape and required fields for OpenTIDE deployment.'],
+        }
         job.progress = f'Failed [PAYLOAD_CONTRACT]: {exc}'
         job.completed_at = timezone.now()
-        job.save(update_fields=['status', 'error_message', 'progress', 'completed_at'])
+        job.save(update_fields=['status', 'error_message', 'failure_summary', 'progress', 'completed_at'])
         publish_event(ROUTING_KEY_FAILED, {
             'task_id': str(task_id),
             'playbook_id': str(playbook.id) if getattr(job, 'playbook_id', None) else None,
+            'failure_summary': job.failure_summary,
             'error': f'PAYLOAD_CONTRACT: {exc}',
         })
     except Exception as exc:
@@ -366,12 +381,19 @@ def process_publish_job(task_id: str) -> None:
         logger.exception('HEF publish job %s FAILED [UNEXPECTED]: %s', task_id, exc)
         job.status = 'FAILED'
         job.error_message = f'[{exc_type}] {exc_detail}'
+        job.failure_summary = {
+            'failed_count': 1,
+            'failed_platforms': [],
+            'failure_type_counts': {exc_type: 1},
+            'operator_hints': ['Inspect worker logs for stack trace and underlying exception context.'],
+        }
         job.progress = f'Failed [UNEXPECTED]: [{exc_type}] {exc_detail}'
         job.completed_at = timezone.now()
-        job.save(update_fields=['status', 'error_message', 'progress', 'completed_at'])
+        job.save(update_fields=['status', 'error_message', 'failure_summary', 'progress', 'completed_at'])
         publish_event(ROUTING_KEY_FAILED, {
             'task_id': str(task_id),
             'playbook_id': str(playbook.id) if getattr(job, 'playbook_id', None) else None,
+            'failure_summary': job.failure_summary,
             'error': f'UNEXPECTED [{exc_type}]: {exc_detail}',
             'traceback': tb_summary[-_MAX_TRACEBACK_LENGTH:],
         })

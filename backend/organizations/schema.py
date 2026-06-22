@@ -239,6 +239,7 @@ class OpenTideHefPublishJobType(graphene.ObjectType):
     requested_platforms = graphene.List(graphene.String)
     deployed_platforms = graphene.List(graphene.String)
     deployment_results = graphene.JSONString()
+    failure_summary = graphene.JSONString()
     rule_id = graphene.UUID()
     error_message = graphene.String()
     created_at = graphene.DateTime()
@@ -1496,8 +1497,14 @@ class Query(graphene.ObjectType):
         ):
             job.status = 'FAILED'
             job.error_message = 'HEF publish job timed out after 20 minutes.'
+            job.failure_summary = {
+                'failed_count': 1,
+                'failed_platforms': [],
+                'failure_type_counts': {'WORKER_TIMEOUT': 1},
+                'operator_hints': ['Inspect worker logs and infrastructure queue/worker health.'],
+            }
             job.completed_at = _tz.now()
-            job.save(update_fields=['status', 'error_message', 'completed_at'])
+            job.save(update_fields=['status', 'error_message', 'failure_summary', 'completed_at'])
             logger.warning(
                 'HEF status poll timeout: task_id=%s marked FAILED',
                 task_id,
@@ -1521,6 +1528,7 @@ class Query(graphene.ObjectType):
             requested_platforms=job.requested_platforms or [],
             deployed_platforms=job.deployed_platforms or [],
             deployment_results=job.deployment_results or [],
+            failure_summary=job.failure_summary or {},
             rule_id=job.rule_id,
             error_message=job.error_message or None,
             created_at=job.created_at,
