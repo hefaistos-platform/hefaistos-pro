@@ -57,6 +57,10 @@ def _parse_bool(value: object) -> tuple[bool, bool]:
     return False, False
 
 
+def _is_string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
+
+
 def _extract_sentinel_cfg(rule_data: dict) -> dict:
     cfg: dict = {}
     if not isinstance(rule_data, dict):
@@ -285,5 +289,36 @@ class SentinelDeployer(PlatformDeployer):
                 _, suppression_valid = _parse_bool(sentinel_cfg.get('suppressionEnabled'))
                 if not suppression_valid:
                     errors.append('suppressionEnabled must be a boolean value.')
+
+            if 'tactics' in sentinel_cfg and not _is_string_list(sentinel_cfg.get('tactics')):
+                errors.append('tactics must be a non-empty list of strings.')
+
+            if 'techniques' in sentinel_cfg and not _is_string_list(sentinel_cfg.get('techniques')):
+                errors.append('techniques must be a non-empty list of strings.')
+
+            custom_details = sentinel_cfg.get('customDetails')
+            if custom_details is not None:
+                if not isinstance(custom_details, dict):
+                    errors.append('customDetails must be an object/dictionary.')
+                elif any(not isinstance(k, str) or not isinstance(v, str) for k, v in custom_details.items()):
+                    errors.append('customDetails keys and values must be strings.')
+
+            if 'entityMappings' in sentinel_cfg and not isinstance(sentinel_cfg.get('entityMappings'), list):
+                errors.append('entityMappings must be a list.')
+
+            event_grouping = sentinel_cfg.get('eventGroupingSettings')
+            if event_grouping is not None:
+                if not isinstance(event_grouping, dict):
+                    errors.append('eventGroupingSettings must be an object/dictionary.')
+                elif 'enabled' in event_grouping and not isinstance(event_grouping.get('enabled'), bool):
+                    errors.append('eventGroupingSettings.enabled must be a boolean value.')
+
+            incident_cfg = sentinel_cfg.get('incidentConfiguration')
+            if incident_cfg is not None and not isinstance(incident_cfg, dict):
+                errors.append('incidentConfiguration must be an object/dictionary.')
+
+            alert_details_override = sentinel_cfg.get('alertDetailsOverride')
+            if alert_details_override is not None and not isinstance(alert_details_override, dict):
+                errors.append('alertDetailsOverride must be an object/dictionary.')
 
         return (len(errors) == 0, errors)

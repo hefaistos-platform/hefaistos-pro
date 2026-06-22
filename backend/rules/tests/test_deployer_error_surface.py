@@ -131,6 +131,41 @@ class TestDeployerErrorSurface(SimpleTestCase):
         self.assertNotIn('Sent payload:', result.message)
         self.assertIn('Query is invalid', '\n'.join(result.errors))
 
+    def test_sentinel_error_surface_arm_details(self):
+        deployer = SentinelDeployer({
+            'tenant_id': 't',
+            'client_id': 'c',
+            'client_secret': 's',
+            'subscription_id': 'sub',
+            'resource_group': 'rg',
+            'workspace_name': 'ws',
+        })
+        deployer._token = 'token'
+        with patch.object(SentinelDeployer, 'authenticate', return_value=True), patch(
+            'rules.deployers.sentinel.requests.put',
+            return_value=_MockResponse(
+                status_code=400,
+                json_data={
+                    'error': {
+                        'code': 'BadRequest',
+                        'message': 'Validation failed',
+                        'details': [
+                            {'code': 'InvalidTemplate', 'message': 'Template malformed'},
+                            {'target': 'query', 'message': 'Unknown table SecurityEventX'},
+                        ],
+                    }
+                },
+            ),
+        ):
+            result = deployer.run({
+                'metadata': {'title': 'Rule', 'uuid': '11111111-1111-1111-1111-111111111111'},
+                'platforms': {'kql': {'query': 'SecurityEvent | take 10'}},
+            })
+        self.assertFalse(result.success)
+        self.assertIn('Validation failed', '\n'.join(result.errors))
+        self.assertIn('InvalidTemplate: Template malformed', '\n'.join(result.errors))
+        self.assertIn('query: Unknown table SecurityEventX', '\n'.join(result.errors))
+
     def test_defender_preflight_blocks_without_network(self):
         deployer = DefenderDeployer({'tenant_id': 't', 'client_id': 'c', 'client_secret': 's'})
         with patch.object(DefenderDeployer, 'authenticate', return_value=True), patch(

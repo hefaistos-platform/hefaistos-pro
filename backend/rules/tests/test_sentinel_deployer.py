@@ -97,3 +97,29 @@ class TestSentinelDeployer(SimpleTestCase):
         valid, errors = self.deployer.validate_query('A' * 10001)
         self.assertFalse(valid)
         self.assertTrue(any('exceeds 10000 characters' in item for item in errors))
+
+    def test_preflight_validates_advanced_sentinel_block_shapes(self):
+        valid, errors = self.deployer.validate_query(
+            'SecurityEvent | take 10',
+            {
+                'configurations': {
+                    'microsoft_sentinel': {
+                        'tactics': ['Execution', ''],
+                        'techniques': 'T1059',
+                        'customDetails': {'source': 1},
+                        'entityMappings': {},
+                        'eventGroupingSettings': {'enabled': 'yes'},
+                        'incidentConfiguration': 'invalid',
+                        'alertDetailsOverride': 'invalid',
+                    },
+                },
+            },
+        )
+        self.assertFalse(valid)
+        self.assertTrue(any('tactics must be a non-empty list of strings' in item for item in errors))
+        self.assertTrue(any('techniques must be a non-empty list of strings' in item for item in errors))
+        self.assertTrue(any('customDetails keys and values must be strings' in item for item in errors))
+        self.assertTrue(any('entityMappings must be a list' in item for item in errors))
+        self.assertTrue(any('eventGroupingSettings.enabled must be a boolean value' in item for item in errors))
+        self.assertTrue(any('incidentConfiguration must be an object/dictionary' in item for item in errors))
+        self.assertTrue(any('alertDetailsOverride must be an object/dictionary' in item for item in errors))
