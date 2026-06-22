@@ -220,6 +220,44 @@ class TestDefenderGraphApiPath(SimpleTestCase):
         # Graph token is used in the Authorization header.
         self.assertEqual(first_call.kwargs['headers']['Authorization'], 'Bearer graph-token')
 
+    def test_graph_payload_honors_defender_configuration_alert_and_impacted_entities(self):
+        tracker, patches = _patch_requests([
+            _MockResponse(status_code=201, json_data={'id': 'graph-rule-2'}, text='ok'),
+        ])
+        try:
+            result = self.deployer.deploy_rule({
+                'metadata': {'title': 'Fallback title', 'severity': 'LOW'},
+                'platforms': {'kql': {'query': 'DeviceProcessEvents | project DeviceName, AccountName'}},
+                'configurations': {
+                    'defender_for_endpoint': {
+                        'alert': {
+                            'title': 'Configured title',
+                            'description': 'Configured description',
+                            'severity': 'HIGH',
+                            'enabled': False,
+                        },
+                        'impacted_entities': {'device': 'DeviceName'},
+                    }
+                },
+            })
+        finally:
+            for p in patches:
+                p.stop()
+
+        self.assertTrue(result.success)
+        first_call = tracker.call_args_list[0]
+        body = first_call.kwargs['json']
+        self.assertEqual(body['displayName'], 'Configured title')
+        self.assertFalse(body['isEnabled'])
+        self.assertEqual(body['detectionAction']['alertTemplate']['description'], 'Configured description')
+        self.assertEqual(body['detectionAction']['alertTemplate']['severity'], 'high')
+        impacted_asset = body['detectionAction']['alertTemplate']['impactedAssets'][0]
+        self.assertEqual(
+            impacted_asset['@odata.type'],
+            '#microsoft.graph.security.impactedDeviceAsset',
+        )
+        self.assertEqual(impacted_asset['identifier'], 'deviceName')
+
     def test_falls_back_to_legacy_when_graph_endpoints_fail(self):
         # Graph POST fails (400), 1st legacy POST succeeds.
         tracker, patches = _patch_requests([

@@ -226,12 +226,16 @@ def mdr_to_deployer_payload(mdr_data: Dict[str, Any]) -> Dict[str, Any]:
         'metadata': payload_metadata,
         'platforms': platforms,
     }
-    if sentinel_cfg:
-        # Preserve Sentinel-native scheduling/alert settings so the Sentinel
-        # deployer can apply them instead of generic defaults.
-        payload['configurations'] = {
-            'microsoft_sentinel': dict(sentinel_cfg),
-        }
+    if defender_cfg or sentinel_cfg:
+        payload['configurations'] = {}
+        if defender_cfg:
+            # Preserve Defender-native blocks (alert, impacted_entities, scope,
+            # scheduling, etc.) so Graph deployment can consume MDR semantics.
+            payload['configurations']['defender_for_endpoint'] = dict(defender_cfg)
+        if sentinel_cfg:
+            # Preserve Sentinel-native scheduling/alert settings so the Sentinel
+            # deployer can apply them instead of generic defaults.
+            payload['configurations']['microsoft_sentinel'] = dict(sentinel_cfg)
     return payload
 
 

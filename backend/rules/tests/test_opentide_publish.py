@@ -56,6 +56,12 @@ class TestMdrToDeployerPayload(SimpleTestCase):
         self.assertIn('spl', payload['platforms'])
         self.assertIn('wazuh', payload['platforms'])
         self.assertIn('query', payload['platforms']['kql'])
+        self.assertIn('configurations', payload)
+        self.assertIn('defender_for_endpoint', payload['configurations'])
+        self.assertEqual(
+            payload['configurations']['defender_for_endpoint']['alert']['title'],
+            'Suspicious PowerShell Execution',
+        )
 
     def test_defaults_when_alert_metadata_is_missing(self):
         mdr = {

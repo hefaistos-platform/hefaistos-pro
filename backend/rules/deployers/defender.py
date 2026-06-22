@@ -216,6 +216,30 @@ def _pick_impacted_asset(query: str) -> dict:
     return dict(_DEFAULT_IMPACTED_ASSET)
 
 
+def _pick_impacted_asset_from_config(query: str, defender_conf: dict | None) -> dict:
+    """Use ``impacted_entities`` mapping when possible, else infer from query.
+
+    ``defender_for_endpoint.impacted_entities`` typically declares columns like
+    ``device: DeviceName``. We map those declared columns onto Graph's
+    impactedAsset identifiers when a known column is provided.
+    """
+    if isinstance(defender_conf, dict):
+        impacted_entities = defender_conf.get('impacted_entities')
+        if isinstance(impacted_entities, dict):
+            for entity_type in ('device', 'user', 'mailbox'):
+                raw_col = impacted_entities.get(entity_type)
+                col = str(raw_col or '').strip()
+                if not col:
+                    continue
+                for known_col, type_suffix, identifier in _ASSET_COLUMN_PRIORITY:
+                    if known_col.lower() == col.lower():
+                        return {
+                            '@odata.type': f'#microsoft.graph.security.{type_suffix}',
+                            'identifier': identifier,
+                        }
+    return _pick_impacted_asset(query)
+
+
 def _extract_query_metadata(query: str) -> tuple[str | None, list[str]]:
     rule_name_match = _RULE_NAME_RE.search(query or '')
     tags_match = _TAGS_RE.search(query or '')
@@ -355,18 +379,43 @@ class DefenderDeployer(PlatformDeployer):
                 logger.info('[%s] KQL pre-flight warning: %s', self.PLATFORM_NAME, warning)
 
         metadata = rule_data.get('metadata', {})
+        configurations = rule_data.get('configurations', {}) if isinstance(rule_data, dict) else {}
+        defender_conf = (
+            configurations.get('defender_for_endpoint', {})
+            if isinstance(configurations, dict)
+            else {}
+        )
+        defender_alert = (
+            defender_conf.get('alert', {})
+            if isinstance(defender_conf, dict) and isinstance(defender_conf.get('alert'), dict)
+            else {}
+        )
         query_rule_name, query_tags = _extract_query_metadata(query)
 
-        display_name = query_rule_name or metadata.get('title', 'OpenTide Rule')
+        display_name = (
+            query_rule_name
+            or defender_alert.get('title')
+            or metadata.get('title')
+            or 'OpenTide Rule'
+        )
         description = metadata.get('description', '')
+        if isinstance(defender_alert.get('description'), str) and defender_alert.get('description').strip():
+            description = defender_alert.get('description').strip()
         if query_tags:
             tag_line = f"Tags: {', '.join(query_tags)}"
             description = f"{description}\n\n{tag_line}".strip() if description else tag_line
 
         rule_uuid = str(metadata.get('uuid', '')).strip()
-        raw_severity = str(metadata.get('severity', 'MEDIUM')).upper()
+        raw_severity = str(defender_alert.get('severity') or metadata.get('severity', 'MEDIUM')).upper()
         legacy_severity = raw_severity.capitalize()
         graph_severity = _GRAPH_SEVERITY_MAP.get(raw_severity, 'medium')
+        raw_enabled = defender_alert.get('enabled', True)
+        if isinstance(raw_enabled, bool):
+            alert_enabled = raw_enabled
+        elif isinstance(raw_enabled, str):
+            alert_enabled = raw_enabled.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            alert_enabled = bool(raw_enabled)
 
         # Schedule period — Graph requires the enum 0|1H|3H|12H|24H.
         # Accept either ISO 8601 (PT1H) or bare enum from MDR; coerce safely.
@@ -381,7 +430,7 @@ class DefenderDeployer(PlatformDeployer):
             'displayName': display_name,
             'description': description,
             'severity': legacy_severity,
-            'isEnabled': True,
+            'isEnabled': alert_enabled,
             'queryCondition': {'queryText': query},
             'triggerThreshold': 0,
             'triggerOperator': 'GreaterThan',
@@ -407,7 +456,7 @@ class DefenderDeployer(PlatformDeployer):
             'category': 'SuspiciousActivity',
             # Graph requires at least one impacted asset entry.
             # Default to deviceId (standard for KQL/Defender for Endpoint rules).
-            'impactedAssets': [_pick_impacted_asset(query)],
+            'impactedAssets': [_pick_impacted_asset_from_config(query, defender_conf)],
         }
         if description:
             graph_alert_template['description'] = description
@@ -420,7 +469,7 @@ class DefenderDeployer(PlatformDeployer):
         graph_payload: dict = {
             '@odata.type': '#microsoft.graph.security.detectionRule',
             'displayName': display_name,
-            'isEnabled': True,
+            'isEnabled': alert_enabled,
             'queryCondition': {
                 '@odata.type': '#microsoft.graph.security.queryCondition',
                 'queryText': query,
