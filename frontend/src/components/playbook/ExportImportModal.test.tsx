@@ -72,5 +72,6 @@ describe('ExportImportModal HEF publish options', () => {
     await waitFor(() => expect(mockPublishMutation).toHaveBeenCalled());
     expect(mockPublishMutation.mock.calls[0][0].variables.pushPlatformRules).toBe(true);
     expect(mockPublishMutation.mock.calls[0][0].variables.platforms).toEqual([]);
+    expect(mockPublishMutation.mock.calls[0][0].variables.kqlTargetPolicy).toBe('defender');
   });
 });

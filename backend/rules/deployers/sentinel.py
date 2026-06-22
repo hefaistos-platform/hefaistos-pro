@@ -14,6 +14,7 @@ Required credentials:
 """
 
 import logging
+import re
 import requests
 
 from .base import PlatformDeployer, DeploymentResult, parse_http_error
@@ -33,6 +34,48 @@ _RULE_URL = (
     '?api-version=2022-12-01-preview'
 )
 _SENTINEL_QUERY_LIMIT = 10000
+_ALLOWED_TRIGGER_OPERATORS = {'GreaterThan', 'LessThan', 'Equal', 'NotEqual'}
+_ISO8601_DURATION_RE = re.compile(
+    r'^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$',
+    re.IGNORECASE,
+)
+
+
+def _is_iso8601_duration(value: object) -> bool:
+    return isinstance(value, str) and bool(_ISO8601_DURATION_RE.match(value.strip()))
+
+
+def _parse_bool(value: object) -> tuple[bool, bool]:
+    if isinstance(value, bool):
+        return value, True
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {'true', '1', 'yes', 'on'}:
+            return True, True
+        if normalized in {'false', '0', 'no', 'off'}:
+            return False, True
+    return False, False
+
+
+def _extract_sentinel_cfg(rule_data: dict) -> dict:
+    cfg: dict = {}
+    if not isinstance(rule_data, dict):
+        return cfg
+
+    configurations = rule_data.get('configurations')
+    if isinstance(configurations, dict):
+        sentinel_cfg = configurations.get('microsoft_sentinel')
+        if isinstance(sentinel_cfg, dict):
+            cfg.update(sentinel_cfg)
+
+    platforms = rule_data.get('platforms')
+    if isinstance(platforms, dict):
+        kql_block = platforms.get('kql')
+        if isinstance(kql_block, dict):
+            if 'query' not in cfg and isinstance(kql_block.get('query'), str):
+                cfg['query'] = kql_block.get('query')
+
+    return cfg
 
 
 class SentinelDeployer(PlatformDeployer):
@@ -80,9 +123,8 @@ class SentinelDeployer(PlatformDeployer):
     def deploy_rule(self, rule_data: dict) -> DeploymentResult:
         import uuid as _uuid
 
-        platforms = rule_data.get('platforms', {})
-        kql_block = platforms.get('kql', {})
-        query = kql_block.get('query', '') if isinstance(kql_block, dict) else ''
+        sentinel_cfg = _extract_sentinel_cfg(rule_data)
+        query = sentinel_cfg.get('query', '') if isinstance(sentinel_cfg.get('query'), str) else ''
 
         if not query:
             return DeploymentResult(
@@ -108,24 +150,55 @@ class SentinelDeployer(PlatformDeployer):
             'MEDIUM': 'Medium',
             'LOW': 'Low',
         }
-        severity = severity_map.get(str(metadata.get('severity', 'MEDIUM')).upper(), 'Medium')
+        severity = severity_map.get(
+            str(sentinel_cfg.get('severity') or metadata.get('severity', 'MEDIUM')).upper(),
+            'Medium',
+        )
+
+        trigger_threshold = sentinel_cfg.get('triggerThreshold', 0)
+        try:
+            trigger_threshold = int(trigger_threshold)
+        except (TypeError, ValueError):
+            trigger_threshold = 0
+
+        suppression_enabled, suppression_enabled_valid = _parse_bool(
+            sentinel_cfg.get('suppressionEnabled', False)
+        )
+        if not suppression_enabled_valid:
+            suppression_enabled = False
+
+        enabled, enabled_valid = _parse_bool(sentinel_cfg.get('enabled', True))
+        if not enabled_valid:
+            status = str(sentinel_cfg.get('status', 'PRODUCTION')).strip().upper()
+            enabled = status not in {'DISABLED', 'INACTIVE'}
 
         payload = {
             'kind': 'Scheduled',
             'properties': {
-                'displayName': metadata.get('title', 'OpenTide Rule'),
-                'description': metadata.get('description', ''),
+                'displayName': sentinel_cfg.get('displayName') or metadata.get('title', 'OpenTide Rule'),
+                'description': sentinel_cfg.get('description') or metadata.get('description', ''),
                 'severity': severity,
-                'enabled': True,
+                'enabled': enabled,
                 'query': query,
-                'queryFrequency': 'PT5H',
-                'queryPeriod': 'P1D',
-                'triggerOperator': 'GreaterThan',
-                'triggerThreshold': 0,
-                'suppressionDuration': 'PT1H',
-                'suppressionEnabled': False,
+                'queryFrequency': sentinel_cfg.get('queryFrequency', 'PT5H'),
+                'queryPeriod': sentinel_cfg.get('queryPeriod', 'P1D'),
+                'triggerOperator': sentinel_cfg.get('triggerOperator', 'GreaterThan'),
+                'triggerThreshold': trigger_threshold,
+                'suppressionDuration': sentinel_cfg.get('suppressionDuration', 'PT1H'),
+                'suppressionEnabled': suppression_enabled,
             },
         }
+        for key in (
+            'tactics',
+            'techniques',
+            'eventGroupingSettings',
+            'incidentConfiguration',
+            'alertDetailsOverride',
+            'customDetails',
+            'entityMappings',
+        ):
+            if key in sentinel_cfg:
+                payload['properties'][key] = sentinel_cfg[key]
 
         url = _RULE_URL.format(
             subscription_id=self.credentials['subscription_id'],
@@ -144,7 +217,7 @@ class SentinelDeployer(PlatformDeployer):
             timeout=30,
         )
         if not (200 <= resp.status_code < 300):
-            summary, details = parse_http_error(resp, platform='Microsoft Graph')
+            summary, details = parse_http_error(resp, platform=self.PLATFORM_NAME)
             return DeploymentResult(
                 platform=self.PLATFORM_NAME,
                 success=False,
@@ -173,4 +246,44 @@ class SentinelDeployer(PlatformDeployer):
             errors.append(
                 f'Sentinel KQL query exceeds {_SENTINEL_QUERY_LIMIT} characters and will be rejected.'
             )
+
+        sentinel_cfg = _extract_sentinel_cfg(rule_data or {})
+        if sentinel_cfg:
+            frequency = sentinel_cfg.get('queryFrequency')
+            if frequency is not None and not _is_iso8601_duration(frequency):
+                errors.append('queryFrequency must be a valid ISO 8601 duration (e.g. PT5M, PT1H).')
+
+            period = sentinel_cfg.get('queryPeriod')
+            if period is not None and not _is_iso8601_duration(period):
+                errors.append('queryPeriod must be a valid ISO 8601 duration (e.g. P1D, PT6H).')
+
+            operator = sentinel_cfg.get('triggerOperator')
+            if operator is not None and operator not in _ALLOWED_TRIGGER_OPERATORS:
+                errors.append(
+                    'triggerOperator must be one of: '
+                    + ', '.join(sorted(_ALLOWED_TRIGGER_OPERATORS))
+                    + '.'
+                )
+
+            threshold = sentinel_cfg.get('triggerThreshold')
+            if threshold is not None:
+                try:
+                    threshold_value = int(threshold)
+                    if threshold_value < 0:
+                        errors.append('triggerThreshold must be >= 0.')
+                except (TypeError, ValueError):
+                    errors.append('triggerThreshold must be an integer.')
+
+            suppression_duration = sentinel_cfg.get('suppressionDuration')
+            if suppression_duration is not None and not _is_iso8601_duration(suppression_duration):
+                errors.append(
+                    'suppressionDuration must be a valid ISO 8601 duration '
+                    '(e.g. PT1H, PT30M).'
+                )
+
+            if 'suppressionEnabled' in sentinel_cfg:
+                _, suppression_valid = _parse_bool(sentinel_cfg.get('suppressionEnabled'))
+                if not suppression_valid:
+                    errors.append('suppressionEnabled must be a boolean value.')
+
         return (len(errors) == 0, errors)

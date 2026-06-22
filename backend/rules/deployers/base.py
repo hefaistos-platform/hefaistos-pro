@@ -50,6 +50,23 @@ def parse_http_error(response, *, platform: str) -> tuple[str, list[str]]:
         message = _trim_text(error.get('message'))
         if message:
             details.append(message)
+        # ARM-style details list: {"error":{"details":[{"code":...,"message":...}]}}
+        if isinstance(error.get('details'), list):
+            for item in error['details']:
+                if not isinstance(item, dict):
+                    continue
+                item_target = _trim_text(item.get('target'))
+                item_message = _trim_text(item.get('message'))
+                item_code = _trim_text(item.get('code'))
+                payload = item_message or item_code
+                if not payload:
+                    continue
+                if item_target:
+                    details.append(f'{item_target}: {payload}')
+                elif item_code and item_message:
+                    details.append(f'{item_code}: {item_message}')
+                else:
+                    details.append(payload)
         inner = error.get('innerError')
         if isinstance(inner, dict) and isinstance(inner.get('details'), list):
             for item in inner['details']:

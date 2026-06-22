@@ -33,6 +33,26 @@ class TestParseHttpError(SimpleTestCase):
         self.assertIn('Top-level error', details)
         self.assertIn('query: Invalid table', details)
 
+    def test_parses_arm_error_details_list(self):
+        resp = _MockResponse(
+            status_code=400,
+            json_data={
+                'error': {
+                    'code': 'BadRequest',
+                    'message': 'Validation failed',
+                    'details': [
+                        {'code': 'InvalidTemplate', 'message': 'Template is invalid'},
+                        {'target': 'query', 'message': 'Parser error near line 1'},
+                    ],
+                }
+            },
+        )
+        summary, details = parse_http_error(resp, platform='Azure Sentinel')
+        self.assertIn('HTTP 400 - BadRequest', summary)
+        self.assertIn('Validation failed', details)
+        self.assertIn('InvalidTemplate: Template is invalid', details)
+        self.assertIn('query: Parser error near line 1', details)
+
     def test_parses_splunk_envelope(self):
         resp = _MockResponse(
             status_code=422,

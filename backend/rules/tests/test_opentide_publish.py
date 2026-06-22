@@ -102,6 +102,12 @@ class TestMdrToDeployerPayload(SimpleTestCase):
             payload['platforms']['kql']['query'],
             'SecurityEvent | where EventID == 4688',
         )
+        self.assertIn('configurations', payload)
+        self.assertIn('microsoft_sentinel', payload['configurations'])
+        self.assertEqual(
+            payload['configurations']['microsoft_sentinel']['query'],
+            'SecurityEvent | where EventID == 4688',
+        )
 
     def test_ensure_mdr_uuid4_normalizes_legacy_v5_uuid(self):
         mdr = {

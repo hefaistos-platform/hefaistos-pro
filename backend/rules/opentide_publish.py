@@ -222,10 +222,17 @@ def mdr_to_deployer_payload(mdr_data: Dict[str, Any]) -> Dict[str, Any]:
             'query': elastic_query.strip(),
         }
 
-    return {
+    payload: Dict[str, Any] = {
         'metadata': payload_metadata,
         'platforms': platforms,
     }
+    if sentinel_cfg:
+        # Preserve Sentinel-native scheduling/alert settings so the Sentinel
+        # deployer can apply them instead of generic defaults.
+        payload['configurations'] = {
+            'microsoft_sentinel': dict(sentinel_cfg),
+        }
+    return payload
 
 
 def upsert_opentide_rule_for_graph(graph, user, raw_yaml: str, repository=None) -> DetectionRule:

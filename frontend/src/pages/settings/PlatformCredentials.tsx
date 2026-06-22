@@ -6,7 +6,7 @@
  * Splunk, IBM QRadar, Wazuh).  Credentials are stored encrypted on the backend.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -119,17 +119,22 @@ const PLATFORMS: PlatformMeta[] = [
 
 interface PlatformCardProps {
   meta: PlatformMeta;
-  credential?: PlatformCredential;
-  onSave: (platform: string, values: Record<string, unknown>) => Promise<void>;
-  onTest: (platform: string) => Promise<void>;
-  onDelete: (platform: string) => Promise<void>;
+  credentials: PlatformCredential[];
+  onSave: (
+    platform: string,
+    profileName: string,
+    setDefault: boolean,
+    values: Record<string, unknown>,
+  ) => Promise<void>;
+  onTest: (platform: string, profileName: string) => Promise<void>;
+  onDelete: (platform: string, profileName: string) => Promise<void>;
   testing: boolean;
   saving: boolean;
 }
 
 const PlatformCard: React.FC<PlatformCardProps> = ({
   meta,
-  credential,
+  credentials,
   onSave,
   onTest,
   onDelete,
@@ -137,10 +142,45 @@ const PlatformCard: React.FC<PlatformCardProps> = ({
   saving,
 }) => {
   const [form] = Form.useForm();
+  const profileName = (Form.useWatch('profileName', form) as string | undefined)?.trim() || 'default';
 
-  const statusIcon = credential?.testStatus === true
+  const availableProfiles = useMemo(() => {
+    const sorted = [...credentials].sort((a, b) => {
+      if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+      return a.profileName.localeCompare(b.profileName);
+    });
+    return sorted.map((c) => c.profileName);
+  }, [credentials]);
+
+  const activeCredential = useMemo(
+    () => credentials.find((c) => c.profileName === profileName),
+    [credentials, profileName],
+  );
+
+  useEffect(() => {
+    const preferredProfile = credentials.find((c) => c.isDefault)?.profileName
+      || credentials[0]?.profileName
+      || 'default';
+    form.setFieldsValue({
+      profileName: preferredProfile,
+      enabled: credentials.find((c) => c.profileName === preferredProfile)?.enabled ?? true,
+      setDefault: credentials.find((c) => c.profileName === preferredProfile)?.isDefault ?? false,
+    });
+  }, [credentials, form]);
+
+  useEffect(() => {
+    if (!activeCredential) {
+      return;
+    }
+    form.setFieldsValue({
+      enabled: activeCredential.enabled,
+      setDefault: activeCredential.isDefault,
+    });
+  }, [activeCredential, form]);
+
+  const statusIcon = activeCredential?.testStatus === true
     ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
-    : credential?.testStatus === false
+    : activeCredential?.testStatus === false
       ? <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
       : null;
 
@@ -149,25 +189,34 @@ const PlatformCard: React.FC<PlatformCardProps> = ({
       <span>{meta.icon}</span>
       <span>{meta.label}</span>
       {statusIcon}
-      {credential?.hasCredentials && (
+      {activeCredential?.hasCredentials && (
         <Tag color="blue" style={{ fontSize: 11 }}>Configured</Tag>
       )}
-      {credential?.enabled && credential?.hasCredentials && (
+      {activeCredential?.enabled && activeCredential?.hasCredentials && (
         <Tag color="green" style={{ fontSize: 11 }}>Enabled</Tag>
       )}
+      <Tag color={activeCredential?.isDefault ? 'gold' : 'default'} style={{ fontSize: 11 }}>
+        Profile: {profileName}
+      </Tag>
     </Space>
   );
 
   const handleFinish = (values: Record<string, unknown>) => {
-    onSave(meta.key, values);
+    const { profileName: profile, setDefault, ...rest } = values;
+    onSave(
+      meta.key,
+      String(profile || 'default').trim() || 'default',
+      Boolean(setDefault),
+      rest,
+    );
   };
 
   return (
     <Card title={cardTitle} style={{ marginBottom: 16 }}>
-      {credential?.lastTested && (
+      {activeCredential?.lastTested && (
         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-          Last tested: {new Date(credential.lastTested).toLocaleString()}
-          {credential.testMessage && ` — ${credential.testMessage}`}
+          Last tested: {new Date(activeCredential.lastTested).toLocaleString()}
+          {activeCredential.testMessage && ` — ${activeCredential.testMessage}`}
         </Text>
       )}
 
@@ -175,9 +224,35 @@ const PlatformCard: React.FC<PlatformCardProps> = ({
         form={form}
         layout="vertical"
         onFinish={handleFinish}
-        initialValues={{ enabled: credential?.enabled ?? true }}
+        initialValues={{ enabled: true, setDefault: false, profileName: 'default' }}
       >
+        <Form.Item
+          name="profileName"
+          label="Credential profile"
+          rules={[{ required: true, message: 'Credential profile is required' }]}
+        >
+          <Input placeholder="default" />
+        </Form.Item>
+        {availableProfiles.length > 0 && (
+          <Space size={[4, 4]} wrap style={{ marginBottom: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>Existing:</Text>
+            {availableProfiles.map((name) => (
+              <Tag
+                key={name}
+                color={name === profileName ? 'blue' : 'default'}
+                style={{ cursor: 'pointer' }}
+                onClick={() => form.setFieldsValue({ profileName: name })}
+              >
+                {name}
+              </Tag>
+            ))}
+          </Space>
+        )}
+
         <Form.Item name="enabled" label="Enable for deployment" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="setDefault" label="Set this profile as platform default" valuePropName="checked">
           <Switch />
         </Form.Item>
 
@@ -189,7 +264,7 @@ const PlatformCard: React.FC<PlatformCardProps> = ({
             rules={f.required ? [{ required: true, message: `${f.label} is required` }] : []}
           >
             {f.secret ? (
-              <Input.Password placeholder={f.placeholder || (credential?.hasCredentials ? '(stored - enter to replace)' : '')} />
+              <Input.Password placeholder={f.placeholder || (activeCredential?.hasCredentials ? '(stored - enter to replace)' : '')} />
             ) : (
               <Input placeholder={f.placeholder} type={f.type} />
             )}
@@ -201,18 +276,18 @@ const PlatformCard: React.FC<PlatformCardProps> = ({
             Save {meta.label} Config
           </Button>
           <Button
-            onClick={() => onTest(meta.key)}
+            onClick={() => onTest(meta.key, profileName)}
             loading={testing}
-            disabled={!credential?.hasCredentials}
+            disabled={!activeCredential?.hasCredentials}
           >
             Test Connection
           </Button>
-          {credential?.hasCredentials && (
+          {activeCredential?.hasCredentials && (
             <Tooltip title="Remove stored credentials">
               <Button
                 danger
                 icon={<DeleteOutlined />}
-                onClick={() => onDelete(meta.key)}
+                onClick={() => onDelete(meta.key, profileName)}
               >
                 Remove
               </Button>
@@ -243,11 +318,22 @@ const PlatformCredentials: React.FC = () => {
   const [testingPlatform, setTestingPlatform] = useState<string | null>(null);
   const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
 
-  const credMap = new Map<string, PlatformCredential>(
-    (data?.platformCredentials ?? []).map((c) => [c.platform, c]),
-  );
+  const credMap = useMemo(() => {
+    const grouped = new Map<string, PlatformCredential[]>();
+    (data?.platformCredentials ?? []).forEach((credential) => {
+      const list = grouped.get(credential.platform) ?? [];
+      list.push(credential);
+      grouped.set(credential.platform, list);
+    });
+    return grouped;
+  }, [data?.platformCredentials]);
 
-  const handleSave = async (platform: string, values: Record<string, unknown>) => {
+  const handleSave = async (
+    platform: string,
+    profileName: string,
+    setDefault: boolean,
+    values: Record<string, unknown>,
+  ) => {
     const { enabled, ...credFields } = values as { enabled: boolean; [k: string]: unknown };
 
     // Filter out empty/blank credential fields so we don't overwrite stored values with blanks
@@ -255,12 +341,15 @@ const PlatformCredentials: React.FC = () => {
       Object.entries(credFields).filter(([, v]) => v != null && v !== ''),
     );
 
-    setSavingPlatform(platform);
+    const normalizedProfile = profileName || 'default';
+    setSavingPlatform(`${platform}:${normalizedProfile}`);
     try {
       const result = await setPlatformCredential({
         variables: {
           platform,
           credentials: JSON.stringify(filteredCreds),
+          profileName: normalizedProfile,
+          setDefault,
           enabled: enabled ?? true,
         },
       });
@@ -279,10 +368,16 @@ const PlatformCredentials: React.FC = () => {
     }
   };
 
-  const handleTest = async (platform: string) => {
-    setTestingPlatform(platform);
+  const handleTest = async (platform: string, profileName: string) => {
+    const normalizedProfile = profileName || 'default';
+    setTestingPlatform(`${platform}:${normalizedProfile}`);
     try {
-      const result = await testPlatformConnection({ variables: { platform } });
+      const result = await testPlatformConnection({
+        variables: {
+          platform,
+          profileName: normalizedProfile,
+        },
+      });
       if (result.data?.testPlatformConnection?.success) {
         message.success('Connection successful!');
       } else {
@@ -297,9 +392,14 @@ const PlatformCredentials: React.FC = () => {
     }
   };
 
-  const handleDelete = async (platform: string) => {
+  const handleDelete = async (platform: string, profileName: string) => {
     try {
-      const result = await deletePlatformCredential({ variables: { platform } });
+      const result = await deletePlatformCredential({
+        variables: {
+          platform,
+          profileName: profileName || 'default',
+        },
+      });
       if (result.data?.deletePlatformCredential?.success) {
         message.success('Credentials removed');
         refetch();
@@ -335,12 +435,12 @@ const PlatformCredentials: React.FC = () => {
         <PlatformCard
           key={meta.key}
           meta={meta}
-          credential={credMap.get(meta.key)}
+          credentials={credMap.get(meta.key) ?? []}
           onSave={handleSave}
           onTest={handleTest}
           onDelete={handleDelete}
-          testing={testingPlatform === meta.key}
-          saving={savingPlatform === meta.key}
+          testing={Boolean(testingPlatform?.startsWith(`${meta.key}:`))}
+          saving={Boolean(savingPlatform?.startsWith(`${meta.key}:`))}
         />
       ))}
     </div>

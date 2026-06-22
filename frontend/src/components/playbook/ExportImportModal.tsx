@@ -9,7 +9,7 @@ const { Text, Paragraph } = Typography;
 
 const VALID_DEPLOYMENT_PLATFORMS = ['defender', 'sentinel', 'splunk', 'qradar', 'wazuh'] as const;
 const DEPLOYMENT_PLATFORM_SET = new Set<string>(VALID_DEPLOYMENT_PLATFORMS);
-const KQL_TARGET_POLICY: 'defender' | 'sentinel' | 'both' = 'defender';
+type KqlTargetPolicy = 'defender' | 'sentinel' | 'both';
 
 const PLATFORM_VALUE_MAP: Record<string, string | null> = {
   // OpenTIDE detection format keys -> deployment target keys
@@ -24,7 +24,7 @@ const PLATFORM_VALUE_MAP: Record<string, string | null> = {
 
 function normalizeDeploymentPlatforms(
   rawPlatforms: string[],
-  kqlTargetPolicy: 'defender' | 'sentinel' | 'both' = 'defender',
+  kqlTargetPolicy: KqlTargetPolicy = 'defender',
 ): { mapped: string[]; dropped: string[] } {
   const mapped: string[] = [];
   const dropped: string[] = [];
@@ -188,6 +188,7 @@ const PUBLISH_WORKBENCH_OPENTIDE_MUTATION = gql`
     $branch: String
     $targetFolder: String
     $platforms: [String]
+    $kqlTargetPolicy: String
     $commitMessage: String
     $pushOpentideBundle: Boolean
     $pushPlatformRules: Boolean
@@ -199,6 +200,7 @@ const PUBLISH_WORKBENCH_OPENTIDE_MUTATION = gql`
       branch: $branch
       targetFolder: $targetFolder
       platforms: $platforms
+      kqlTargetPolicy: $kqlTargetPolicy
       commitMessage: $commitMessage
       pushOpentideBundle: $pushOpentideBundle
       pushPlatformRules: $pushPlatformRules
@@ -308,6 +310,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
   const [publishDebugWarning, setPublishDebugWarning] = useState<string>('');
   const [pushOpentideBundle, setPushOpentideBundle] = useState<boolean>(true);
   const [pushPlatformRules, setPushPlatformRules] = useState<boolean>(false);
+  const [kqlTargetPolicy, setKqlTargetPolicy] = useState<KqlTargetPolicy>('defender');
 
   // Query configured repositories
   const { data: reposData, loading: reposLoading, error: reposError } = useQuery(GET_RULE_REPOSITORIES);
@@ -382,6 +385,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
       setPublishDebugWarning('');
       setPushOpentideBundle(true);
       setPushPlatformRules(false);
+      setKqlTargetPolicy('defender');
       return;
     }
     setSelectedPlatforms([]);
@@ -547,7 +551,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
 
     const { mapped: normalizedPlatforms, dropped: droppedPlatforms } = normalizeDeploymentPlatforms(
       selectedPlatforms,
-      KQL_TARGET_POLICY,
+      kqlTargetPolicy,
     );
 
     if (droppedPlatforms.length > 0) {
@@ -566,6 +570,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
       selectedPlatforms,
       normalizedPlatforms,
       droppedPlatforms,
+      kqlTargetPolicy,
       hasCommitMessage: Boolean(commitMessage),
     });
 
@@ -587,6 +592,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
           targetFolder: filePath || undefined,
           branch: branch || 'main',
           platforms: normalizedPlatforms,
+          kqlTargetPolicy,
           commitMessage: commitMessage || undefined,
           pushOpentideBundle,
           pushPlatformRules,
@@ -938,6 +944,19 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
               options={platformOptions}
               style={{ width: '100%' }}
             />
+            <Select
+              value={kqlTargetPolicy}
+              onChange={(value) => setKqlTargetPolicy(value as KqlTargetPolicy)}
+              style={{ width: '100%' }}
+              options={[
+                { value: 'defender', label: 'KQL deploy target: Defender' },
+                { value: 'sentinel', label: 'KQL deploy target: Sentinel' },
+                { value: 'both', label: 'KQL deploy target: Defender + Sentinel' },
+              ]}
+            />
+            <Text type="secondary" className="text-xs">
+              Applies when selected or inherited platforms contain KQL.
+            </Text>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

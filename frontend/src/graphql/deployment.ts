@@ -40,6 +40,8 @@ export const GET_PLATFORM_CREDENTIALS = gql`
       id
       platform
       platformDisplay
+      profileName
+      isDefault
       enabled
       hasCredentials
       lastTested
@@ -55,11 +57,15 @@ export const SET_PLATFORM_CREDENTIAL = gql`
   mutation SetPlatformCredential(
     $platform: String!
     $credentials: JSONString!
+    $profileName: String
+    $setDefault: Boolean
     $enabled: Boolean
   ) {
     setPlatformCredential(
       platform: $platform
       credentials: $credentials
+      profileName: $profileName
+      setDefault: $setDefault
       enabled: $enabled
     ) {
       success
@@ -68,6 +74,8 @@ export const SET_PLATFORM_CREDENTIAL = gql`
         id
         platform
         platformDisplay
+        profileName
+        isDefault
         enabled
         updatedAt
       }
@@ -76,8 +84,8 @@ export const SET_PLATFORM_CREDENTIAL = gql`
 `;
 
 export const DELETE_PLATFORM_CREDENTIAL = gql`
-  mutation DeletePlatformCredential($platform: String!) {
-    deletePlatformCredential(platform: $platform) {
+  mutation DeletePlatformCredential($platform: String!, $profileName: String) {
+    deletePlatformCredential(platform: $platform, profileName: $profileName) {
       success
       message
     }
@@ -85,8 +93,8 @@ export const DELETE_PLATFORM_CREDENTIAL = gql`
 `;
 
 export const TEST_PLATFORM_CONNECTION = gql`
-  mutation TestPlatformConnection($platform: String!) {
-    testPlatformConnection(platform: $platform) {
+  mutation TestPlatformConnection($platform: String!, $profileName: String) {
+    testPlatformConnection(platform: $platform, profileName: $profileName) {
       success
       message
     }
@@ -115,6 +123,8 @@ export interface PlatformCredential {
   id: string;
   platform: string;
   platformDisplay: string;
+  profileName: string;
+  isDefault: boolean;
   enabled: boolean;
   hasCredentials: boolean;
   lastTested?: string | null;
