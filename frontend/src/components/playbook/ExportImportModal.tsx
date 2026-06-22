@@ -9,6 +9,7 @@ const { Text, Paragraph } = Typography;
 
 const VALID_DEPLOYMENT_PLATFORMS = ['defender', 'sentinel', 'splunk', 'qradar', 'wazuh'] as const;
 const DEPLOYMENT_PLATFORM_SET = new Set<string>(VALID_DEPLOYMENT_PLATFORMS);
+const KQL_TARGET_POLICY: 'defender' | 'sentinel' | 'both' = 'defender';
 
 const PLATFORM_VALUE_MAP: Record<string, string | null> = {
   // OpenTIDE detection format keys -> deployment target keys
@@ -21,7 +22,10 @@ const PLATFORM_VALUE_MAP: Record<string, string | null> = {
   opensearch: null,
 };
 
-function normalizeDeploymentPlatforms(rawPlatforms: string[]): { mapped: string[]; dropped: string[] } {
+function normalizeDeploymentPlatforms(
+  rawPlatforms: string[],
+  kqlTargetPolicy: 'defender' | 'sentinel' | 'both' = 'defender',
+): { mapped: string[]; dropped: string[] } {
   const mapped: string[] = [];
   const dropped: string[] = [];
 
@@ -36,6 +40,17 @@ function normalizeDeploymentPlatforms(rawPlatforms: string[]): { mapped: string[
 
     if (DEPLOYMENT_PLATFORM_SET.has(normalized)) {
       mapped.push(normalized);
+      return;
+    }
+
+    if (normalized === 'kql') {
+      if (kqlTargetPolicy === 'both') {
+        mapped.push('defender', 'sentinel');
+      } else if (kqlTargetPolicy === 'sentinel') {
+        mapped.push('sentinel');
+      } else {
+        mapped.push('defender');
+      }
       return;
     }
 
@@ -530,7 +545,10 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
     setPublishDebugError('');
     setPublishDebugWarning('');
 
-    const { mapped: normalizedPlatforms, dropped: droppedPlatforms } = normalizeDeploymentPlatforms(selectedPlatforms);
+    const { mapped: normalizedPlatforms, dropped: droppedPlatforms } = normalizeDeploymentPlatforms(
+      selectedPlatforms,
+      KQL_TARGET_POLICY,
+    );
 
     if (droppedPlatforms.length > 0) {
       const droppedMsg = `Ignoring unsupported platform values: ${droppedPlatforms.join(', ')}`;

@@ -32,6 +32,19 @@ configurations:
     impacted_entities:
       device: DeviceName
 
+  microsoft_sentinel:
+    query: |
+      SecurityEvent
+      | where EventID == 4688
+      | where Process has_any ("powershell.exe", "cmd.exe")
+      | summarize EventCount = count() by Computer, Process
+    queryFrequency: PT5H
+    queryPeriod: P1D
+    triggerOperator: GreaterThan
+    triggerThreshold: 0
+    suppressionDuration: PT1H
+    suppressionEnabled: false
+
   splunk:
     query: |
       index=windows sourcetype=WinEventLog:Security EventCode=4663

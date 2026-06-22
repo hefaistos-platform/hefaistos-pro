@@ -159,6 +159,7 @@ def mdr_to_deployer_payload(mdr_data: Dict[str, Any]) -> Dict[str, Any]:
     configurations = mdr_data.get('configurations', {}) if isinstance(mdr_data.get('configurations'), dict) else {}
 
     defender_cfg = configurations.get('defender_for_endpoint', {}) if isinstance(configurations.get('defender_for_endpoint'), dict) else {}
+    sentinel_cfg = configurations.get('microsoft_sentinel', {}) if isinstance(configurations.get('microsoft_sentinel'), dict) else {}
     alert_cfg = defender_cfg.get('alert', {}) if isinstance(defender_cfg.get('alert'), dict) else {}
 
     payload_metadata: Dict[str, Any] = {
@@ -177,7 +178,7 @@ def mdr_to_deployer_payload(mdr_data: Dict[str, Any]) -> Dict[str, Any]:
 
     platforms: Dict[str, Any] = {}
 
-    query = defender_cfg.get('query')
+    query = defender_cfg.get('query') or sentinel_cfg.get('query')
     if isinstance(query, str) and query.strip():
         kql_entry: Dict[str, Any] = {'query': query.strip()}
         # Propagate the MDR-level scheduling period (e.g. "1H") so the
@@ -321,13 +322,10 @@ def deploy_opentide_rule_to_platforms(rule, organization, platforms: List[str]) 
     if unknown:
         raise ValueError(f"Unknown platform(s): {', '.join(unknown)}")
 
-    cred_map: dict[str, dict] = {}
-    for cred in PlatformCredential.objects.filter(
+    cred_map = PlatformCredential.preferred_credentials_map(
         organization=organization,
-        platform__in=requested,
-        enabled=True,
-    ):
-        cred_map[cred.platform] = cred.credentials
+        platforms=requested,
+    )
 
     deployers: list[tuple[str, object]] = []
     skipped_results: list[DeploymentResult] = []

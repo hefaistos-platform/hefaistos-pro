@@ -56,6 +56,11 @@
           "description": "Microsoft Defender for Endpoint KQL configuration",
           "additionalProperties": true
         },
+        "microsoft_sentinel": {
+          "type": "object",
+          "description": "Microsoft Sentinel Scheduled Query Rule configuration",
+          "additionalProperties": true
+        },
         "splunk": {
           "type": "object",
           "description": "Splunk SPL configuration",

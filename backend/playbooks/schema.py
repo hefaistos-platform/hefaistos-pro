@@ -4750,6 +4750,7 @@ def deserialize_playbook_graph_from_opentide(
     # Maps MDR configuration key → (HEFAISTOS format, YAML content key)
     _CONFIG_TO_FORMAT = {
         'defender_for_endpoint': ('KQL', 'query'),
+        'microsoft_sentinel': ('KQL', 'query'),
         'splunk': ('SPL', 'query'),
         'wazuh': ('WAZUH', 'rule'),
     }
@@ -4767,7 +4768,12 @@ def deserialize_playbook_graph_from_opentide(
                 git_url=None,
             )
 
+        created_formats = set()
         for config_key, (fmt, content_key) in _CONFIG_TO_FORMAT.items():
+            # Avoid creating duplicate KQL rules when both Defender and Sentinel
+            # blocks are present in a single MDR.
+            if fmt in created_formats:
+                continue
             config_block = configurations.get(config_key) or {}
             raw_content = (config_block.get(content_key) or '').strip()
             if raw_content:
@@ -4781,6 +4787,7 @@ def deserialize_playbook_graph_from_opentide(
                     description=goal or title,
                     author=author.username,
                 )
+                created_formats.add(fmt)
 
     return graph
 

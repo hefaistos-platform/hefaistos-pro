@@ -442,7 +442,7 @@ def bundle_to_hex_v2(bundle_files: Dict[str, Optional[str]], title_override: Opt
     # --- detection rule from MDR configurations ---
     detection_rule = ''
     configurations = mdr.get('configurations') or {}
-    for cfg_key in ('defender_for_endpoint', 'splunk', 'wazuh', 'elastic', 'qradar'):
+    for cfg_key in ('defender_for_endpoint', 'microsoft_sentinel', 'splunk', 'wazuh', 'elastic', 'qradar'):
         cfg_val = configurations.get(cfg_key)
         if cfg_val and isinstance(cfg_val, dict):
             detection_rule = (
@@ -577,6 +577,8 @@ def bundle_to_hex_v2(bundle_files: Dict[str, Optional[str]], title_override: Opt
 def _infer_rule_format(configurations: Dict[str, Any]) -> str:
     """Return a human-readable format label for the primary detection config."""
     if 'defender_for_endpoint' in configurations:
+        return 'kql'
+    if 'microsoft_sentinel' in configurations:
         return 'kql'
     if 'splunk' in configurations:
         return 'spl'

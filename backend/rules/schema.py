@@ -1654,13 +1654,10 @@ class DeployOpenTideRule(graphene.Mutation):
             raise Exception(f"Unknown platform(s): {', '.join(unknown)}")
 
         # Load credentials for the organisation
-        cred_map: dict[str, dict] = {}
-        for cred in PlatformCredential.objects.filter(
+        cred_map = PlatformCredential.preferred_credentials_map(
             organization=user.organization,
-            platform__in=requested,
-            enabled=True,
-        ):
-            cred_map[cred.platform] = cred.credentials
+            platforms=requested,
+        )
 
         # Build deployer instances (skip platforms without credentials)
         deployers: list[tuple[str, object]] = []

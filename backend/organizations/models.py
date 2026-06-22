@@ -144,6 +144,15 @@ class PlatformCredential(models.Model):
         related_name='platform_credentials',
     )
     platform = models.CharField(max_length=50, choices=PLATFORM_CHOICES)
+    profile_name = models.CharField(
+        max_length=100,
+        default='default',
+        help_text='Credential profile name (for example: default, prod-eu, soc-lab).',
+    )
+    is_default = models.BooleanField(
+        default=False,
+        help_text='When enabled, this profile is preferred for deployments when no profile is explicitly selected.',
+    )
     # Credential fields – all stored encrypted
     _credentials_json = models.TextField(
         db_column='credentials_json',
@@ -169,13 +178,13 @@ class PlatformCredential(models.Model):
     )
 
     class Meta:
-        unique_together = [('organization', 'platform')]
+        unique_together = [('organization', 'platform', 'profile_name')]
         verbose_name = "Platform Credential"
         verbose_name_plural = "Platform Credentials"
-        ordering = ['platform']
+        ordering = ['platform', 'profile_name']
 
     def __str__(self):
-        return f"{self.get_platform_display()} credentials ({self.organization.name})"
+        return f"{self.get_platform_display()} [{self.profile_name}] credentials ({self.organization.name})"
 
     @property
     def credentials(self) -> dict:
@@ -202,6 +211,68 @@ class PlatformCredential(models.Model):
     def get_credentials(self) -> dict:
         """Decrypt and return credentials dict (alias for property getter)."""
         return self.credentials
+
+    @classmethod
+    def get_preferred_for_platform(cls, organization, platform: str, profile_name: str | None = None):
+        """Return the preferred enabled credential row for an org+platform.
+
+        Selection order:
+        1) exact enabled profile match (when profile_name provided)
+        2) enabled default profile (is_default=True)
+        3) enabled profile named "default"
+        4) first enabled profile by deterministic ordering
+        """
+        qs = cls.objects.filter(
+            organization=organization,
+            platform=str(platform or '').strip().lower(),
+            enabled=True,
+        )
+        if not qs.exists():
+            return None
+
+        if profile_name:
+            exact = qs.filter(profile_name=str(profile_name).strip()).first()
+            if exact:
+                return exact
+
+        preferred = qs.filter(is_default=True).first()
+        if preferred:
+            return preferred
+
+        default_named = qs.filter(profile_name='default').first()
+        if default_named:
+            return default_named
+
+        return qs.first()
+
+    @classmethod
+    def preferred_credentials_map(
+        cls,
+        organization,
+        platforms: list[str],
+        profile_overrides: dict[str, str] | None = None,
+    ) -> dict[str, dict]:
+        """Resolve one enabled credential dict per platform.
+
+        Args:
+            organization: Organization instance.
+            platforms: list of platform keys, for example ['defender', 'sentinel'].
+            profile_overrides: optional platform->profile_name mapping.
+        """
+        resolved: dict[str, dict] = {}
+        profile_overrides = profile_overrides or {}
+        for platform in platforms or []:
+            normalized = str(platform or '').strip().lower()
+            if not normalized or normalized in resolved:
+                continue
+            row = cls.get_preferred_for_platform(
+                organization=organization,
+                platform=normalized,
+                profile_name=profile_overrides.get(normalized),
+            )
+            if row:
+                resolved[normalized] = row.credentials
+        return resolved
 
     def test_connection(self) -> tuple[bool, str]:
         """

@@ -558,6 +558,7 @@ class TestCompileMdrYaml(TestCase):
         result = compile_mdr_yaml(playbook)
         configurations = result['configurations']
         self.assertIn('defender_for_endpoint', configurations)
+        self.assertIn('microsoft_sentinel', configurations)
         self.assertIn('splunk', configurations)
         self.assertIn('sigma', configurations)
         self.assertIn('wazuh', configurations)
@@ -608,6 +609,7 @@ class TestCompileMdrYaml(TestCase):
         result = compile_mdr_yaml(playbook)
         configurations = result['configurations']
         self.assertIn('defender_for_endpoint', configurations)
+        self.assertIn('microsoft_sentinel', configurations)
         self.assertIn('splunk', configurations)
         self.assertIn('sigma', configurations)
         self.assertIn('wazuh', configurations)

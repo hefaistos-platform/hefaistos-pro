@@ -20,3 +20,19 @@ class TestNormalizeDeploymentPlatforms(SimpleTestCase):
         mapped, dropped = normalize_deployment_platforms(['kql', 'defender', 'KQL'])
         self.assertEqual(mapped, ['defender'])
         self.assertEqual(dropped, [])
+
+    def test_maps_kql_to_sentinel_when_policy_is_sentinel(self):
+        mapped, dropped = normalize_deployment_platforms(
+            ['kql', 'spl'],
+            kql_target_policy='sentinel',
+        )
+        self.assertEqual(mapped, ['sentinel', 'splunk'])
+        self.assertEqual(dropped, [])
+
+    def test_maps_kql_to_both_when_policy_is_both(self):
+        mapped, dropped = normalize_deployment_platforms(
+            ['kql', 'defender', 'sentinel'],
+            kql_target_policy='both',
+        )
+        self.assertEqual(mapped, ['defender', 'sentinel'])
+        self.assertEqual(dropped, [])

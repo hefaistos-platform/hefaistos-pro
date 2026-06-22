@@ -50,6 +50,17 @@ class TestExtractPlatformRulesFromOpenTide(SimpleTestCase):
         )
         self.assertEqual(set(files.keys()), {'content/hef/splunk/rule_one.spl'})
 
+    def test_extract_platform_rules_reads_sentinel_kql_configuration(self):
+        mdr_data = {
+            'name': 'mdr_rule',
+            'configurations': {
+                'microsoft_sentinel': {'query': 'SecurityEvent | take 10'},
+            },
+        }
+        files = extract_platform_rules_from_opentide(mdr_data, sanitized_title='rule_one')
+        self.assertEqual(set(files.keys()), {'kql/rule_one.kql'})
+        self.assertEqual(files['kql/rule_one.kql'], 'SecurityEvent | take 10')
+
     def test_extract_platform_rules_sigma_is_yaml(self):
         mdr_data = {
             'name': 'mdr_sigma',

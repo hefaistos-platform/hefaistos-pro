@@ -67,7 +67,11 @@ def extract_platform_rules_from_opentide(
                     return query
         return ''
 
-    kql_content = _pick_query(platforms.get('kql'), configurations.get('defender_for_endpoint'))
+    kql_content = _pick_query(
+        platforms.get('kql'),
+        configurations.get('defender_for_endpoint'),
+        configurations.get('microsoft_sentinel'),
+    )
     if kql_content:
         files[_rule_file_path('kql')] = kql_content
 

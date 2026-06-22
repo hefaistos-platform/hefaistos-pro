@@ -82,6 +82,27 @@ class TestMdrToDeployerPayload(SimpleTestCase):
         self.assertEqual(payload['metadata']['mitre_technique'], 'T0000')
         self.assertEqual(payload['platforms']['spl']['query'], 'index=main test')
 
+    def test_maps_sentinel_configuration_to_kql_platform(self):
+        mdr = {
+            'name': 'mdr_de_t0002',
+            'metadata': {
+                'uuid': '550e8400-e29b-41d4-a716-446655440000',
+                'schema': 'mdr::2.1',
+                'version': 1,
+            },
+            'configurations': {
+                'microsoft_sentinel': {
+                    'query': 'SecurityEvent | where EventID == 4688',
+                },
+            },
+        }
+        payload = mdr_to_deployer_payload(mdr)
+        self.assertIn('kql', payload['platforms'])
+        self.assertEqual(
+            payload['platforms']['kql']['query'],
+            'SecurityEvent | where EventID == 4688',
+        )
+
     def test_ensure_mdr_uuid4_normalizes_legacy_v5_uuid(self):
         mdr = {
             'name': 'mdr_de_t1059_001',
@@ -281,4 +302,3 @@ class TestQRadarPayloadMapping(SimpleTestCase):
         payload = mdr_to_deployer_payload(mdr)
         self.assertNotIn('qradar', payload['platforms'])
         self.assertIn('spl', payload['platforms'])
-

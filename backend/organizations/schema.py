@@ -59,6 +59,7 @@ _UNSET = object()
 
 VALID_DEPLOYMENT_PLATFORMS = {'defender', 'sentinel', 'splunk', 'qradar', 'wazuh'}
 PLATFORM_DISPLAY_LABELS = dict(PlatformCredential.PLATFORM_CHOICES)
+KQL_TARGET_POLICIES = {'defender', 'sentinel', 'both'}
 PLATFORM_VALUE_MAP = {
     'kql': 'defender',
     'spl': 'splunk',
@@ -70,9 +71,16 @@ PLATFORM_VALUE_MAP = {
 }
 
 
-def normalize_deployment_platforms(platforms: List[str]) -> tuple[List[str], List[str]]:
+def normalize_deployment_platforms(
+    platforms: List[str],
+    *,
+    kql_target_policy: str = 'defender',
+) -> tuple[List[str], List[str]]:
     mapped: List[str] = []
     dropped: List[str] = []
+    normalized_kql_policy = str(kql_target_policy or 'defender').strip().lower()
+    if normalized_kql_policy not in KQL_TARGET_POLICIES:
+        normalized_kql_policy = 'defender'
 
     for platform in platforms or []:
         if not platform:
@@ -83,6 +91,15 @@ def normalize_deployment_platforms(platforms: List[str]) -> tuple[List[str], Lis
 
         if value in VALID_DEPLOYMENT_PLATFORMS:
             mapped.append(value)
+            continue
+
+        if value == 'kql':
+            if normalized_kql_policy == 'both':
+                mapped.extend(['defender', 'sentinel'])
+            elif normalized_kql_policy == 'sentinel':
+                mapped.append('sentinel')
+            else:
+                mapped.append('defender')
             continue
 
         if value in PLATFORM_VALUE_MAP and PLATFORM_VALUE_MAP[value]:
@@ -166,6 +183,8 @@ class PlatformCredentialType(graphene.ObjectType):
     id = graphene.UUID()
     platform = graphene.String()
     platform_display = graphene.String()
+    profile_name = graphene.String()
+    is_default = graphene.Boolean()
     enabled = graphene.Boolean()
     has_credentials = graphene.Boolean()
     last_tested = graphene.DateTime()
@@ -2303,13 +2322,17 @@ class PublishWorkbenchOpenTide(graphene.Mutation):
         commit_message = graphene.String(required=False)
         push_opentide_bundle = graphene.Boolean(required=False)
         push_platform_rules = graphene.Boolean(required=False)
+        kql_target_policy = graphene.String(
+            required=False,
+            description="How 'kql' targets are mapped: defender, sentinel, or both.",
+        )
 
     success = graphene.Boolean()
     message = graphene.String()
     task_id = graphene.String()
 
     @staticmethod
-    def mutate(root, info, graph_id, profile_id=None, repository_id=None, branch=None, target_folder=None, platforms=None, commit_message=None, push_opentide_bundle=None, push_platform_rules=None):
+    def mutate(root, info, graph_id, profile_id=None, repository_id=None, branch=None, target_folder=None, platforms=None, commit_message=None, push_opentide_bundle=None, push_platform_rules=None, kql_target_policy='defender'):
         from core.rabbitmq import publish_event
         from identity.decorators import Roles
         from playbooks.models import PlaybookGraph
@@ -2399,7 +2422,10 @@ class PublishWorkbenchOpenTide(graphene.Mutation):
             requested_platforms = [p.lower() for p in (profile.enabled_platforms or []) if p]
         if platforms is None and not requested_platforms and ((profile and profile.use_graph_configured_platforms) or not profile):
             requested_platforms = [p.lower() for p in (graph.configured_platforms or []) if p]
-        requested_platforms, dropped_platforms = normalize_deployment_platforms(requested_platforms)
+        requested_platforms, dropped_platforms = normalize_deployment_platforms(
+            requested_platforms,
+            kql_target_policy=kql_target_policy,
+        )
         if dropped_platforms:
             logger.warning(
                 'HEF publish platform normalization dropped values: graph_id=%s dropped=%s',
@@ -2509,19 +2535,28 @@ class SetPlatformCredential(graphene.Mutation):
             required=True,
             description="Platform key: defender, sentinel, splunk, qradar, or wazuh",
         )
+        profile_name = graphene.String(
+            required=False,
+            description="Optional credential profile name. Defaults to 'default'.",
+        )
         credentials = graphene.JSONString(
             required=True,
             description="JSON object containing the platform credentials (e.g. {tenant_id, client_id, …})",
         )
         enabled = graphene.Boolean(default_value=True)
+        set_default = graphene.Boolean(
+            required=False,
+            description="When true, mark this profile as the default for the platform.",
+        )
 
     credential = graphene.Field(PlatformCredentialType)
     success = graphene.Boolean()
     message = graphene.String()
 
     @staticmethod
-    def mutate(root, info, platform, credentials, enabled=True):
+    def mutate(root, info, platform, credentials, enabled=True, profile_name='default', set_default=False):
         import json as _json
+        from django.db import transaction
         from identity.decorators import role_required, Roles
 
         user = info.context.user
@@ -2533,6 +2568,7 @@ class SetPlatformCredential(graphene.Mutation):
         valid_platforms = {'defender', 'sentinel', 'splunk', 'qradar', 'wazuh'}
         if platform not in valid_platforms:
             raise Exception(f"Unknown platform '{platform}'. Valid values: {', '.join(sorted(valid_platforms))}")
+        normalized_profile = str(profile_name or 'default').strip() or 'default'
 
         # Parse credentials JSON string if needed
         if isinstance(credentials, str):
@@ -2543,20 +2579,33 @@ class SetPlatformCredential(graphene.Mutation):
         else:
             cred_dict = credentials
 
-        cred, created = PlatformCredential.objects.get_or_create(
-            organization=user.organization,
-            platform=platform,
-            defaults={'enabled': enabled},
-        )
-        cred.credentials = cred_dict
-        cred.enabled = enabled
-        cred.save()
+        with transaction.atomic():
+            cred, created = PlatformCredential.objects.get_or_create(
+                organization=user.organization,
+                platform=platform,
+                profile_name=normalized_profile,
+                defaults={'enabled': enabled},
+            )
+            cred.credentials = cred_dict
+            cred.enabled = enabled
+            # First profile for this org+platform should become default automatically.
+            first_profile = not PlatformCredential.objects.filter(
+                organization=user.organization,
+                platform=platform,
+            ).exclude(pk=cred.pk).exists()
+            if set_default or first_profile:
+                PlatformCredential.objects.filter(
+                    organization=user.organization,
+                    platform=platform,
+                ).exclude(pk=cred.pk).update(is_default=False)
+                cred.is_default = True
+            cred.save()
 
         action = 'created' if created else 'updated'
         return SetPlatformCredential(
             credential=cred,
             success=True,
-            message=f"Platform credentials {action} successfully for {platform}",
+            message=f"Platform credentials {action} successfully for {platform} (profile: {normalized_profile})",
         )
 
 
@@ -2565,12 +2614,13 @@ class DeletePlatformCredential(graphene.Mutation):
 
     class Arguments:
         platform = graphene.String(required=True)
+        profile_name = graphene.String(required=False)
 
     success = graphene.Boolean()
     message = graphene.String()
 
     @staticmethod
-    def mutate(root, info, platform):
+    def mutate(root, info, platform, profile_name=None):
         from identity.decorators import Roles
 
         user = info.context.user
@@ -2579,14 +2629,40 @@ class DeletePlatformCredential(graphene.Mutation):
         if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
             raise Exception("Only organisation admins can manage platform credentials")
 
-        deleted, _ = PlatformCredential.objects.filter(
-            organization=user.organization,
-            platform=platform,
-        ).delete()
+        target = None
+        if profile_name:
+            target = PlatformCredential.objects.filter(
+                organization=user.organization,
+                platform=platform,
+                profile_name=str(profile_name).strip(),
+            ).first()
+        else:
+            target = PlatformCredential.get_preferred_for_platform(
+                organization=user.organization,
+                platform=platform,
+                profile_name='default',
+            )
 
-        if deleted:
-            return DeletePlatformCredential(success=True, message=f"Credentials for {platform} deleted")
-        return DeletePlatformCredential(success=False, message=f"No credentials found for {platform}")
+        if not target:
+            return DeletePlatformCredential(success=False, message=f"No credentials found for {platform}")
+
+        deleted_profile = target.profile_name
+        was_default = bool(target.is_default)
+        target.delete()
+
+        if was_default:
+            replacement = PlatformCredential.get_preferred_for_platform(
+                organization=user.organization,
+                platform=platform,
+            )
+            if replacement and not replacement.is_default:
+                replacement.is_default = True
+                replacement.save(update_fields=['is_default', 'updated_at'])
+
+        return DeletePlatformCredential(
+            success=True,
+            message=f"Credentials for {platform} deleted (profile: {deleted_profile})",
+        )
 
 
 class TestPlatformConnection(graphene.Mutation):
@@ -2594,12 +2670,13 @@ class TestPlatformConnection(graphene.Mutation):
 
     class Arguments:
         platform = graphene.String(required=True)
+        profile_name = graphene.String(required=False)
 
     success = graphene.Boolean()
     message = graphene.String()
 
     @staticmethod
-    def mutate(root, info, platform):
+    def mutate(root, info, platform, profile_name=None):
         import logging
         from identity.decorators import Roles
 
@@ -2610,12 +2687,12 @@ class TestPlatformConnection(graphene.Mutation):
         if user.role not in (Roles.ADMIN,) and not user.is_superuser and not user.is_staff:
             raise Exception("Only organisation admins can test platform connections")
 
-        try:
-            credential = PlatformCredential.objects.get(
-                organization=user.organization,
-                platform=platform,
-            )
-        except PlatformCredential.DoesNotExist:
+        credential = PlatformCredential.get_preferred_for_platform(
+            organization=user.organization,
+            platform=platform,
+            profile_name=profile_name,
+        )
+        if not credential:
             return TestPlatformConnection(
                 success=False,
                 message="Platform credentials not configured",

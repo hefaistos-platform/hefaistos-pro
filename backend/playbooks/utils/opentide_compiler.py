@@ -1044,7 +1044,7 @@ def compile_mdr_yaml(playbook) -> Dict[str, Any]:
     used.  Each format is mapped to the corresponding CoreTide system key inside
     the ``configurations`` block:
 
-    - KQL  → ``configurations.defender_for_endpoint``
+    - KQL  → ``configurations.defender_for_endpoint`` and ``configurations.microsoft_sentinel``
     - SPL  → ``configurations.splunk``
     - WAZUH → ``configurations.wazuh``
 
@@ -1229,6 +1229,17 @@ def compile_mdr_yaml(playbook) -> Dict[str, Any]:
             'scope': {
                 'selection': 'All',
             },
+        }
+        configurations['microsoft_sentinel'] = {
+            'schema': 'microsoft_sentinel::1.0',
+            'status': 'PRODUCTION',
+            'query': kql_content,
+            'queryFrequency': 'PT5H',
+            'queryPeriod': 'P1D',
+            'triggerOperator': 'GreaterThan',
+            'triggerThreshold': 0,
+            'suppressionDuration': 'PT1H',
+            'suppressionEnabled': False,
         }
 
     spl_rule = format_to_rule.get('SPL')
