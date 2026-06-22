@@ -9,6 +9,7 @@ from rules.opentide_publish import (
     _ensure_mdr_uuid4,
     _is_uuid4,
     _classify_deployment_failure,
+    build_deployment_failure_summary,
     deploy_opentide_rule_to_platforms,
 )
 from rules.deployers.base import DeploymentResult
@@ -266,6 +267,31 @@ class TestDeploymentFailureClassification(SimpleTestCase):
             errors=['Insufficient privileges to complete the operation.'],
         )
         self.assertEqual(enriched['failure_type'], 'AUTHZ')
+
+    def test_builds_failure_summary(self):
+        summary = build_deployment_failure_summary([
+            {
+                'platform': 'Microsoft Defender',
+                'success': False,
+                'failure_type': 'AUTH_SCOPE',
+                'operator_hint': 'Grant CustomDetections.ReadWrite.All.',
+            },
+            {
+                'platform': 'Azure Sentinel',
+                'success': False,
+                'failure_type': 'QUERY_VALIDATION',
+                'operator_hint': 'Validate KQL syntax.',
+            },
+            {
+                'platform': 'Splunk',
+                'success': True,
+            },
+        ])
+        self.assertEqual(summary['failed_count'], 2)
+        self.assertEqual(summary['failed_platforms'], ['Microsoft Defender', 'Azure Sentinel'])
+        self.assertEqual(summary['failure_type_counts']['AUTH_SCOPE'], 1)
+        self.assertEqual(summary['failure_type_counts']['QUERY_VALIDATION'], 1)
+        self.assertIn('Validate KQL syntax.', summary['operator_hints'])
 
 
 class TestMitreTechniqueFallbacks(SimpleTestCase):

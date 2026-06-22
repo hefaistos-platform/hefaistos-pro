@@ -70,6 +70,27 @@ def _classify_deployment_failure(
     }
 
 
+def build_deployment_failure_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Build a compact, structured summary from per-platform deployment results."""
+    failed = [item for item in (results or []) if not item.get('success')]
+    failed_platforms = [str(item.get('platform') or 'Unknown') for item in failed]
+    failure_type_counts: Dict[str, int] = {}
+    hints: List[str] = []
+    for item in failed:
+        failure_type = str(item.get('failure_type') or 'UNKNOWN').strip() or 'UNKNOWN'
+        failure_type_counts[failure_type] = failure_type_counts.get(failure_type, 0) + 1
+        hint = str(item.get('operator_hint') or '').strip()
+        if hint and hint not in hints:
+            hints.append(hint)
+
+    return {
+        'failed_count': len(failed),
+        'failed_platforms': failed_platforms,
+        'failure_type_counts': failure_type_counts,
+        'operator_hints': hints,
+    }
+
+
 def _is_uuid4(value: Any) -> bool:
     if not value:
         return False

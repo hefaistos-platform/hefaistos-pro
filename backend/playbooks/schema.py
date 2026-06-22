@@ -117,6 +117,7 @@ def _queue_dac_deployment_automation(graph, actor) -> bool:
     )
     from rules.deployers import PLATFORM_DEPLOYER_MAP
     from rules.opentide_publish import (
+        build_deployment_failure_summary,
         deploy_opentide_rule_to_platforms,
         upsert_opentide_rule_for_graph,
     )
@@ -199,13 +200,15 @@ def _queue_dac_deployment_automation(graph, actor) -> bool:
             requested_platforms,
         )
         if not overall_success:
-            failed_platforms = [
-                result['platform']
-                for result in deployment_results
-                if not result.get('success')
-            ]
+            summary = build_deployment_failure_summary(deployment_results)
+            failed_platforms = summary.get('failed_platforms') or requested_platforms
+            failure_types = summary.get('failure_type_counts') or {}
+            failure_type_label = ', '.join(
+                f'{kind}={count}' for kind, count in sorted(failure_types.items())
+            )
+            suffix = f' | failure_types: {failure_type_label}' if failure_type_label else ''
             raise RuntimeError(
-                'Deployment failed for platform(s): ' + ', '.join(failed_platforms or requested_platforms)
+                'Deployment failed for platform(s): ' + ', '.join(failed_platforms) + suffix
             )
 
         export_logger.info(

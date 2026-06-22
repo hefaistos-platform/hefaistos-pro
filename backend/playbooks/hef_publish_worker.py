@@ -39,7 +39,12 @@ from playbooks.hef_publish import (  # noqa: E402
     create_repository_commit,
 )
 from playbooks.repo_clients import RepoClient  # noqa: E402
-from rules.opentide_publish import OpenTideMDRValidationError, deploy_opentide_rule_to_platforms, upsert_opentide_rule_for_graph  # noqa: E402
+from rules.opentide_publish import (  # noqa: E402
+    OpenTideMDRValidationError,
+    build_deployment_failure_summary,
+    deploy_opentide_rule_to_platforms,
+    upsert_opentide_rule_for_graph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -289,11 +294,18 @@ def process_publish_job(task_id: str) -> None:
         job.deployed_platforms = deployed_platforms
         job.deployment_results = deployment_results
         if final_job_status == 'FAILED':
-            failed_platforms = [result['platform'] for result in deployment_results if not result.get('success')]
+            failure_summary = build_deployment_failure_summary(deployment_results)
+            failed_platforms = failure_summary.get('failed_platforms') or []
+            failure_types = failure_summary.get('failure_type_counts') or {}
+            failure_type_label = ', '.join(
+                f'{kind}={count}' for kind, count in sorted(failure_types.items())
+            )
             job.error_message = (
                 'Repository publish succeeded, but deployment failed for platform(s): '
                 + ', '.join(failed_platforms)
             )
+            if failure_type_label:
+                job.error_message += f' | failure_types: {failure_type_label}'
             job.progress = f'Publish completed but deployment failed: {", ".join(failed_platforms)}'
         else:
             job.progress = f'Published successfully: {commit_sha[:8]}'
@@ -313,7 +325,9 @@ def process_publish_job(task_id: str) -> None:
             'deployed_platforms': deployed_platforms,
         }
         if final_job_status == 'FAILED':
+            failure_summary = build_deployment_failure_summary(deployment_results)
             payload['deployment_results'] = deployment_results
+            payload['failure_summary'] = failure_summary
             payload['error'] = job.error_message
             publish_event(ROUTING_KEY_FAILED, payload)
         else:
