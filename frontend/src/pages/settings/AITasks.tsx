@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
-import { Alert, Button, Card, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 
 const { Text } = Typography;
 
@@ -147,6 +147,14 @@ const MINUTE_OPTIONS = [0, 15, 30, 45].map((minute) => ({
   label: String(minute).padStart(2, '0'),
 }));
 
+const REPORT_TASK_KEYS = new Set<string>([
+  'coverage_gap_digest',
+  'detection_debt_snapshot',
+  'executive_risk_narrative',
+  'compliance_evidence_draft',
+  'program_review_digest',
+]);
+
 const statusColor = (status?: string | null): string => {
   if (status === 'SUCCESS') return 'green';
   if (status === 'FAILED') return 'red';
@@ -162,6 +170,18 @@ const compactText = (value?: string | null, max = 220): string => {
   if (raw.length <= max) return raw;
   return `${raw.slice(0, max - 3)}...`;
 };
+
+const getRunOutputText = (run: TaskRun): string => (run.outputSummary || run.errorMessage || '').trim();
+
+const sanitizeFilenamePart = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || 'task';
+
+const triggerText = (value?: string | null): string => (value || 'MANUAL').toLowerCase();
 
 const buildConfigVariables = (task: TaskConfig, patch: Partial<TaskConfig>) => {
   const merged = { ...task, ...patch };
@@ -179,6 +199,7 @@ const buildConfigVariables = (task: TaskConfig, patch: Partial<TaskConfig>) => {
 const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const [savingTaskKey, setSavingTaskKey] = useState<string | null>(null);
   const [runningTaskKey, setRunningTaskKey] = useState<string | null>(null);
+  const [selectedRun, setSelectedRun] = useState<TaskRun | null>(null);
 
   const { data, loading, error, refetch } = useQuery<{ orgAiTaskConfigs: TaskConfig[] }>(
     GET_ORG_AI_TASK_CONFIGS,
@@ -199,14 +220,35 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const [setOrgAiTaskConfig] = useMutation(SET_ORG_AI_TASK_CONFIG);
   const [runOrgAiTaskNow] = useMutation(RUN_ORG_AI_TASK_NOW);
 
-  const tasks = data?.orgAiTaskConfigs || [];
-  const runs = runsData?.orgAiTaskRuns || [];
+  const tasks = useMemo(() => data?.orgAiTaskConfigs ?? [], [data?.orgAiTaskConfigs]);
+  const runs = useMemo(() => runsData?.orgAiTaskRuns ?? [], [runsData?.orgAiTaskRuns]);
 
   const taskTitleMap = useMemo(() => {
     const map = new Map<string, string>();
     tasks.forEach((task) => map.set(task.taskKey, task.title));
     return map;
   }, [tasks]);
+
+  const runTitle = (record: TaskRun): string => taskTitleMap.get(record.taskKey) || record.title || record.taskKey;
+
+  const downloadRunOutput = (record: TaskRun) => {
+    const output = getRunOutputText(record);
+    if (!output) {
+      message.warning('No run output is available to download.');
+      return;
+    }
+    const startedAt = record.startedAt ? new Date(record.startedAt).toISOString().slice(0, 19).replace(/:/g, '-') : 'unknown-time';
+    const filename = `${sanitizeFilenamePart(record.taskKey)}-${triggerText(record.trigger)}-${startedAt}.txt`;
+    const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(downloadUrl);
+  };
 
   const persistTaskConfig = async (task: TaskConfig, patch: Partial<TaskConfig>) => {
     setSavingTaskKey(task.taskKey);
@@ -399,16 +441,73 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
               title: 'Result',
               key: 'result',
               render: (_value: unknown, record: TaskRun) => {
-                const text = record.outputSummary || record.errorMessage || '';
-                return <span>{compactText(text, 260) || 'N/A'}</span>;
+                const text = getRunOutputText(record);
+                const isReport = REPORT_TASK_KEYS.has(record.taskKey);
+                if (!text) {
+                  return <span>N/A</span>;
+                }
+                return (
+                  <Space direction="vertical" size={4}>
+                    <span>{compactText(text, isReport ? 180 : 260)}</span>
+                    <Space size={8}>
+                      <Button size="small" onClick={() => setSelectedRun(record)}>
+                        Read
+                      </Button>
+                      <Button size="small" onClick={() => downloadRunOutput(record)}>
+                        Download
+                      </Button>
+                    </Space>
+                  </Space>
+                );
               },
             },
           ]}
         />
       </Card>
+      <Modal
+        open={Boolean(selectedRun)}
+        onCancel={() => setSelectedRun(null)}
+        width={900}
+        title={selectedRun ? `${runTitle(selectedRun)} - Full Output` : 'Task Output'}
+        footer={[
+          <Button
+            key="download"
+            onClick={() => {
+              if (selectedRun) downloadRunOutput(selectedRun);
+            }}
+            disabled={!selectedRun || !getRunOutputText(selectedRun)}
+          >
+            Download
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setSelectedRun(null)}>
+            Close
+          </Button>,
+        ]}
+      >
+        {selectedRun && (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Text type="secondary">
+              Status: {selectedRun.status} | Trigger: {selectedRun.trigger} | Started: {formatDateTime(selectedRun.startedAt)}
+            </Text>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                maxHeight: 520,
+                overflowY: 'auto',
+                background: '#fafafa',
+                border: '1px solid #f0f0f0',
+                borderRadius: 8,
+                padding: 12,
+                margin: 0,
+              }}
+            >
+              {getRunOutputText(selectedRun) || 'No output is available for this run.'}
+            </pre>
+          </Space>
+        )}
+      </Modal>
     </Space>
   );
 };
 
 export default AITasksTab;
-
