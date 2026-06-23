@@ -4,7 +4,13 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from identity.decorators import Roles
-from playbooks.schema import DeleteDetectionPlaybook, DeletePlaybookGraph, PushPlaybookToGitHub
+from playbooks.schema import (
+    DeleteDetectionPlaybook,
+    DeletePlaybookGraph,
+    PushPlaybookToGitHub,
+    RefreshOpenTideMetadata,
+    UpdatePlaybookOpenTideYaml,
+)
 
 
 class TestPushPlaybookToGitHubPlatformRules(SimpleTestCase):
@@ -142,3 +148,61 @@ class TestSuperuserDeletePermissions(SimpleTestCase):
         self.assertTrue(result.ok)
         mock_get.assert_called_once_with(pk='pb-1')
         playbook.delete.assert_called_once()
+
+
+class TestOpenTideMutationsStatusStability(SimpleTestCase):
+    def _make_user(self):
+        return SimpleNamespace(
+            is_anonymous=False,
+            role=Roles.ADMIN,
+            is_superuser=False,
+            is_staff=False,
+            username='admin',
+            id='user-1',
+            organization=SimpleNamespace(id='org-1'),
+        )
+
+    @patch('playbooks.schema.ActivityLog.objects.create')
+    @patch('playbooks.schema.PlaybookGraph.objects.get')
+    def test_update_opentide_yaml_does_not_update_status_field(self, mock_get, _mock_activity):
+        user = self._make_user()
+        graph = MagicMock()
+        graph.id = 'graph-1'
+        graph.author = user
+        graph.organization = user.organization
+        graph.configured_platforms = []
+        graph.status = 'DEPLOYED'
+        mock_get.return_value = graph
+
+        result = UpdatePlaybookOpenTideYaml.mutate(
+            None,
+            SimpleNamespace(context=SimpleNamespace(user=user)),
+            graph_id='graph-1',
+            opentide_yaml='{"metadata":{"title":"test"},"platforms":{}}',
+            configured_platforms=['kql'],
+        )
+
+        self.assertTrue(result.success)
+        graph.save.assert_called_once_with(update_fields=['opentide_yaml', 'configured_platforms', 'updated_at'])
+
+    @patch('playbooks.schema.ActivityLog.objects.create')
+    @patch('playbooks.schema.PlaybookGraph.objects.get')
+    def test_refresh_opentide_metadata_does_not_update_status_field(self, mock_get, _mock_activity):
+        user = self._make_user()
+        graph = MagicMock()
+        graph.id = 'graph-2'
+        graph.author = user
+        graph.organization = user.organization
+        graph.opentide_yaml = {'metadata': {'title': 'test'}}
+        graph.status = 'DEPLOYED'
+        mock_get.return_value = graph
+
+        result = RefreshOpenTideMetadata.mutate(
+            None,
+            SimpleNamespace(context=SimpleNamespace(user=user)),
+            playbook_id='graph-2',
+        )
+
+        self.assertTrue(result.success)
+        graph.auto_update_opentide_yaml.assert_called_once_with()
+        graph.save.assert_called_once_with(update_fields=['opentide_yaml', 'configured_platforms', 'updated_at'])

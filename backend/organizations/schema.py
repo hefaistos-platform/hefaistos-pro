@@ -671,11 +671,11 @@ class Query(graphene.ObjectType):
     preview_opentide_metadata = graphene.Field(
         PreviewOpenTideMetadata,
         playbook_id=graphene.UUID(required=True),
-        use_ai_enrichment=graphene.Boolean(default_value=True),
+        use_ai_enrichment=graphene.Boolean(default_value=False),
         force_bdr_generation=graphene.Boolean(default_value=False),
         description=(
-            "Preview AI-enriched OpenTIDE metadata for a playbook (synchronous). "
-            "Detection rules are never AI-generated; only metadata fields are enriched. "
+            "Preview OpenTIDE metadata for a playbook (synchronous). "
+            "AI enrichment is optional/manual; detection rules are never AI-generated. "
             "For long-running AI enrichment prefer startOpentidePreviewTask / opentidePreviewStatus."
         ),
     )
@@ -1260,7 +1260,7 @@ class Query(graphene.ObjectType):
         return list(qs.order_by('name'))
 
     def resolve_preview_opentide_metadata(
-        self, info, playbook_id, use_ai_enrichment=True, force_bdr_generation=False
+        self, info, playbook_id, use_ai_enrichment=False, force_bdr_generation=False
     ):
         import json as _json
         user = info.context.user
@@ -2191,14 +2191,14 @@ class StartOpentidePreviewTask(graphene.Mutation):
 
     class Arguments:
         playbook_id = graphene.UUID(required=True)
-        use_ai_enrichment = graphene.Boolean(default_value=True)
+        use_ai_enrichment = graphene.Boolean(default_value=False)
         force_bdr_generation = graphene.Boolean(default_value=False)
 
     task_id = graphene.UUID(description="Task ID to poll with opentidePreviewStatus")
     success = graphene.Boolean()
     message = graphene.String()
 
-    def mutate(self, info, playbook_id, use_ai_enrichment=True, force_bdr_generation=False):
+    def mutate(self, info, playbook_id, use_ai_enrichment=False, force_bdr_generation=False):
         from playbooks.models import PlaybookGraph, OpentidePreviewTask
         from core.rabbitmq import publish_event
 

@@ -224,7 +224,7 @@ export const OpenTidePreviewModal: React.FC<OpenTidePreviewModalProps> = ({
   onCommit,
 }) => {
   // Controls
-  const [useAiEnrichment, setUseAiEnrichment] = useState(true);
+  const [useAiEnrichment, setUseAiEnrichment] = useState(false);
   const [activeTab, setActiveTab] = useState('mdr');
 
   // Field overrides: Map<fieldPath, JSON string value>

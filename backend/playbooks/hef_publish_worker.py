@@ -174,6 +174,8 @@ def process_publish_job(task_id: str) -> None:
         bundle, validation_errors = compile_opentide_bundle(
             playbook,
             target_folder=job.target_folder,
+            use_ai_enrichment=False,
+            force_bdr_generation=False,
         )
         if validation_errors:
             raise RuntimeError('OpenTIDE validation failed: ' + '; '.join(validation_errors))

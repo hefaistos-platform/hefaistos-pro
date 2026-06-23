@@ -5,7 +5,11 @@ from django.test import SimpleTestCase
 
 from identity.decorators import Roles
 from playbooks.models import DetectionPlaybook
-from playbooks.schema import AdminApproveDeployment, _queue_dac_deployment_automation
+from playbooks.schema import (
+    AdminApproveDeployment,
+    UpdatePlaybookGraphStatus,
+    _queue_dac_deployment_automation,
+)
 
 
 class TestAdminApproveDeploymentDacAutomation(SimpleTestCase):
@@ -55,6 +59,10 @@ class TestAdminApproveDeploymentDacAutomation(SimpleTestCase):
         result = AdminApproveDeployment.mutate(None, self._make_info(), id='graph-1')
 
         self.assertEqual(result.playbook_graph, graph)
+        graph.auto_update_opentide_yaml.assert_called_once_with()
+        graph.save.assert_called_once_with(
+            update_fields=["status", "opentide_yaml", "configured_platforms", "updated_at"]
+        )
         mock_job_objects.create.assert_not_called()
         self.assertEqual(mock_publish_event.call_count, 0)
 
@@ -190,3 +198,36 @@ class TestQueueDacDeploymentAutomation(SimpleTestCase):
         mock_activity_objects.create.assert_called_once()
         mock_upsert_rule.assert_called_once_with(graph, actor, 'raw-yaml', repository=None)
         mock_deploy_rule.assert_called_once_with(rule, graph.organization, ['splunk'])
+
+
+class TestUpdatePlaybookGraphStatusGuard(SimpleTestCase):
+    def _make_info(self):
+        user = SimpleNamespace(
+            id='reviewer-1',
+            username='reviewer',
+            is_anonymous=False,
+            role=Roles.REVIEWER,
+            is_superuser=False,
+            is_staff=False,
+            organization=SimpleNamespace(id='org-1'),
+        )
+        return SimpleNamespace(context=SimpleNamespace(user=user))
+
+    @patch('playbooks.schema.PlaybookGraph.objects')
+    def test_rejects_setting_deployed_outside_admin_approval(self, mock_graph_objects):
+        graph = MagicMock()
+        graph.id = 'graph-1'
+        graph.organization = SimpleNamespace(id='org-1')
+        graph.author = SimpleNamespace(id='author-1')
+        mock_graph_objects.get.return_value = graph
+
+        with self.assertRaises(Exception) as exc:
+            UpdatePlaybookGraphStatus.mutate(
+                None,
+                self._make_info(),
+                id='graph-1',
+                status='DEPLOYED',
+            )
+
+        self.assertIn('DEPLOYED status can only be set via admin approval workflow', str(exc.exception))
+        graph.save.assert_not_called()

@@ -962,7 +962,7 @@ class ReviewComment(models.Model):
 
 
 class OpentidePreviewTask(models.Model):
-    """Async task for AI-enriched OpenTIDE metadata preview via RabbitMQ."""
+    """Async task for OpenTIDE metadata preview via RabbitMQ (optional AI enrichment)."""
 
     class TaskStatus(models.TextChoices):
         PENDING = 'PENDING', 'Pending'

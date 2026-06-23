@@ -1916,7 +1916,7 @@ export const PlaybookWorkbench = () => {
             variant="ghost"
             onClick={() => setPreviewModalVisible(true)}
             className="w-10 h-10 p-2 flex items-center justify-center text-blue-700 hover:bg-blue-50"
-            title="Preview AI-enriched OpenTIDE metadata before HEF publish"
+            title="Preview OpenTIDE metadata (optional AI enrichment) before HEF publish"
           >
             <PixelIcon name="eye" className="w-5 h-5" />
           </Button>

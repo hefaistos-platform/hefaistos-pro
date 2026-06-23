@@ -1462,6 +1462,7 @@ class UpdatePlaybookGraphStatus(graphene.Mutation):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication credentials were not provided")
+        status = (status or '').upper()
 
         # Security: Only allow updates within user's organization
         try:
@@ -1472,6 +1473,8 @@ class UpdatePlaybookGraphStatus(graphene.Mutation):
         valid_statuses = [choice[0] for choice in DetectionPlaybook.PlaybookStatus.choices]
         if status not in valid_statuses:
             raise Exception(f"Invalid status: {status}")
+        if status == DetectionPlaybook.PlaybookStatus.DEPLOYED:
+            raise Exception("DEPLOYED status can only be set via admin approval workflow.")
 
         graph.status = status
         graph.save(update_fields=["status", "updated_at"])
@@ -1761,8 +1764,11 @@ class AdminApproveDeployment(graphene.Mutation):
         if (graph.status or '').upper() != str(DetectionPlaybook.PlaybookStatus.APPROVED):
             raise Exception("Graph must be APPROVED before deployment")
 
+        # Always regenerate OpenTide YAML when transitioning to DEPLOYED so the
+        # snapshot is fresh regardless of downstream DaC mode (NONE/GIT/DEPLOY).
         graph.status = DetectionPlaybook.PlaybookStatus.DEPLOYED
-        graph.save(update_fields=["status", "updated_at"])
+        graph.auto_update_opentide_yaml()
+        graph.save(update_fields=["status", "opentide_yaml", "configured_platforms", "updated_at"])
         l1_entry = _upsert_l1_portal_snapshot(graph)
 
         # Publish deployment event via existing connector key

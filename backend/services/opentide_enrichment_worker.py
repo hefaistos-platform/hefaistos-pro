@@ -2,7 +2,7 @@
 OpenTIDE enrichment worker.
 
 Listens to the RabbitMQ 'opentide.preview.requested' routing key and
-processes AI-enriched OpenTIDE metadata preview tasks asynchronously,
+processes OpenTIDE metadata preview tasks asynchronously (with optional AI enrichment),
 following the same pattern as services/listener.py.
 """
 import json
