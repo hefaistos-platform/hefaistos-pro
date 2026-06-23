@@ -200,6 +200,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
   const [savingTaskKey, setSavingTaskKey] = useState<string | null>(null);
   const [runningTaskKey, setRunningTaskKey] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<TaskRun | null>(null);
+  const [selectedTaskOutput, setSelectedTaskOutput] = useState<{ task: TaskConfig; text: string } | null>(null);
 
   const { data, loading, error, refetch } = useQuery<{ orgAiTaskConfigs: TaskConfig[] }>(
     GET_ORG_AI_TASK_CONFIGS,
@@ -239,6 +240,20 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
     }
     const startedAt = record.startedAt ? new Date(record.startedAt).toISOString().slice(0, 19).replace(/:/g, '-') : 'unknown-time';
     const filename = `${sanitizeFilenamePart(record.taskKey)}-${triggerText(record.trigger)}-${startedAt}.txt`;
+    const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = downloadUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(downloadUrl);
+  };
+
+  const downloadTaskOutput = (task: TaskConfig, output: string) => {
+    const startedAt = task.lastRunAt ? new Date(task.lastRunAt).toISOString().slice(0, 19).replace(/:/g, '-') : 'unknown-time';
+    const filename = `${sanitizeFilenamePart(task.taskKey)}-last-message-${startedAt}.txt`;
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
     const downloadUrl = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -326,9 +341,25 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                     </div>
                     <div className="text-xs text-gray-500">Next run: {formatDateTime(task.nextRunAt)}</div>
                     {task.lastMessage && (
-                      <div className="mt-2 rounded bg-gray-50 p-2 text-xs text-gray-700 whitespace-pre-wrap">
-                        {compactText(task.lastMessage, 420)}
-                      </div>
+                      <Space direction="vertical" size={6} className="mt-2 w-full">
+                        <div className="rounded bg-gray-50 p-2 text-xs text-gray-700 whitespace-pre-wrap">
+                          {compactText(task.lastMessage, 420)}
+                        </div>
+                        <Space size={8}>
+                          <Button
+                            size="small"
+                            onClick={() => setSelectedTaskOutput({ task, text: task.lastMessage || '' })}
+                          >
+                            Read
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => downloadTaskOutput(task, task.lastMessage || '')}
+                          >
+                            Download
+                          </Button>
+                        </Space>
+                      </Space>
                     )}
                   </div>
 
@@ -502,6 +533,48 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
               }}
             >
               {getRunOutputText(selectedRun) || 'No output is available for this run.'}
+            </pre>
+          </Space>
+        )}
+      </Modal>
+      <Modal
+        open={Boolean(selectedTaskOutput)}
+        onCancel={() => setSelectedTaskOutput(null)}
+        width={900}
+        title={selectedTaskOutput ? `${selectedTaskOutput.task.title} - Last Output` : 'Task Output'}
+        footer={[
+          <Button
+            key="download"
+            onClick={() => {
+              if (selectedTaskOutput) downloadTaskOutput(selectedTaskOutput.task, selectedTaskOutput.text);
+            }}
+            disabled={!selectedTaskOutput?.text}
+          >
+            Download
+          </Button>,
+          <Button key="close" type="primary" onClick={() => setSelectedTaskOutput(null)}>
+            Close
+          </Button>,
+        ]}
+      >
+        {selectedTaskOutput && (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            <Text type="secondary">
+              Last run: {formatDateTime(selectedTaskOutput.task.lastRunAt)} | Next run: {formatDateTime(selectedTaskOutput.task.nextRunAt)}
+            </Text>
+            <pre
+              style={{
+                whiteSpace: 'pre-wrap',
+                maxHeight: 520,
+                overflowY: 'auto',
+                background: '#fafafa',
+                border: '1px solid #f0f0f0',
+                borderRadius: 8,
+                padding: 12,
+                margin: 0,
+              }}
+            >
+              {selectedTaskOutput.text || 'No output is available for this task.'}
             </pre>
           </Space>
         )}
