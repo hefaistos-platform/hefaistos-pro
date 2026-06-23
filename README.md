@@ -273,7 +273,9 @@ echo "your-mailgun-key" > .secrets/mailgun_api
 If `.secrets/field_key` already exists but is empty, regenerate it before starting Docker:
 
 ```bash
-./setup_field_encryption_key.sh --force
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > .secrets/field_key
+# Fallback if Python cryptography is unavailable:
+# openssl rand 32 | openssl enc -base64 -A | tr '+/' '-_' > .secrets/field_key
 ```
 
 ### 4. Configure environment
