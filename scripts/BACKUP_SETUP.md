@@ -1,281 +1,130 @@
-# Hefaistos Backup Setup Guide
+# HEFAISTOS Backup Guide (Local/External Media)
 
 ## Overview
-The `backup-hefaistos.sh` script creates compressed backups of your Hefaistos installation and uploads them to a remote server via SSH/SCP using password authentication stored in your `.secrets` folder.
+
+`backup-hefaistos.sh` creates local compressed backups of your current HEFAISTOS runtime state.
+
+Supported destination types:
+- Local disk (`./backups` by default)
+- Externally mounted media (USB/NAS mount path), provided by system administrator
+
+Out of scope by design:
+- Remote copy/upload logic in the script
+- Elasticsearch snapshot export/restore
+
+## What Gets Backed Up
+
+Each archive includes:
+- PostgreSQL dump from the running `db` container
+- Media volume data from `/app/media`
+- ATT&CK navigator data volume from `/navigator-data`
+- Repository `.secrets` folder and connector token (if present)
+- Key config files (`.env`, compose files, nginx config/certs, backend deployment settings)
+- Metadata (`compose ps`, compose version, git commit where available)
+- SHA-256 checksum file (`.sha256`) when checksum tools are available
 
 ## Prerequisites
-- Docker and Docker Compose v2
-- SSH access to a remote backup server
-- `sshpass` installed for password authentication
-- Sufficient disk space on both local and remote systems
 
-## Quick Setup
+- Docker + Docker Compose (`docker compose` or `docker-compose`)
+- Running `db` and `backend` containers for backup
+- `tar` and `gzip`
 
-### 1. Install sshpass
+## Backup Usage
 
-```bash
-# Debian/Ubuntu
-sudo apt install sshpass
-
-# RHEL/CentOS/Rocky
-sudo yum install sshpass
-
-# macOS (using Homebrew)
-brew install hudochenkov/sshpass/sshpass
-```
-
-### 2. Create Credentials File
-
-Create `.secrets/backup_credentials` with your SSH details:
+### 1. Default local backup
 
 ```bash
-cd /opt/hefaistos
-nano .secrets/backup_credentials
+./scripts/backup-hefaistos.sh
 ```
 
-Add these lines (replace with your actual values):
-```bash
-REMOTE_USER=backup-user
-REMOTE_HOST=192.168.1.100
-REMOTE_PORT=22
-REMOTE_PASSWORD=YourSecurePasswordHere
-REMOTE_PATH=/backups/hefaistos
-```
-
-**Secure the file:**
-```bash
-chmod 600 .secrets/backup_credentials
-```
-
-### 3. Create Remote Directory
-
-Connect to your backup server and create the backup directory:
+### 2. Backup to external mounted media
 
 ```bash
-ssh backup-user@192.168.1.100
-mkdir -p /backups/hefaistos
-chmod 700 /backups/hefaistos
-exit
+./scripts/backup-hefaistos.sh --backup-dir /mnt/backup-drive/hefaistos
 ```
 
-### 4. Test the Backup
+### 3. Custom retention
 
 ```bash
-cd /opt/hefaistos/scripts
-chmod +x backup-hefaistos.sh
-./backup-hefaistos.sh
+./scripts/backup-hefaistos.sh --retention-days 14
 ```
 
-Check logs for success:
-```bash
-journalctl -t hefaistos-backup -n 50
-```
-
-## Configuration
-
-The script automatically reads credentials from `.secrets/backup_credentials`. You can also adjust:
+### 4. Legacy positional form (still supported)
 
 ```bash
-# In backup-hefaistos.sh
-RETENTION_DAYS=30  # How many days to keep backups
+./scripts/backup-hefaistos.sh /mnt/backup-drive/hefaistos 14
 ```
 
-## Running Backups
+## Restore Usage
 
-### Manual Execution
+Restore overwrites database and runtime volume data (`media`, `navigator-data`) and may replace `.secrets`.
+
+### 1. Restore from archive
+
 ```bash
-cd /opt/hefaistos/scripts
-chmod +x backup-hefaistos.sh
-./backup-hefaistos.sh
+./scripts/backup-hefaistos.sh --restore /path/to/hefaistos-backup-YYYYmmdd_HHMMSS.tar.gz
 ```
 
-### Automated Daily Backups (Cron)
+### 2. Non-interactive restore
 
-Since credentials are in `.secrets/backup_credentials`, cron jobs work without prompts:
+```bash
+./scripts/backup-hefaistos.sh --restore /path/to/hefaistos-backup-YYYYmmdd_HHMMSS.tar.gz --yes
+```
+
+During restore:
+- `db` and `backend` are started if needed
+- Database is restored from SQL dump
+- `media` and `navigator-data` are replaced with backup content
+- `.secrets` is restored if present in archive (current `.secrets` is preserved as `.secrets.pre_restore_<timestamp>`)
+- Archived config bundle is staged under `.restore/config-<timestamp>` for manual review
+
+## Elasticsearch Note
+
+Elasticsearch snapshot handling was intentionally removed from this script.
+
+After restore, if search index state is inconsistent, rebuild from app data:
+
+```bash
+docker compose exec backend python manage.py search_index --rebuild -f
+```
+
+## Suggested Cron Setup
+
+Example: run backup daily at 02:00 to externally mounted path.
 
 ```bash
 crontab -e
 
-# Add: Run daily at 2 AM
-0 2 * * * /opt/hefaistos/scripts/backup-hefaistos.sh >> /var/log/hefaistos-backup.log 2>&1
+0 2 * * * /opt/hefaistos-pro/scripts/backup-hefaistos.sh --backup-dir /mnt/backup-drive/hefaistos --retention-days 30 >> /var/log/hefaistos-backup.log 2>&1
 ```
 
-The script will automatically read the password from the credentials file.
+## Verify Backups
 
-### Check Backup Logs
 ```bash
-# View syslog entries
-journalctl -t hefaistos-backup
+# List archives
+ls -lh /path/to/backup-dir/hefaistos-backup-*.tar.gz
 
-# Or if using cron log
-tail -f /var/log/hefaistos-backup.log
-```
+# Verify checksum (Linux)
+cd /path/to/backup-dir
+sha256sum -c hefaistos-backup-YYYYmmdd_HHMMSS.tar.gz.sha256
 
-## What Gets Backed Up
-
-The script creates a compressed archive containing:
-- **Database**: PostgreSQL dump of Hefaistos database
-- **Media Files**: Uploaded files and avatars
-- **Secrets**: `.secrets` directory and connector tokens
-- **Configuration**: `settings.py`, `docker-compose.yml`, `.env`
-- **Elasticsearch**: Snapshots (if configured)
-
-## Backup Structure
-
-### Local (before upload):
-```
-/opt/hefaistos/backups/
-├── 2025-12-31/
-│   ├── db/hefaistos_db.sql
-│   ├── media/...
-│   ├── secrets/...
-│   └── config/...
-└── hefaistos-2025-12-31.tar.gz
-```
-
-### Remote (backup server):
-```
-/backups/hefaistos/
-├── hefaistos-2025-12-01.tar.gz
-├── hefaistos-2025-12-15.tar.gz
-└── hefaistos-2025-12-31.tar.gz
-```
-
-## Restore from Backup
-
-### 1. Download backup from remote
-```bash
-# Load credentials
-source /opt/hefaistos/.secrets/backup_credentials
-
-# Download using stored credentials
-sshpass -p "$REMOTE_PASSWORD" scp -P $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}/hefaistos-2025-12-31.tar.gz /opt/hefaistos/restore/
-```
-
-### 2. Extract archive
-```bash
-cd /opt/hefaistos/restore
-tar -xzf hefaistos-2025-12-31.tar.gz
-```
-
-### 3. Restore database
-```bash
-cd /opt/hefaistos
-docker compose exec -T db psql -U hefaistos_user -d hefaistos_db < restore/2025-12-31/db/hefaistos_db.sql
-```
-
-### 4. Restore media and secrets
-```bash
-cp -r restore/2025-12-31/media/* backend/media/
-cp -r restore/2025-12-31/secrets/.secrets .secrets/
-```
-
-### 5. Restart services
-```bash
-docker compose restart
+# Verify checksum (macOS)
+cd /path/to/backup-dir
+shasum -a 256 -c hefaistos-backup-YYYYmmdd_HHMMSS.tar.gz.sha256
 ```
 
 ## Troubleshooting
 
-### "sshpass: command not found"
+### Database container is not running
+
 ```bash
-# Install sshpass
-sudo apt install sshpass  # Debian/Ubuntu
-sudo yum install sshpass  # RHEL/CentOS
+docker compose up -d db backend
 ```
 
-### "Credentials file not found"
-```bash
-# Create the credentials file
-nano /opt/hefaistos/.secrets/backup_credentials
+### Restore says checksum file missing
 
-# Add required variables (see step 2 above)
-# Then secure it:
-chmod 600 /opt/hefaistos/.secrets/backup_credentials
-```
+The `.sha256` file is optional. Restore will continue with a warning.
 
-### "SSH connection failed"
-```bash
-# Test connection manually with same credentials
-source /opt/hefaistos/.secrets/backup_credentials
-sshpass -p "$REMOTE_PASSWORD" ssh -p $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST}
+### Permission denied on backup destination
 
-# If this fails, check:
-# - REMOTE_HOST is correct (IP or hostname)
-# - REMOTE_PORT is correct (usually 22)
-# - REMOTE_USER exists on backup server
-# - REMOTE_PASSWORD is correct
-# - Firewall allows SSH connection
-```
-
-### "Permission denied"
-```bash
-# On backup server, ensure directory exists and has correct permissions
-ssh backup-user@192.168.1.100
-mkdir -p /backups/hefaistos
-chmod 700 /backups/hefaistos
-ls -la /backups/
-```
-
-### Check if backup uploaded successfully
-```bash
-# Load credentials
-source /opt/hefaistos/.secrets/backup_credentials
-
-# List remote backups
-sshpass -p "$REMOTE_PASSWORD" ssh -p $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST} "ls -lh ${REMOTE_PATH}/"
-```
-
-## Security Best Practices
-
-1. **Secure credentials file**: Always set `chmod 600` on `.secrets/backup_credentials`
-2. **Strong passwords**: Use complex passwords for SSH authentication
-3. **Dedicated backup user**: Create a limited user on backup server just for backups
-   ```bash
-   # On backup server
-   sudo useradd -m -s /bin/bash backup-user
-   sudo passwd backup-user
-   sudo mkdir -p /backups/hefaistos
-   sudo chown backup-user:backup-user /backups/hefaistos
-   sudo chmod 700 /backups/hefaistos
-   ```
-4. **Firewall rules**: Only allow SSH from your Hefaistos server IP
-   ```bash
-   # On backup server
-   sudo ufw allow from 192.168.1.50 to any port 22
-   ```
-5. **Backup the .secrets folder**: Include `.secrets/backup_credentials` in your disaster recovery plan
-6. **Monitor logs**: Regularly check backup logs via `journalctl -t hefaistos-backup`
-7. **Test restores**: Periodically test restoring backups to ensure they work
-
-## Monitoring
-
-Check backup status:
-```bash
-# Load credentials first
-source /opt/hefaistos/.secrets/backup_credentials
-
-# List recent backups on remote
-sshpass -p "$REMOTE_PASSWORD" ssh -p $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST} "ls -lh ${REMOTE_PATH}/ | tail -10"
-
-# Check total backup size
-sshpass -p "$REMOTE_PASSWORD" ssh -p $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST} "du -sh ${REMOTE_PATH}/"
-
-# Verify latest backup exists
-LATEST=$(date +%Y-%m-%d)
-sshpass -p "$REMOTE_PASSWORD" ssh -p $REMOTE_PORT ${REMOTE_USER}@${REMOTE_HOST} "ls -lh ${REMOTE_PATH}/hefaistos-${LATEST}.tar.gz"
-
-# Check backup logs
-journalctl -t hefaistos-backup -n 50
-
-# Or if using cron log file
-tail -50 /var/log/hefaistos-backup.log
-```
-
-## Support
-
-For issues:
-1. Check logs: `journalctl -t hefaistos-backup`
-2. Test rclone manually: `rclone lsd backup-sftp: -vv`
-3. Verify Docker services: `docker compose ps`
-4. Check disk space: `df -h`
+Ensure target path is mounted and writable by the user running cron/script.

@@ -347,9 +347,6 @@ For the complete, up-to-date variable catalog (including advanced/optional keys)
 | `EMAIL_PORT` | SMTP port | No |
 | `EMAIL_HOST_USER` | SMTP username | No |
 | `MAILGUN_API_KEY_PATH` | Path to Mailgun API key | No |
-| `BACKUP_ENABLED` | Enable backups | No (default: False) |
-| `BACKUP_SCHEDULE` | Cron schedule | No (default: 0 2 * * *) |
-| `BACKUP_RETENTION_DAYS` | Keep backups for N days | No (default: 30) |
 
 ### Docker Secrets
 
@@ -767,19 +764,29 @@ hefaistos/
 Backups can be run manually and optionally scheduled via cron:
 
 ```bash
-# Manual backup
+# Manual backup to default ./backups
 ./scripts/backup-hefaistos.sh
 
-# Restore from backup
-./scripts/backup-hefaistos.sh --restore /path/to/backup.tar.gz
+# Backup to external mounted media (admin-managed)
+./scripts/backup-hefaistos.sh --backup-dir /mnt/backup-drive/hefaistos --retention-days 30
+
+# Restore from a backup archive
+./scripts/backup-hefaistos.sh --restore /path/to/hefaistos-backup-YYYYmmdd_HHMMSS.tar.gz
 ```
 
 Backups include:
 
 - PostgreSQL database dump (gzip compressed)
+- Runtime media and navigator data volumes
 - Configuration files and secrets
 - Integrity verification checksums
 - Automatic rotation with 30-day retention (configurable)
+
+Elasticsearch snapshots are intentionally not part of this backup script. If needed after restore:
+
+```bash
+docker compose exec backend python manage.py search_index --rebuild -f
+```
 
 **See:** [scripts/backup-hefaistos.sh](scripts/backup-hefaistos.sh)
 
