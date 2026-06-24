@@ -13,7 +13,7 @@ import {
   useNodesState,
 } from '@xyflow/react';
 import { DeleteOutlined, ExportOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 
 const GET_MVE_DRAFTS_QUERY = gql`
   query GetMveDrafts {
@@ -356,7 +356,6 @@ type DraftNode = {
 
 type AddNodeFormValues = {
   nodeType: 'EVENT' | 'RULE';
-  stepOrder?: number;
   label?: string;
   dataSourceId?: string;
   detectionRuleId?: string;
@@ -477,12 +476,15 @@ const MveWorkbenchTab: React.FC = () => {
       anchorEntity: selectedDraft.anchorEntity,
       maxTotalSpanMs: selectedDraft.maxTotalSpanMs,
     });
-    const mappedNodes: Node[] = (selectedDraft.nodes || []).map((node: DraftNode) => {
+    const sortedNodes: DraftNode[] = [...(selectedDraft.nodes || [])].sort(
+      (a, b) => (a.stepOrder || 0) - (b.stepOrder || 0)
+    );
+    const mappedNodes: Node[] = sortedNodes.map((node: DraftNode, index: number) => {
       const sourceLabel = node.nodeType === 'EVENT'
         ? node.dataSource?.name || 'Data source'
         : node.detectionRule?.title || 'Rule';
       const capLabel = node.capabilityAbstraction?.componentArtifact || 'Unbound abstraction';
-      const label = `${node.stepOrder}. ${node.label || sourceLabel}`;
+      const label = `${index + 1}. ${node.label || sourceLabel}`;
       return {
         id: node.id,
         position: { x: node.positionX || 120, y: node.positionY || 120 },
@@ -567,7 +569,6 @@ const MveWorkbenchTab: React.FC = () => {
 
   const handleDeleteDraft = async () => {
     if (!selectedDraftId) return;
-    if (!window.confirm('Delete this MVE draft and all nodes/edges?')) return;
     try {
       await deleteDraft({ variables: { draftId: selectedDraftId } });
       setSelectedDraftId(null);
@@ -609,7 +610,7 @@ const MveWorkbenchTab: React.FC = () => {
         variables: {
           draftId: selectedDraftId,
           nodeType: values.nodeType,
-          stepOrder: values.stepOrder || null,
+          stepOrder: null,
           label: values.label || '',
           dataSourceId: values.nodeType === 'EVENT' ? values.dataSourceId : null,
           detectionRuleId: values.nodeType === 'RULE' ? values.detectionRuleId : null,
@@ -802,9 +803,25 @@ const MveWorkbenchTab: React.FC = () => {
                 <Button onClick={handleCreateDraft} loading={creatingDraft} type="primary">
                   + New MVE Draft
                 </Button>
-                <Button danger onClick={handleDeleteDraft} loading={deletingDraft} disabled={!selectedDraftId}>
-                  Delete
-                </Button>
+                <Popconfirm
+                  title="Delete whole MVE draft?"
+                  description="This deletes the full MVE chain (nodes and edges)."
+                  okText="Delete MVE"
+                  cancelText="Cancel"
+                  okButtonProps={{ danger: true, loading: deletingDraft }}
+                  onConfirm={handleDeleteDraft}
+                  disabled={!selectedDraftId}
+                >
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={!selectedDraftId}
+                    loading={deletingDraft}
+                    aria-label="Delete selected MVE draft"
+                  >
+                    Delete MVE
+                  </Button>
+                </Popconfirm>
               </Space>
               <Select
                 style={{ width: '100%' }}
@@ -990,7 +1007,7 @@ const MveWorkbenchTab: React.FC = () => {
       >
         <Form form={addNodeForm} layout="vertical" initialValues={{ nodeType: 'EVENT', criteriaText: '{}' }}>
           <Row gutter={12}>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item name="nodeType" label="Type" rules={[{ required: true }]}>
                 <Select
                   options={[
@@ -1000,12 +1017,7 @@ const MveWorkbenchTab: React.FC = () => {
                 />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="stepOrder" label="Step Order">
-                <InputNumber min={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item name="label" label="Label">
                 <Input placeholder="Optional custom label" />
               </Form.Item>

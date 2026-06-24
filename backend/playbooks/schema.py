@@ -5693,10 +5693,9 @@ class AddMveNode(graphene.Mutation):
         if normalized_type == MveNode.NodeType.RULE and not detection_rule:
             raise Exception("RULE node requires detectionRuleId")
 
-        next_step = step_order
-        if next_step is None:
-            max_step = draft.nodes.order_by('-step_order').values_list('step_order', flat=True).first() or 0
-            next_step = max_step + 1
+        # Enforce global monotonic numbering across all node types in a draft.
+        max_step = draft.nodes.order_by('-step_order').values_list('step_order', flat=True).first() or 0
+        next_step = max_step + 1
 
         node = MveNode.objects.create(
             draft=draft,

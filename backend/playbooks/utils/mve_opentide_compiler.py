@@ -30,7 +30,9 @@ def _build_chain_sequence(draft) -> List[Dict[str, Any]]:
             technique_ref = _safe_text(getattr(cap.technique, "technique_id", ""))
         source = "data_catalog" if node.node_type == "EVENT" else "rule_hub"
         item: Dict[str, Any] = {
-            "step": int(node.step_order or idx),
+            # Export always uses strict chain position (1..N), independent of any stale
+            # persisted step values from earlier drafts.
+            "step": idx,
             "type": "event" if node.node_type == "EVENT" else "rule",
             "source": source,
             "capability_abstraction": f"CAP-LIB-{str(cap.id)[:8]}" if cap else "",

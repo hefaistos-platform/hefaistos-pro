@@ -4,7 +4,7 @@ import { useQuery, useMutation, useLazyQuery } from '@apollo/client/react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { usePlaybookMeta } from '../context/PlaybookMetaContext';
 import { Card, Tag, Progress, message, Select, Space, Typography, Input, Drawer, Button } from 'antd';
-import { ApartmentOutlined, RadarChartOutlined, BranchesOutlined, BookOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, RadarChartOutlined, BranchesOutlined, BookOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 
 // Define the GraphQL query to fetch all legacy playbooks
@@ -73,6 +73,21 @@ const GET_ALL_ADVOPS_REPORTS_QUERY = gql`
   }
 `;
 
+const GET_ALL_MVE_DRAFTS_QUERY = gql`
+  query GetAllMveDraftsForKanban {
+    allMveDrafts {
+      id
+      name
+      status
+      isAdvopsValidated
+      updatedAt
+      author {
+        username
+      }
+    }
+  }
+`;
+
 const ALL_TAGS_QUERY = gql`
   query AllTags { allTags { id name usageCount } }
 `;
@@ -135,21 +150,34 @@ const UPDATE_ADVOPS_STATUS_MUTATION = gql`
   }
 `;
 
+const UPDATE_MVE_DRAFT_STATUS_MUTATION = gql`
+  mutation UpdateMveDraftStatusFromKanban($draftId: UUID!, $status: String) {
+    updateMveDraft(draftId: $draftId, status: $status) {
+      mveDraft {
+        id
+        status
+        updatedAt
+      }
+    }
+  }
+`;
+
 // (Removed unused creation mutations to satisfy ESLint)
 
 // --- TypeScript Types ---
-type ItemKind = 'legacy' | 'graph' | 'ach' | 'advops';
+type ItemKind = 'legacy' | 'graph' | 'ach' | 'advops' | 'mve';
 
 interface PlaybookCard {
   id: string;
   title: string;
   status: string;
-  playbookType: string; // 'DETECTION' | 'HUNT' | 'GRAPH' | 'ACH'
+  playbookType: string; // 'DETECTION' | 'HUNT' | 'GRAPH' | 'ACH' | 'ADVOPS' | 'MVE'
   author: { username: string } | null;
   tags: Array<{ id: string; name: string }>;
   tasks: Array<{ id: string; status: string }>;
   kind: ItemKind;
   graphImageUrl?: string | null; // For graph snapshots
+  mveEngineStatus?: string;
 }
 
 interface AllPlaybooksData {
@@ -190,6 +218,17 @@ interface AllAdvopsReportsData {
   }>;
 }
 
+interface AllMveDraftsData {
+  allMveDrafts: Array<{
+    id: string;
+    name: string;
+    status: string;
+    isAdvopsValidated: boolean;
+    updatedAt: string;
+    author: { username: string } | null;
+  }>;
+}
+
 interface Column {
   id: string;
   title: string;
@@ -204,6 +243,13 @@ interface KanbanData {
 // Helper to get display config (color, label, icon, URL) for a kanban item
 const getItemConfig = (playbook: PlaybookCard) => {
   switch (playbook.kind) {
+    case 'mve':
+      return {
+        color: '#a87900',
+        label: 'MVE',
+        icon: <ThunderboltOutlined style={{ fontSize: 'inherit' }} />,
+        url: `/playbooks?tab=mve`,
+      };
     case 'graph':
       return {
         color: '#52c41a',
@@ -233,6 +279,24 @@ const getItemConfig = (playbook: PlaybookCard) => {
         url: `/playbooks/detail/${playbook.id}`,
       };
   }
+};
+
+const mapMveEngineStatusToLifecycle = (status: string): string => {
+  const normalized = (status || '').toUpperCase();
+  if (normalized === 'DRAFT') return 'RESEARCH';
+  if (normalized === 'VALIDATED' || normalized === 'EXPORTED') return 'APPROVED';
+  return 'RESEARCH';
+};
+
+const mapLifecycleToMveEngineStatus = (lifecycleStatus: string, currentEngineStatus?: string): string | null => {
+  const normalizedLifecycle = (lifecycleStatus || '').toUpperCase();
+  const normalizedEngine = (currentEngineStatus || '').toUpperCase();
+  if (normalizedLifecycle === 'RESEARCH') return 'DRAFT';
+  if (normalizedLifecycle === 'APPROVED') {
+    // Keep EXPORTED when already exported; otherwise APPROVED maps to VALIDATED.
+    return normalizedEngine === 'EXPORTED' ? 'EXPORTED' : 'VALIDATED';
+  }
+  return null;
 };
 
 // Helper function to process data for the board
@@ -305,13 +369,22 @@ export const KanbanBoardPage = () => {
     { value: 'DEPLOYED', label: 'Deployed' },
     { value: 'TUNING', label: 'Tuning/Maintenance' },
   ];
-  const dynamicTypes = (meta.data?.playbookTypes && meta.data.playbookTypes.length) ? meta.data.playbookTypes : [
-    { value: 'HUNT', label: 'Hunt' },
-    { value: 'DETECTION', label: 'Detection' },
-    { value: 'GRAPH', label: 'Workbench' },
-    { value: 'ACH', label: 'ACH Matrix' },
-    { value: 'ADVOPS', label: 'ADVOPS' },
-  ];
+  const dynamicTypes = useMemo(() => {
+    const fromMeta = (meta.data?.playbookTypes && meta.data.playbookTypes.length)
+      ? meta.data.playbookTypes
+      : [{ value: 'HUNT', label: 'Hunt' }, { value: 'DETECTION', label: 'Detection' }];
+    const extras = [
+      { value: 'GRAPH', label: 'Workbench' },
+      { value: 'ACH', label: 'ACH Matrix' },
+      { value: 'ADVOPS', label: 'ADVOPS' },
+      { value: 'MVE', label: 'MVE' },
+    ];
+    const byValue: Record<string, { value: string; label: string }> = {};
+    [...fromMeta, ...extras].forEach((item: any) => {
+      byValue[String(item.value)] = { value: String(item.value), label: String(item.label) };
+    });
+    return Object.values(byValue);
+  }, [meta.data?.playbookTypes]);
   const { data: legacyData, loading: loadingLegacy, error: errorLegacy } = useQuery<AllPlaybooksData>(GET_ALL_PLAYBOOKS_QUERY, {
     fetchPolicy: 'cache-first',
   });
@@ -324,11 +397,15 @@ export const KanbanBoardPage = () => {
   const { data: advopsData, loading: loadingADVOPS, error: errorADVOPS } = useQuery<AllAdvopsReportsData>(GET_ALL_ADVOPS_REPORTS_QUERY, {
     fetchPolicy: 'cache-first',
   });
+  const { data: mveData, loading: loadingMVE, error: errorMVE } = useQuery<AllMveDraftsData>(GET_ALL_MVE_DRAFTS_QUERY, {
+    fetchPolicy: 'cache-first',
+  });
   const { data: meData } = useQuery<MeData>(GET_ME_QUERY, { fetchPolicy: 'network-only', nextFetchPolicy: 'cache-first' });
   const [updatePlaybookStatus] = useMutation(UPDATE_PLAYBOOK_STATUS_MUTATION);
   const [updateGraphStatus] = useMutation(UPDATE_GRAPH_STATUS_MUTATION);
   const [updateACHStatus] = useMutation(UPDATE_ACH_STATUS_MUTATION);
   const [updateAdvopsStatus] = useMutation(UPDATE_ADVOPS_STATUS_MUTATION);
+  const [updateMveDraftStatus] = useMutation(UPDATE_MVE_DRAFT_STATUS_MUTATION);
   interface AllTagsData { allTags: { id: string; name: string; usageCount?: number }[] }
   const [loadTags, tagsQuery] = useLazyQuery<AllTagsData>(ALL_TAGS_QUERY);
   useEffect(() => { loadTags(); }, [loadTags]);
@@ -550,6 +627,47 @@ export const KanbanBoardPage = () => {
             message.error('Failed to update ADVOPS status');
           }
         });
+      } else if (kind === 'mve') {
+        if (!['RESEARCH', 'APPROVED'].includes(newStatus)) {
+          message.warning('MVE cards can only be moved between In Research and Approved.');
+          return;
+        }
+        const existingDraft = (mveData?.allMveDrafts || []).find((item) => item.id === rawId);
+        const mappedStatus = mapLifecycleToMveEngineStatus(newStatus, existingDraft?.status);
+        if (!mappedStatus) {
+          message.warning('Unsupported MVE lifecycle transition.');
+          return;
+        }
+        updateMveDraftStatus({
+          variables: { draftId: rawId, status: mappedStatus },
+          optimisticResponse: {
+            updateMveDraft: {
+              __typename: 'UpdateMveDraft',
+              mveDraft: {
+                __typename: 'MveDraftType',
+                id: rawId,
+                status: mappedStatus,
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          },
+          update: (cache) => {
+            const existing = cache.readQuery<AllMveDraftsData>({ query: GET_ALL_MVE_DRAFTS_QUERY });
+            if (!existing) return;
+            const updated = existing.allMveDrafts.map((d) =>
+              d.id === rawId ? { ...d, status: mappedStatus } : d
+            );
+            cache.writeQuery<AllMveDraftsData>({
+              query: GET_ALL_MVE_DRAFTS_QUERY,
+              data: { allMveDrafts: updated },
+            });
+          },
+          onError: (err) => {
+            // eslint-disable-next-line no-console
+            console.error(err);
+            message.error('Failed to update MVE status');
+          }
+        });
       }
     } catch (e) {
       // eslint-disable-next-line no-console
@@ -567,9 +685,10 @@ export const KanbanBoardPage = () => {
       .filter(r => r && r.author) // Filter out null/undefined records
       .map(r => r.author?.username)
       .filter(Boolean) as string[];
-    const allAuthors = [...legacyAuthors, ...graphAuthors, ...achAuthors, ...advopsAuthors];
+    const mveAuthors = (mveData?.allMveDrafts || []).map(d => d.author?.username).filter(Boolean) as string[];
+    const allAuthors = [...legacyAuthors, ...graphAuthors, ...achAuthors, ...advopsAuthors, ...mveAuthors];
     return Array.from(new Set(allAuthors));
-  }, [legacyData, graphData, achData, advopsData]);
+  }, [legacyData, graphData, achData, advopsData, mveData]);
 
   const filteredPlaybooks = useMemo(() => {
     // Helper to trim text to max 8 words
@@ -615,7 +734,18 @@ export const KanbanBoardPage = () => {
       tasks: [],
       kind: 'advops' as const,
     }));
-    const combined = [...legacy, ...graphs, ...ach, ...advops];
+    const mve: PlaybookCard[] = (mveData?.allMveDrafts || []).map(d => ({
+      id: d.id,
+      title: d.name,
+      status: mapMveEngineStatusToLifecycle(d.status),
+      mveEngineStatus: d.status,
+      playbookType: 'MVE',
+      author: d.author,
+      tags: d.isAdvopsValidated ? [{ id: `${d.id}-advops`, name: 'AdvOps Validated' }] : [],
+      tasks: [],
+      kind: 'mve' as const,
+    }));
+    const combined = [...legacy, ...graphs, ...ach, ...advops, ...mve];
     const typeAuthorFiltered = combined.filter(playbook => {
       const typeMatch = typeFilter === 'ALL' || playbook.playbookType === typeFilter;
       const authorMatch = authorFilter === 'ALL' || playbook.author?.username === authorFilter;
@@ -634,10 +764,10 @@ export const KanbanBoardPage = () => {
       const inTags = (p.tags || []).some(t => t.name.toLowerCase().includes(q));
       return inTitle || inAuthor || inTags;
     });
-  }, [legacyData, graphData, achData, advopsData, typeFilter, authorFilter, tagFilter, searchQuery]);
+  }, [legacyData, graphData, achData, advopsData, mveData, typeFilter, authorFilter, tagFilter, searchQuery]);
 
-  if (loadingLegacy || loadingGraphs || loadingACH || loadingADVOPS) return <p>Loading playbook board...</p>;
-  if (errorLegacy || errorGraphs || errorACH || errorADVOPS) return <p style={{ color: 'red' }}>Error loading playbooks.</p>;
+  if (loadingLegacy || loadingGraphs || loadingACH || loadingADVOPS || loadingMVE) return <p>Loading playbook board...</p>;
+  if (errorLegacy || errorGraphs || errorACH || errorADVOPS || errorMVE) return <p style={{ color: 'red' }}>Error loading playbooks.</p>;
   const canDrag = ['ADMIN', 'REVIEWER'].includes(meData?.me?.role || '');
   // Use filtered list instead of all and apply status column visibility
   const allowedStatuses = statusFilter.length ? statusFilter : undefined;
@@ -745,7 +875,7 @@ export const KanbanBoardPage = () => {
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <Typography.Text type="secondary">
-              Showing {filteredPlaybooks.length} of {(legacyData?.allPlaybooks?.length ?? 0) + (graphData?.allPlaybookGraphs?.length ?? 0) + (achData?.achAnalyses?.length ?? 0) + (advopsData?.allAdvopsReports?.length ?? 0)} playbooks
+              Showing {filteredPlaybooks.length} of {(legacyData?.allPlaybooks?.length ?? 0) + (graphData?.allPlaybookGraphs?.length ?? 0) + (achData?.achAnalyses?.length ?? 0) + (advopsData?.allAdvopsReports?.length ?? 0) + (mveData?.allMveDrafts?.length ?? 0)} playbooks
             </Typography.Text>
           </div>
         </Space>
@@ -985,6 +1115,8 @@ export const KanbanBoardPage = () => {
                   <Link to={`/playbooks/detail/${selected.id}`}>Open Full Page</Link>
                 ) : selected.kind === 'advops' ? (
                   <Link to={`/advops/${selected.id}`}>Open Full Page</Link>
+                ) : selected.kind === 'mve' ? (
+                  <Link to={`/playbooks?tab=mve`}>Open Full Page</Link>
                 ) : (
                   <Link to={`/playbooks/${selected.id}`}>Open Full Page</Link>
                 )}
