@@ -15,6 +15,7 @@ import { PixelIcon } from '../components/ui/PixelIcon';
 
 const AchPageLazy = React.lazy(() => import('./ACHPage').then(m => ({ default: m.ACHPage })));
 const AdvopsPageLazy = React.lazy(() => import('./ADVOPSPage').then(m => ({ default: m.ADVOPSPage ?? m.default })));
+const MveWorkbenchTabLazy = React.lazy(() => import('../components/mve/MveWorkbenchTab'));
 
 const GET_ALL_GRAPHS_QUERY = gql`
   query GetAllPlaybookGraphs {
@@ -130,7 +131,7 @@ export const PlaybooksHubPage: React.FC = () => {
   const [sortByGraphs, setSortByGraphs] = useState('date_desc');
   const [activeTab, setActiveTab] = useState(() => {
     const tab = searchParams.get('tab');
-    return tab === 'ach' ? 'ach' : tab === 'advops' ? 'advops' : 'graphs';
+    return tab === 'ach' ? 'ach' : tab === 'advops' ? 'advops' : tab === 'mve' ? 'mve' : 'graphs';
   });
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importHefModalVisible, setImportHefModalVisible] = useState(false);
@@ -145,7 +146,7 @@ export const PlaybooksHubPage: React.FC = () => {
   useEffect(() => {
     const tab = searchParams.get('tab');
     if (tab && tab !== activeTab) {
-      setActiveTab(tab === 'ach' ? 'ach' : tab === 'advops' ? 'advops' : 'graphs');
+      setActiveTab(tab === 'ach' ? 'ach' : tab === 'advops' ? 'advops' : tab === 'mve' ? 'mve' : 'graphs');
     }
   }, [searchParams, activeTab]);
 
@@ -513,6 +514,15 @@ export const PlaybooksHubPage: React.FC = () => {
             children: (
               <Suspense fallback={<div style={{ padding: 16 }}>Loading ADVOPS…</div>}>
                 <AdvopsPageLazy />
+              </Suspense>
+            )
+          },
+          {
+            key: 'mve',
+            label: 'Machina Velocity Engine',
+            children: (
+              <Suspense fallback={<div style={{ padding: 16 }}>Loading MVE…</div>}>
+                <MveWorkbenchTabLazy />
               </Suspense>
             )
           }

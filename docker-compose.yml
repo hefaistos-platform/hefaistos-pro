@@ -235,6 +235,29 @@ services:
     networks:
       - hefaistos-net
 
+  # --- MVE VALIDATION WORKER ---
+  # Processes async Machina Velocity Engine validation runs published via RabbitMQ
+  mve_validation_worker:
+    build: ./backend
+    command: python manage.py run_mve_validation_worker
+    <<: *backend-runtime
+    volumes:
+      - ./backend:/app
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - hefaistos-net
+
   # --- SCHEDULER SERVICE ---
   # Runs periodic tasks like scheduled repository pulls
   scheduler:

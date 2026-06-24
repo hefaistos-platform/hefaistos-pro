@@ -999,3 +999,171 @@ class OpentidePreviewTask(models.Model):
 
     def __str__(self):
         return f"OpentidePreviewTask({self.id}, {self.status})"
+
+
+class MveDraft(models.Model):
+    """Machina Velocity Engine draft graph persisted independently of Workbench graphs."""
+
+    class DraftStatus(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        VALIDATED = 'VALIDATED', 'Validated'
+        EXPORTED = 'EXPORTED', 'Exported'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='mve_drafts',
+    )
+    author = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mve_drafts',
+    )
+    name = models.CharField(max_length=255, default='New Velocity Chain')
+    status = models.CharField(max_length=20, choices=DraftStatus.choices, default=DraftStatus.DRAFT)
+    anchor_entity = models.CharField(max_length=255, default='host.hostname')
+    max_total_span_ms = models.PositiveIntegerField(default=800)
+    is_advops_validated = models.BooleanField(default=False)
+    validation_summary = models.JSONField(default=dict, blank=True)
+    last_validated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['organization', 'status']),
+            models.Index(fields=['organization', 'updated_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.status})"
+
+
+class MveNode(models.Model):
+    class NodeType(models.TextChoices):
+        EVENT = 'EVENT', 'Event'
+        RULE = 'RULE', 'Rule'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    draft = models.ForeignKey(
+        MveDraft,
+        on_delete=models.CASCADE,
+        related_name='nodes',
+    )
+    step_order = models.PositiveIntegerField(default=1)
+    node_type = models.CharField(max_length=10, choices=NodeType.choices)
+    label = models.CharField(max_length=255, blank=True, default='')
+    data_source = models.ForeignKey(
+        DataSource,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mve_nodes',
+    )
+    detection_rule = models.ForeignKey(
+        'rules.DetectionRule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mve_nodes',
+    )
+    capability_abstraction = models.ForeignKey(
+        CapabilityAbstraction,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mve_nodes',
+    )
+    tactic_ref = models.CharField(max_length=20, blank=True, default='')
+    technique_ref = models.CharField(max_length=20, blank=True, default='')
+    criteria = models.JSONField(default=dict, blank=True)
+    position_x = models.FloatField(default=120)
+    position_y = models.FloatField(default=120)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['step_order', 'created_at']
+        indexes = [
+            models.Index(fields=['draft', 'step_order']),
+            models.Index(fields=['draft', 'node_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.draft_id}:{self.node_type}:{self.step_order}"
+
+
+class MveEdge(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    draft = models.ForeignKey(
+        MveDraft,
+        on_delete=models.CASCADE,
+        related_name='edges',
+    )
+    source_node = models.ForeignKey(
+        MveNode,
+        on_delete=models.CASCADE,
+        related_name='outgoing_edges',
+    )
+    target_node = models.ForeignKey(
+        MveNode,
+        on_delete=models.CASCADE,
+        related_name='incoming_edges',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['draft', 'source_node', 'target_node'],
+                name='uniq_mve_edge_per_draft',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['draft']),
+        ]
+
+    def __str__(self):
+        return f"{self.source_node_id}->{self.target_node_id}"
+
+
+class MveValidationRun(models.Model):
+    class RunStatus(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    draft = models.ForeignKey(
+        MveDraft,
+        on_delete=models.CASCADE,
+        related_name='validation_runs',
+    )
+    requested_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='mve_validation_runs',
+    )
+    status = models.CharField(max_length=20, choices=RunStatus.choices, default=RunStatus.PENDING)
+    result_data = models.JSONField(null=True, blank=True)
+    error_message = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['draft', 'created_at']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"MveValidationRun({self.id}, {self.status})"

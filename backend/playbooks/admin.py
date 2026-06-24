@@ -1,7 +1,18 @@
 # playbooks/admin.py (FINAL, ROBUST FIX)
 
 from django.contrib import admin
-from .models import DetectionPlaybook, Task, PlaybookGraph, PlaybookNode, PlaybookEdge, OpentidePreviewTask
+from .models import (
+    DetectionPlaybook,
+    Task,
+    PlaybookGraph,
+    PlaybookNode,
+    PlaybookEdge,
+    OpentidePreviewTask,
+    MveDraft,
+    MveNode,
+    MveEdge,
+    MveValidationRun,
+)
 from .forms import DetectionPlaybookAdminForm 
 
 # Import the TenantTag model to manage tags directly
@@ -72,3 +83,7 @@ admin.site.register(PlaybookGraph)
 admin.site.register(PlaybookNode)
 admin.site.register(PlaybookEdge)
 admin.site.register(OpentidePreviewTask)
+admin.site.register(MveDraft)
+admin.site.register(MveNode)
+admin.site.register(MveEdge)
+admin.site.register(MveValidationRun)

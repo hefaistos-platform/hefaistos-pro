@@ -30,6 +30,10 @@ from .models import (
     PlaybookComment,
     CapabilityAbstraction,
     L1PortalEntry,
+    MveDraft,
+    MveNode,
+    MveEdge,
+    MveValidationRun,
 )
 from review.models import ReviewRequest as CanonReviewRequest, ReviewComment as CanonReviewComment
 from tags.schema import TagType
@@ -82,6 +86,22 @@ def _is_admin_user(user) -> bool:
 def _can_clear_workbench_notes(user, graph: PlaybookGraph) -> bool:
     is_author = getattr(graph, 'author_id', None) == getattr(user, 'id', None)
     return is_author or _is_admin_user(user)
+
+
+def _coerce_int_pk(value, label: str) -> int | None:
+    if value in (None, ''):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise Exception(f"Invalid {label} identifier") from exc
+
+
+def _normalize_mve_node_type(raw_node_type: str | None) -> str:
+    value = str(raw_node_type or '').strip().upper()
+    if value not in {MveNode.NodeType.EVENT, MveNode.NodeType.RULE}:
+        raise Exception("nodeType must be EVENT or RULE")
+    return value
 
 
 def _notify_dac_automation_failure(graph, actor, error_message: str) -> None:
@@ -773,6 +793,99 @@ class PlaybookGraphType(DjangoObjectType):
                 return self.png_snapshot.url
         return None
 
+
+class MveNodeType(DjangoObjectType):
+    class Meta:
+        model = MveNode
+        fields = (
+            'id',
+            'draft',
+            'step_order',
+            'node_type',
+            'label',
+            'data_source',
+            'detection_rule',
+            'capability_abstraction',
+            'tactic_ref',
+            'technique_ref',
+            'criteria',
+            'position_x',
+            'position_y',
+            'created_at',
+            'updated_at',
+        )
+
+
+class MveEdgeType(DjangoObjectType):
+    source = graphene.UUID()
+    target = graphene.UUID()
+
+    class Meta:
+        model = MveEdge
+        fields = ('id', 'draft', 'source_node', 'target_node', 'created_at')
+
+    def resolve_source(self, info):
+        return self.source_node_id
+
+    def resolve_target(self, info):
+        return self.target_node_id
+
+
+class MveValidationRunType(DjangoObjectType):
+    class Meta:
+        model = MveValidationRun
+        fields = (
+            'id',
+            'draft',
+            'requested_by',
+            'status',
+            'result_data',
+            'error_message',
+            'created_at',
+            'started_at',
+            'completed_at',
+        )
+
+
+class MveDraftType(DjangoObjectType):
+    nodes = graphene.List(MveNodeType)
+    edges = graphene.List(MveEdgeType)
+    latest_validation = graphene.Field(MveValidationRunType)
+
+    class Meta:
+        model = MveDraft
+        fields = (
+            'id',
+            'organization',
+            'author',
+            'name',
+            'status',
+            'anchor_entity',
+            'max_total_span_ms',
+            'is_advops_validated',
+            'validation_summary',
+            'last_validated_at',
+            'created_at',
+            'updated_at',
+            'nodes',
+            'edges',
+            'latest_validation',
+        )
+
+    def resolve_nodes(self, info):
+        return self.nodes.select_related(
+            'capability_abstraction',
+            'capability_abstraction__technique',
+            'data_source',
+            'detection_rule',
+        ).order_by('step_order', 'created_at')
+
+    def resolve_edges(self, info):
+        return self.edges.select_related('source_node', 'target_node').all()
+
+    def resolve_latest_validation(self, info):
+        return self.validation_runs.order_by('-created_at').first()
+
 # --- Query Definitions ---
 
 class Query(graphene.ObjectType):
@@ -841,6 +954,20 @@ class Query(graphene.ObjectType):
         technique_id=graphene.String(),
         include_baseline=graphene.Boolean(default_value=True),
         description="Capability abstraction entries for an ATT&CK technique, including shared baseline and organization-specific content.",
+    )
+    all_mve_drafts = graphene.List(
+        MveDraftType,
+        description="Returns all Machina Velocity Engine drafts in the user's organization.",
+    )
+    mve_draft = graphene.Field(
+        MveDraftType,
+        id=graphene.UUID(required=True),
+        description="Return one MVE draft by id (organization scoped).",
+    )
+    mve_validation_run = graphene.Field(
+        MveValidationRunType,
+        id=graphene.UUID(required=True),
+        description="Return one MVE validation run by id (organization scoped).",
     )
 
     def resolve_all_playbooks(self, info):
@@ -1083,6 +1210,27 @@ class Query(graphene.ObjectType):
         else:
             qs = qs.filter(organization=user.organization)
         return qs.order_by('technique__technique_id', 'abstraction_layer', 'component_artifact')
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])
+    def resolve_all_mve_drafts(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return MveDraft.objects.filter(organization=user.organization).select_related('author').order_by('-updated_at')
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])
+    def resolve_mve_draft(self, info, id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return MveDraft.objects.filter(pk=id, organization=user.organization).select_related('author').first()
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])
+    def resolve_mve_validation_run(self, info, id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return MveValidationRun.objects.filter(id=id, draft__organization=user.organization).select_related('draft').first()
 
     def resolve_playbook_meta(self, info):
         user = info.context.user
@@ -5371,6 +5519,429 @@ class RefreshOpenTideMetadata(graphene.Mutation):
         )
 
 
+class CreateMveDraft(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=False)
+        anchor_entity = graphene.String(required=False)
+        max_total_span_ms = graphene.Int(required=False)
+
+    mve_draft = graphene.Field(MveDraftType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, name=None, anchor_entity=None, max_total_span_ms=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        draft = MveDraft.objects.create(
+            organization=user.organization,
+            author=user,
+            name=(name or 'New Velocity Chain').strip() or 'New Velocity Chain',
+            anchor_entity=(anchor_entity or 'host.hostname').strip() or 'host.hostname',
+            max_total_span_ms=max(1, int(max_total_span_ms or 800)),
+        )
+        return CreateMveDraft(mve_draft=draft)
+
+
+class UpdateMveDraft(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+        name = graphene.String(required=False)
+        anchor_entity = graphene.String(required=False)
+        max_total_span_ms = graphene.Int(required=False)
+        status = graphene.String(required=False)
+
+    mve_draft = graphene.Field(MveDraftType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, draft_id, name=None, anchor_entity=None, max_total_span_ms=None, status=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+
+        if name is not None:
+            normalized = name.strip()
+            if not normalized:
+                raise Exception("Draft name cannot be empty")
+            draft.name = normalized
+        if anchor_entity is not None:
+            normalized_anchor = anchor_entity.strip()
+            if not normalized_anchor:
+                raise Exception("anchorEntity cannot be empty")
+            draft.anchor_entity = normalized_anchor
+        if max_total_span_ms is not None:
+            draft.max_total_span_ms = max(1, int(max_total_span_ms))
+        if status is not None:
+            normalized_status = status.strip().upper()
+            allowed = {choice[0] for choice in MveDraft.DraftStatus.choices}
+            if normalized_status not in allowed:
+                raise Exception(f"Invalid status. Allowed values: {', '.join(sorted(allowed))}")
+            draft.status = normalized_status
+
+        draft.save()
+        return UpdateMveDraft(mve_draft=draft)
+
+
+class DeleteMveDraft(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+
+    ok = graphene.Boolean()
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, draft_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+        draft.delete()
+        return DeleteMveDraft(ok=True)
+
+
+class AddMveNode(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+        node_type = graphene.String(required=True)
+        step_order = graphene.Int(required=False)
+        label = graphene.String(required=False)
+        data_source_id = graphene.ID(required=False)
+        detection_rule_id = graphene.ID(required=False)
+        capability_abstraction_id = graphene.UUID(required=False)
+        tactic_ref = graphene.String(required=False)
+        technique_ref = graphene.String(required=False)
+        criteria = GenericScalar(required=False)
+        position_x = graphene.Float(required=False)
+        position_y = graphene.Float(required=False)
+
+    node = graphene.Field(MveNodeType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(
+        root,
+        info,
+        draft_id,
+        node_type,
+        step_order=None,
+        label=None,
+        data_source_id=None,
+        detection_rule_id=None,
+        capability_abstraction_id=None,
+        tactic_ref=None,
+        technique_ref=None,
+        criteria=None,
+        position_x=None,
+        position_y=None,
+    ):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+
+        normalized_type = _normalize_mve_node_type(node_type)
+        ds_pk = _coerce_int_pk(data_source_id, "data source")
+        rule_pk = _coerce_int_pk(detection_rule_id, "detection rule")
+        data_source = None
+        detection_rule = None
+        capability = None
+
+        if ds_pk is not None:
+            data_source = DataSource.objects.filter(pk=ds_pk, organization=user.organization).first()
+            if not data_source:
+                raise Exception("Data source not found")
+        if rule_pk is not None:
+            detection_rule = DetectionRule.objects.filter(pk=rule_pk, organization=user.organization).first()
+            if not detection_rule:
+                raise Exception("Detection rule not found")
+        if capability_abstraction_id:
+            capability = CapabilityAbstraction.objects.filter(
+                pk=capability_abstraction_id
+            ).filter(Q(organization=user.organization) | Q(organization__isnull=True)).first()
+            if not capability:
+                raise Exception("Capability abstraction not found")
+
+        if normalized_type == MveNode.NodeType.EVENT and not data_source:
+            raise Exception("EVENT node requires dataSourceId")
+        if normalized_type == MveNode.NodeType.RULE and not detection_rule:
+            raise Exception("RULE node requires detectionRuleId")
+
+        next_step = step_order
+        if next_step is None:
+            max_step = draft.nodes.order_by('-step_order').values_list('step_order', flat=True).first() or 0
+            next_step = max_step + 1
+
+        node = MveNode.objects.create(
+            draft=draft,
+            step_order=max(1, int(next_step)),
+            node_type=normalized_type,
+            label=(label or '').strip(),
+            data_source=data_source if normalized_type == MveNode.NodeType.EVENT else None,
+            detection_rule=detection_rule if normalized_type == MveNode.NodeType.RULE else None,
+            capability_abstraction=capability,
+            tactic_ref=(tactic_ref or '').strip().upper(),
+            technique_ref=(technique_ref or '').strip().upper(),
+            criteria=criteria or {},
+            position_x=float(position_x if position_x is not None else 120.0),
+            position_y=float(position_y if position_y is not None else 120.0),
+        )
+        return AddMveNode(node=node)
+
+
+class UpdateMveNode(graphene.Mutation):
+    class Arguments:
+        node_id = graphene.UUID(required=True)
+        step_order = graphene.Int(required=False)
+        label = graphene.String(required=False)
+        data_source_id = graphene.ID(required=False)
+        detection_rule_id = graphene.ID(required=False)
+        capability_abstraction_id = graphene.UUID(required=False)
+        tactic_ref = graphene.String(required=False)
+        technique_ref = graphene.String(required=False)
+        criteria = GenericScalar(required=False)
+        position_x = graphene.Float(required=False)
+        position_y = graphene.Float(required=False)
+
+    node = graphene.Field(MveNodeType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(
+        root,
+        info,
+        node_id,
+        step_order=None,
+        label=None,
+        data_source_id=None,
+        detection_rule_id=None,
+        capability_abstraction_id=None,
+        tactic_ref=None,
+        technique_ref=None,
+        criteria=None,
+        position_x=None,
+        position_y=None,
+    ):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        node = MveNode.objects.select_related('draft').filter(
+            id=node_id,
+            draft__organization=user.organization,
+        ).first()
+        if not node:
+            raise Exception("MVE node not found")
+
+        if step_order is not None:
+            node.step_order = max(1, int(step_order))
+        if label is not None:
+            node.label = label.strip()
+        if tactic_ref is not None:
+            node.tactic_ref = tactic_ref.strip().upper()
+        if technique_ref is not None:
+            node.technique_ref = technique_ref.strip().upper()
+        if criteria is not None:
+            node.criteria = criteria
+        if position_x is not None:
+            node.position_x = float(position_x)
+        if position_y is not None:
+            node.position_y = float(position_y)
+
+        if data_source_id is not None:
+            ds_pk = _coerce_int_pk(data_source_id, "data source")
+            node.data_source = None
+            if ds_pk is not None:
+                ds = DataSource.objects.filter(pk=ds_pk, organization=user.organization).first()
+                if not ds:
+                    raise Exception("Data source not found")
+                node.data_source = ds
+        if detection_rule_id is not None:
+            rule_pk = _coerce_int_pk(detection_rule_id, "detection rule")
+            node.detection_rule = None
+            if rule_pk is not None:
+                rule = DetectionRule.objects.filter(pk=rule_pk, organization=user.organization).first()
+                if not rule:
+                    raise Exception("Detection rule not found")
+                node.detection_rule = rule
+        if capability_abstraction_id is not None:
+            node.capability_abstraction = None
+            if capability_abstraction_id:
+                capability = CapabilityAbstraction.objects.filter(
+                    pk=capability_abstraction_id
+                ).filter(Q(organization=user.organization) | Q(organization__isnull=True)).first()
+                if not capability:
+                    raise Exception("Capability abstraction not found")
+                node.capability_abstraction = capability
+
+        if node.node_type == MveNode.NodeType.EVENT and not node.data_source_id:
+            raise Exception("EVENT node requires data source")
+        if node.node_type == MveNode.NodeType.RULE and not node.detection_rule_id:
+            raise Exception("RULE node requires detection rule")
+
+        node.save()
+        return UpdateMveNode(node=node)
+
+
+class DeleteMveNode(graphene.Mutation):
+    class Arguments:
+        node_id = graphene.UUID(required=True)
+
+    ok = graphene.Boolean()
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, node_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        node = MveNode.objects.filter(id=node_id, draft__organization=user.organization).first()
+        if not node:
+            raise Exception("MVE node not found")
+        node.delete()
+        return DeleteMveNode(ok=True)
+
+
+class AddMveEdge(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+        source_node_id = graphene.UUID(required=True)
+        target_node_id = graphene.UUID(required=True)
+
+    edge = graphene.Field(MveEdgeType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, draft_id, source_node_id, target_node_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+        if source_node_id == target_node_id:
+            raise Exception("Source and target cannot be the same node")
+
+        source_node = MveNode.objects.filter(id=source_node_id, draft=draft).first()
+        target_node = MveNode.objects.filter(id=target_node_id, draft=draft).first()
+        if not source_node or not target_node:
+            raise Exception("Both nodes must belong to the same draft")
+
+        edge, _ = MveEdge.objects.get_or_create(
+            draft=draft,
+            source_node=source_node,
+            target_node=target_node,
+        )
+        return AddMveEdge(edge=edge)
+
+
+class DeleteMveEdge(graphene.Mutation):
+    class Arguments:
+        edge_id = graphene.UUID(required=True)
+
+    ok = graphene.Boolean()
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, edge_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        edge = MveEdge.objects.filter(id=edge_id, draft__organization=user.organization).first()
+        if not edge:
+            raise Exception("MVE edge not found")
+        edge.delete()
+        return DeleteMveEdge(ok=True)
+
+
+class StartMveValidation(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    validation_run = graphene.Field(MveValidationRunType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, draft_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+        if draft.nodes.count() < 2:
+            raise Exception("At least two nodes are required to validate a velocity chain")
+
+        run = MveValidationRun.objects.create(
+            draft=draft,
+            requested_by=user,
+            status=MveValidationRun.RunStatus.PENDING,
+        )
+        published = publish_event(
+            'mve.validation.requested',
+            {
+                'run_id': str(run.id),
+                'draft_id': str(draft.id),
+                'organization_id': str(user.organization_id),
+                'requested_by': str(user.id),
+            },
+        )
+        if not published:
+            return StartMveValidation(
+                success=False,
+                message='Validation run created, but queue publish failed (RabbitMQ unavailable).',
+                validation_run=run,
+            )
+        return StartMveValidation(
+            success=True,
+            message='Validation queued successfully.',
+            validation_run=run,
+        )
+
+
+class ExportMveOpenTideYaml(graphene.Mutation):
+    class Arguments:
+        draft_id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    yaml_text = graphene.String()
+    mve_draft = graphene.Field(MveDraftType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def mutate(root, info, draft_id):
+        from playbooks.utils.mve_opentide_compiler import dump_velocity_detection_yaml
+
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        draft = MveDraft.objects.filter(id=draft_id, organization=user.organization).first()
+        if not draft:
+            raise Exception("MVE draft not found")
+        if draft.nodes.count() == 0:
+            raise Exception("Cannot export an empty MVE draft")
+
+        yaml_text = dump_velocity_detection_yaml(draft)
+        draft.status = MveDraft.DraftStatus.EXPORTED
+        draft.save(update_fields=['status', 'updated_at'])
+        return ExportMveOpenTideYaml(
+            success=True,
+            message='OpenTide VelocityDetection YAML generated.',
+            yaml_text=yaml_text,
+            mve_draft=draft,
+        )
+
+
 class Mutation(graphene.ObjectType):
     admin_approve_deployment = AdminApproveDeployment.Field()
     # Playbook & Graph CRUD
@@ -5455,3 +6026,15 @@ class Mutation(graphene.ObjectType):
     update_playbook_opentide_yaml = UpdatePlaybookOpenTideYaml.Field()
     refresh_opentide_metadata = RefreshOpenTideMetadata.Field()
     import_from_opentide = ImportFromOpenTide.Field()
+
+    # Machina Velocity Engine
+    create_mve_draft = CreateMveDraft.Field()
+    update_mve_draft = UpdateMveDraft.Field()
+    delete_mve_draft = DeleteMveDraft.Field()
+    add_mve_node = AddMveNode.Field()
+    update_mve_node = UpdateMveNode.Field()
+    delete_mve_node = DeleteMveNode.Field()
+    add_mve_edge = AddMveEdge.Field()
+    delete_mve_edge = DeleteMveEdge.Field()
+    start_mve_validation = StartMveValidation.Field()
+    export_mve_open_tide_yaml = ExportMveOpenTideYaml.Field()
