@@ -12,7 +12,8 @@ import {
   useEdgesState,
   useNodesState,
 } from '@xyflow/react';
-import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Tag, Typography, message } from 'antd';
+import { DeleteOutlined, ExportOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Radio, Row, Select, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 
 const GET_MVE_DRAFTS_QUERY = gql`
   query GetMveDrafts {
@@ -105,6 +106,22 @@ const GET_MVE_OPTIONS_QUERY = gql`
       id
       title
       format
+    }
+    allRuleRepositories {
+      id
+      name
+      provider
+      url
+    }
+    mveAppendTargets {
+      id
+      title
+      status
+      updatedAt
+      author {
+        id
+        username
+      }
     }
   }
 `;
@@ -276,11 +293,29 @@ const START_MVE_VALIDATION_MUTATION = gql`
 `;
 
 const EXPORT_MVE_YAML_MUTATION = gql`
-  mutation ExportMveOpenTideYaml($draftId: UUID!) {
-    exportMveOpenTideYaml(draftId: $draftId) {
+  mutation ExportMveOpenTideYaml(
+    $draftId: UUID!
+    $mode: String
+    $repositoryId: ID
+    $branch: String
+    $filePath: String
+    $commitMessage: String
+    $targetGraphId: UUID
+  ) {
+    exportMveOpenTideYaml(
+      draftId: $draftId
+      mode: $mode
+      repositoryId: $repositoryId
+      branch: $branch
+      filePath: $filePath
+      commitMessage: $commitMessage
+      targetGraphId: $targetGraphId
+    ) {
       success
       message
       yamlText
+      url
+      generatedFileName
       mveDraft {
         id
         status
@@ -331,13 +366,35 @@ type AddNodeFormValues = {
   criteriaText?: string;
 };
 
+type ExportMode = 'SAVE' | 'PUSH_GIT' | 'APPEND_WORKBENCH';
+
 type AbstractionOption = {
   value: string;
   label: string;
   techniqueId: string;
 };
 
+type ExportFormValues = {
+  repositoryId?: string;
+  branch?: string;
+  filePath?: string;
+  commitMessage?: string;
+  targetGraphId?: string;
+};
+
 const CARD_HEIGHT = 620;
+const ACTION_ICON_BUTTON_STYLE: React.CSSProperties = {
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
+};
+const TOOLTIP_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 8,
+  padding: '6px 10px',
+};
 
 const MveWorkbenchTab: React.FC = () => {
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
@@ -347,9 +404,12 @@ const MveWorkbenchTab: React.FC = () => {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [yamlPreview, setYamlPreview] = useState<string>('');
   const [yamlOpen, setYamlOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode>('SAVE');
   const [addNodeOpen, setAddNodeOpen] = useState(false);
   const [constraintsForm] = Form.useForm();
   const [addNodeForm] = Form.useForm<AddNodeFormValues>();
+  const [exportForm] = Form.useForm<ExportFormValues>();
 
   const { data: draftsData, loading: draftsLoading, refetch: refetchDrafts } = useQuery<{ allMveDrafts: DraftRow[] }>(
     GET_MVE_DRAFTS_QUERY,
@@ -396,6 +456,8 @@ const MveWorkbenchTab: React.FC = () => {
   const dataSources = optionsData?.allDataSources ?? [];
   const rules = optionsData?.searchAllRules ?? [];
   const abstractions = optionsData?.capabilityAbstractions ?? [];
+  const repositories = optionsData?.allRuleRepositories ?? [];
+  const appendTargets = optionsData?.mveAppendTargets ?? [];
 
   useEffect(() => {
     const available = draftsData?.allMveDrafts ?? [];
@@ -461,6 +523,15 @@ const MveWorkbenchTab: React.FC = () => {
       message.info(run.status === 'COMPLETED' ? 'MVE validation finished.' : 'MVE validation failed.');
     }
   }, [activeRunId, validationData, stopPolling, refetchSelectedDraft]);
+
+  useEffect(() => {
+    if (!exportOpen || !selectedDraft) return;
+    exportForm.setFieldsValue({
+      branch: exportForm.getFieldValue('branch') || 'main',
+      commitMessage: exportForm.getFieldValue('commitMessage') || `Publish MVE VelocityDetection: ${selectedDraft.name}`,
+      filePath: exportForm.getFieldValue('filePath') || '',
+    });
+  }, [exportOpen, selectedDraft, exportForm]);
 
   const abstractionOptions = useMemo<AbstractionOption[]>(
     () =>
@@ -596,20 +667,72 @@ const MveWorkbenchTab: React.FC = () => {
     }
   };
 
-  const handleExportYaml = async () => {
+  const openExportModal = () => {
+    if (!selectedDraftId) return;
+    setExportMode('SAVE');
+    exportForm.setFieldsValue({
+      repositoryId: undefined,
+      branch: 'main',
+      filePath: '',
+      commitMessage: selectedDraft ? `Publish MVE VelocityDetection: ${selectedDraft.name}` : '',
+      targetGraphId: undefined,
+    });
+    setExportOpen(true);
+  };
+
+  const downloadYamlToPc = (yamlText: string, fileName: string) => {
+    const blob = new Blob([yamlText], { type: 'text/yaml;charset=utf-8' });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(href);
+  };
+
+  const handleExportAction = async () => {
     if (!selectedDraftId) return;
     try {
-      const result = await exportYaml({ variables: { draftId: selectedDraftId } });
+      const values = await exportForm.validateFields();
+      const variables: Record<string, unknown> = {
+        draftId: selectedDraftId,
+        mode: exportMode,
+      };
+      if (exportMode === 'PUSH_GIT') {
+        variables.repositoryId = values.repositoryId;
+        variables.branch = values.branch || 'main';
+        variables.filePath = values.filePath || null;
+        variables.commitMessage = values.commitMessage || null;
+      }
+      if (exportMode === 'APPEND_WORKBENCH') {
+        variables.targetGraphId = values.targetGraphId;
+      }
+
+      const result = await exportYaml({ variables });
       const payload = result.data?.exportMveOpenTideYaml;
       if (!payload?.success) {
         message.error(payload?.message || 'Export failed.');
         return;
       }
-      setYamlPreview(payload.yamlText || '');
+
+      const yamlText = payload.yamlText || '';
+      const generatedName = payload.generatedFileName || `mve-${selectedDraftId}.yaml`;
+      if (exportMode === 'SAVE') {
+        downloadYamlToPc(yamlText, generatedName);
+      }
+      if (exportMode === 'PUSH_GIT' && payload.url) {
+        window.open(payload.url, '_blank', 'noopener,noreferrer');
+      }
+
+      setYamlPreview(yamlText);
       setYamlOpen(true);
+      setExportOpen(false);
       await Promise.all([refetchSelectedDraft(), refetchDrafts()]);
-      message.success('YAML generated.');
+      message.success(payload.message || 'Export completed.');
     } catch (error: any) {
+      if (error?.errorFields) return;
       message.error(error?.message || 'Export failed.');
     }
   };
@@ -726,18 +849,83 @@ const MveWorkbenchTab: React.FC = () => {
               </Card>
 
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Button onClick={() => setAddNodeOpen(true)} disabled={!selectedDraftId}>
-                  Add Node
-                </Button>
-                <Button danger onClick={handleDeleteSelectedNode} disabled={!selectedNodeId} loading={deletingNode}>
-                  Delete Selected Node
-                </Button>
-                <Button type="primary" onClick={handleValidation} disabled={!selectedDraftId} loading={startingValidation}>
-                  Validate with AdvOps
-                </Button>
-                <Button onClick={handleExportYaml} disabled={!selectedDraftId} loading={exportingYaml}>
-                  Export OpenTide YAML
-                </Button>
+                <Space wrap size={[8, 8]}>
+                  <Tooltip
+                    title="Add Node"
+                    placement="top"
+                    mouseEnterDelay={0.2}
+                    overlayInnerStyle={TOOLTIP_STYLE}
+                  >
+                    <Button
+                      type="primary"
+                      shape="default"
+                      size="large"
+                      icon={<PlusOutlined />}
+                      onClick={() => setAddNodeOpen(true)}
+                      disabled={!selectedDraftId}
+                      aria-label="Add Node"
+                      style={ACTION_ICON_BUTTON_STYLE}
+                    />
+                  </Tooltip>
+                  <Tooltip
+                    title="Delete Selected Node"
+                    placement="top"
+                    mouseEnterDelay={0.2}
+                    overlayInnerStyle={TOOLTIP_STYLE}
+                  >
+                    <Button
+                      danger
+                      shape="default"
+                      size="large"
+                      icon={<DeleteOutlined />}
+                      onClick={handleDeleteSelectedNode}
+                      disabled={!selectedNodeId}
+                      loading={deletingNode}
+                      aria-label="Delete Selected Node"
+                      style={ACTION_ICON_BUTTON_STYLE}
+                    />
+                  </Tooltip>
+                  <Tooltip
+                    title="Validate with AdvOps"
+                    placement="top"
+                    mouseEnterDelay={0.2}
+                    overlayInnerStyle={TOOLTIP_STYLE}
+                  >
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<SearchOutlined />}
+                    onClick={handleValidation}
+                    disabled={!selectedDraftId}
+                    loading={startingValidation}
+                    aria-label="Validate with AdvOps"
+                    style={{ borderRadius: 10 }}
+                  >
+                    AdvOps
+                  </Button>
+                  </Tooltip>
+                  <Tooltip
+                    title="Export OpenTide YAML"
+                    placement="top"
+                    mouseEnterDelay={0.2}
+                    overlayInnerStyle={TOOLTIP_STYLE}
+                  >
+                  <Button
+                    size="large"
+                    icon={<ExportOutlined />}
+                    onClick={openExportModal}
+                    disabled={!selectedDraftId}
+                    loading={exportingYaml}
+                    aria-label="Export OpenTide YAML"
+                    style={{ borderRadius: 10 }}
+                  >
+                    OpenTide
+                  </Button>
+                  </Tooltip>
+                </Space>
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  Tip: Hover action buttons for labels.
+                </Typography.Text>
               </Space>
             </Space>
           </Card>
@@ -875,6 +1063,115 @@ const MveWorkbenchTab: React.FC = () => {
             <Input.TextArea rows={6} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Export MVE VelocityDetection"
+        open={exportOpen}
+        onCancel={() => setExportOpen(false)}
+        onOk={handleExportAction}
+        okText={exportMode === 'SAVE' ? 'Download' : exportMode === 'PUSH_GIT' ? 'Push' : 'Append'}
+        okButtonProps={{ loading: exportingYaml }}
+        width={760}
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Radio.Group
+            value={exportMode}
+            onChange={(event) => setExportMode(event.target.value as ExportMode)}
+            options={[
+              { label: 'Save to PC', value: 'SAVE' },
+              { label: 'Push to Git', value: 'PUSH_GIT' },
+              { label: 'Append to Workbench', value: 'APPEND_WORKBENCH' },
+            ]}
+            optionType="button"
+            buttonStyle="solid"
+          />
+
+          <Form layout="vertical" form={exportForm}>
+            {exportMode === 'PUSH_GIT' && (
+              <>
+                <Form.Item
+                  name="repositoryId"
+                  label="Configured Repository"
+                  rules={[{ required: true, message: 'Select a repository' }]}
+                >
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    options={repositories.map((repo: any) => ({
+                      value: repo.id,
+                      label: `${repo.name} (${repo.provider || 'N/A'})`,
+                    }))}
+                    placeholder="Select configured Git repository"
+                  />
+                </Form.Item>
+                <Row gutter={12}>
+                  <Col span={8}>
+                    <Form.Item
+                      name="branch"
+                      label="Branch"
+                      rules={[{ required: true, message: 'Branch required' }]}
+                      initialValue="main"
+                    >
+                      <Input placeholder="main" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={16}>
+                    <Form.Item name="filePath" label="File Path (optional)">
+                      <Input placeholder="Objects/Velocity Detections/MVE-CHAIN-0001.yaml" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="commitMessage" label="Commit Message (optional)">
+                  <Input placeholder="Publish MVE VelocityDetection" />
+                </Form.Item>
+              </>
+            )}
+
+            {exportMode === 'APPEND_WORKBENCH' && (
+              <Form.Item
+                name="targetGraphId"
+                label="Target Workbench (DEPLOYED + authored by you)"
+                rules={[{ required: true, message: 'Select target workbench' }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  options={appendTargets.map((target: any) => ({
+                    value: target.id,
+                    label: `${target.title} (${target.status})`,
+                  }))}
+                  placeholder="Select Workbench"
+                />
+              </Form.Item>
+            )}
+          </Form>
+
+          {exportMode === 'SAVE' && (
+            <Alert
+              type="info"
+              showIcon
+              message="Save to PC"
+              description="Generates OpenTide YAML and downloads it directly to your machine."
+            />
+          )}
+          {exportMode === 'PUSH_GIT' && (
+            <Alert
+              type="info"
+              showIcon
+              message="Push to Git"
+              description="Pushes generated YAML to the selected configured repository."
+            />
+          )}
+          {exportMode === 'APPEND_WORKBENCH' && (
+            <Alert
+              type="info"
+              showIcon
+              message="Append to Workbench"
+              description="Appends this velocity chain to the target Workbench OpenTide YAML under mve_velocity_detections."
+            />
+          )}
+        </Space>
       </Modal>
 
       <Modal

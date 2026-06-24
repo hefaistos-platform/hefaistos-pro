@@ -969,6 +969,13 @@ class Query(graphene.ObjectType):
         id=graphene.UUID(required=True),
         description="Return one MVE validation run by id (organization scoped).",
     )
+    mve_append_targets = graphene.List(
+        PlaybookGraphType,
+        description=(
+            "Workbenches eligible as append targets for MVE export: "
+            "owned by current user and in DEPLOYED status."
+        ),
+    )
 
     def resolve_all_playbooks(self, info):
         user = info.context.user
@@ -1231,6 +1238,17 @@ class Query(graphene.ObjectType):
         if user.is_anonymous:
             raise Exception("Authentication required")
         return MveValidationRun.objects.filter(id=id, draft__organization=user.organization).select_related('draft').first()
+
+    @role_required([Roles.ADMIN, Roles.ANALYST])
+    def resolve_mve_append_targets(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+        return PlaybookGraph.objects.filter(
+            organization=user.organization,
+            author=user,
+            status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+        ).order_by('-updated_at')
 
     def resolve_playbook_meta(self, info):
         user = info.context.user
@@ -5911,16 +5929,44 @@ class StartMveValidation(graphene.Mutation):
 class ExportMveOpenTideYaml(graphene.Mutation):
     class Arguments:
         draft_id = graphene.UUID(required=True)
+        mode = graphene.String(
+            required=False,
+            description="Delivery mode: SAVE, PUSH_GIT, APPEND_WORKBENCH. Default: SAVE",
+        )
+        repository_id = graphene.ID(
+            required=False,
+            description="Configured RuleRepository id (required for PUSH_GIT)",
+        )
+        branch = graphene.String(required=False)
+        file_path = graphene.String(required=False)
+        commit_message = graphene.String(required=False)
+        target_graph_id = graphene.UUID(
+            required=False,
+            description="Target Workbench id (required for APPEND_WORKBENCH)",
+        )
 
     success = graphene.Boolean()
     message = graphene.String()
     yaml_text = graphene.String()
     mve_draft = graphene.Field(MveDraftType)
+    url = graphene.String(description="Repository file URL when PUSH_GIT mode succeeds")
+    generated_file_name = graphene.String()
 
     @staticmethod
     @role_required([Roles.ADMIN, Roles.ANALYST])
-    def mutate(root, info, draft_id):
-        from playbooks.utils.mve_opentide_compiler import dump_velocity_detection_yaml
+    def mutate(
+        root,
+        info,
+        draft_id,
+        mode='SAVE',
+        repository_id=None,
+        branch=None,
+        file_path=None,
+        commit_message=None,
+        target_graph_id=None,
+    ):
+        from playbooks.hef_publish import create_repository_commit
+        from playbooks.utils.mve_opentide_compiler import compile_velocity_detection, dump_velocity_detection_yaml
 
         user = info.context.user
         if user.is_anonymous:
@@ -5931,14 +5977,123 @@ class ExportMveOpenTideYaml(graphene.Mutation):
         if draft.nodes.count() == 0:
             raise Exception("Cannot export an empty MVE draft")
 
+        normalized_mode = str(mode or 'SAVE').strip().upper()
+        valid_modes = {'SAVE', 'PUSH_GIT', 'APPEND_WORKBENCH'}
+        if normalized_mode not in valid_modes:
+            raise Exception(f"Invalid mode. Allowed values: {', '.join(sorted(valid_modes))}")
+
+        payload = compile_velocity_detection(draft)
         yaml_text = dump_velocity_detection_yaml(draft)
+        velocity_id = ((payload.get('metadata') or {}).get('id') or f"MVE-{draft.id}").strip()
+        generated_file_name = f"{velocity_id}.yaml"
+        delivery_url = None
+
+        if normalized_mode == 'PUSH_GIT':
+            repo_pk = _coerce_int_pk(repository_id, "repository")
+            if repo_pk is None:
+                raise Exception("repositoryId is required for PUSH_GIT mode")
+            try:
+                repo = RuleRepository.objects.get(pk=repo_pk, organization=user.organization)
+            except RuleRepository.DoesNotExist as exc:
+                raise Exception("Configured repository not found") from exc
+            if not repo.git_url:
+                raise Exception("Repository has no git URL configured")
+            if not repo.token:
+                raise Exception("Repository has no access token configured")
+
+            target_branch = (branch or 'main').strip() or 'main'
+            target_path = (file_path or '').strip()
+            if not target_path:
+                target_path = posixpath.join('Objects', 'Velocity Detections', generated_file_name)
+            target_path = target_path.strip('/')
+            if not target_path.lower().endswith('.yaml'):
+                target_path = f"{target_path}.yaml"
+
+            commit_title = (
+                (commit_message or '').strip()
+                or f"Publish MVE VelocityDetection: {draft.name}"
+            )
+            _, client = create_repository_commit(
+                repo_url=repo.git_url,
+                token=repo.token,
+                branch=target_branch,
+                files={target_path: yaml_text},
+                commit_message=commit_title,
+                provider=repo.provider,
+                api_base_url=repo.api_base_url,
+                verify_ssl=bool(getattr(repo, 'verify_ssl', True)),
+            )
+            delivery_url = client.file_web_url(target_branch, target_path)
+
+        if normalized_mode == 'APPEND_WORKBENCH':
+            if not target_graph_id:
+                raise Exception("targetGraphId is required for APPEND_WORKBENCH mode")
+            target_graph = PlaybookGraph.objects.filter(
+                id=target_graph_id,
+                organization=user.organization,
+                author=user,
+                status=DetectionPlaybook.PlaybookStatus.DEPLOYED,
+            ).first()
+            if not target_graph:
+                raise Exception(
+                    "Target Workbench must exist, be authored by you, and be in DEPLOYED status"
+                )
+
+            existing_doc = target_graph.opentide_yaml
+            if isinstance(existing_doc, str):
+                try:
+                    existing_doc = json.loads(existing_doc)
+                except Exception:
+                    existing_doc = {}
+            if not isinstance(existing_doc, dict):
+                existing_doc = {}
+
+            chains = existing_doc.get('mve_velocity_detections')
+            if not isinstance(chains, list):
+                chains = []
+
+            new_id = (payload.get('metadata') or {}).get('id')
+            replaced = False
+            if new_id:
+                updated_chains = []
+                for chain in chains:
+                    chain_id = ''
+                    if isinstance(chain, dict):
+                        chain_id = str((chain.get('metadata') or {}).get('id') or '')
+                    if chain_id and chain_id == new_id:
+                        updated_chains.append(payload)
+                        replaced = True
+                    else:
+                        updated_chains.append(chain)
+                chains = updated_chains
+            if not replaced:
+                chains.append(payload)
+
+            existing_doc['mve_velocity_detections'] = chains
+            target_graph.opentide_yaml = existing_doc
+            target_graph.save(update_fields=['opentide_yaml', 'updated_at'])
+            ActivityLog.objects.create(
+                playbook=target_graph,
+                user=user,
+                action="MVE_APPENDED",
+                details=f"Appended VelocityDetection payload {velocity_id}",
+            )
+
         draft.status = MveDraft.DraftStatus.EXPORTED
         draft.save(update_fields=['status', 'updated_at'])
+
+        mode_label = {
+            'SAVE': 'YAML generated',
+            'PUSH_GIT': 'YAML pushed to repository',
+            'APPEND_WORKBENCH': 'Velocity detection appended to Workbench YAML',
+        }[normalized_mode]
         return ExportMveOpenTideYaml(
             success=True,
-            message='OpenTide VelocityDetection YAML generated.',
+            message=mode_label,
             yaml_text=yaml_text,
             mve_draft=draft,
+            url=delivery_url,
+            generated_file_name=generated_file_name,
         )
 
 
