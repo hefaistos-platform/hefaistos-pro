@@ -192,50 +192,36 @@ IDEA → RESEARCH → DEVELOPMENT → REVIEW → APPROVED → TESTING → DEPLOY
 
 ---
 
-## 🚀 Quick Start (30 Seconds)
-
-**Automated Installation for Ubuntu 20.04+**
+## 🚀 Quick Start (Manual, Recommended)
 
 ```bash
-git clone https://github.com/hefaistos-platform/hefaistos.git
-cd hefaistos
-chmod +x install-hefaistos.sh
-sudo ./install-hefaistos.sh
+git clone https://github.com/hefaistos-platform/hefaistos-pro.git
+cd hefaistos-pro
+cp .env.template .env
+cp docker-compose.override.yml.template docker-compose.override.yml
+mkdir -p .secrets
+openssl rand -base64 32 > .secrets/db_password
+openssl rand -base64 32 > .secrets/rabbitmq_pass
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > .secrets/field_key
+echo "your-mailgun-key" > .secrets/mailgun_api
+docker compose up -d
+docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py createsuperuser
 ```
 
-The installation script will:
-
-- ✅ Validate system requirements
-- ✅ Install Docker and dependencies
-- ✅ Guide you through interactive configuration
-- ✅ Create SSL certificates (self-signed or Let's Encrypt)
-- ✅ Generate and secure all secrets
-- ✅ Setup database and create superuser
-- ✅ Build and start all services
-- ✅ Generate comprehensive installation report
-
-**Estimated Time:** 15-30 minutes | **Estimated Cost:** Free (all open source)
-
-### 📚 Installation Documentation
-
-| Guide | Purpose | Time |
-|-------|---------|------|
-| **[QUICK_START.md](QUICK_START.md)** | 30-second setup overview | 2 min |
-| **[CLEAN_INSTALL.md](CLEAN_INSTALL.md)** | Complete step-by-step guide | 15 min |
-| **[INSTALLATION_SUITE_SUMMARY.md](INSTALLATION_SUITE_SUMMARY.md)** | Technical architecture | 10 min |
-| **[INSTALLATION_README.md](INSTALLATION_README.md)** | Navigation & links | 5 min |
+**Estimated Time:** 10-20 minutes | **Estimated Cost:** Free (all open source)
 
 ---
 
 ## 📖 Manual Installation
 
-If you prefer manual setup instead of the automated script:
+Use this workflow for all supported installations:
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/hefaistos-platform/hefaistos.git
-cd hefaistos
+git clone https://github.com/hefaistos-platform/hefaistos-pro.git
+cd hefaistos-pro
 ```
 
 ### 2. Copy configuration templates
@@ -778,7 +764,7 @@ hefaistos/
 
 ### Backup & Restore
 
-Automated backups are configured during installation:
+Backups can be run manually and optionally scheduled via cron:
 
 ```bash
 # Manual backup

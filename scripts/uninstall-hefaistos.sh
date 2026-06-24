@@ -223,7 +223,8 @@ main() {
     fi
     echo ""
     echo "To reinstall:"
-    echo "  bash ./install-hefaistos.sh"
+    echo "  Follow the manual installation steps in README.md"
+    echo "  or clone fresh: git clone https://github.com/hefaistos-platform/hefaistos-pro.git"
     echo ""
     echo "To restore from backup:"
     echo "  gunzip -c final_backup_${TIMESTAMP}.sql.gz | docker-compose exec db psql -U hefaistos_user hefaistos_db"
