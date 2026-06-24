@@ -795,8 +795,8 @@ const MveWorkbenchTab: React.FC = () => {
       />
 
       <Row gutter={12}>
-        <Col span={7}>
-          <Card title="Drafts" style={{ height: CARD_HEIGHT }}>
+        <Col xs={24} lg={7}>
+          <Card title="Drafts" style={{ minHeight: CARD_HEIGHT }}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                 <Button onClick={handleCreateDraft} loading={creatingDraft} type="primary">
@@ -930,7 +930,7 @@ const MveWorkbenchTab: React.FC = () => {
             </Space>
           </Card>
         </Col>
-        <Col span={17}>
+        <Col xs={24} lg={17}>
           <Card title="Kinetic Chain Canvas" style={{ height: CARD_HEIGHT }}>
             {selectedDraftLoading || optionsLoading ? (
               <Spin />
