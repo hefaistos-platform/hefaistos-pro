@@ -320,7 +320,7 @@ For the complete, up-to-date variable catalog (including advanced/optional keys)
 | `SECRET_KEY` | Django secret key | Yes (auto-generated if empty) |
 | `SERVER_DOMAIN` | Your domain or IP | Yes |
 | `FRONTEND_URL` | Frontend base URL for emails | No (default: https://localhost) |
-| `PUBLIC_BASE_URL` | Canonical external base URL for shareable links (for multi-proxy deployments) | No (default: unset; backend tries request host, then FRONTEND_URL) |
+| `PUBLIC_BASE_URL` | Canonical external base URL for shareable links (for multi-proxy deployments) | No (default: unset; backend tries external FRONTEND_URL, then request host) |
 | `WEBAUTHN_RP_ID` | WebAuthn relying party ID (public host) | Yes for security-key MFA/passwordless |
 | `WEBAUTHN_ORIGIN` | WebAuthn origin (must be HTTPS in production) | Yes for security-key MFA/passwordless |
 | `CORS_ALLOWED_ORIGINS` | Additional allowed CORS origins (comma-separated). `mitre-attack.github.io` is always included automatically. | No |

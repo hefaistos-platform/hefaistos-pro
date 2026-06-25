@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from django.conf import settings
 
 from playbooks.models import DetectionPlaybook, L1PortalEntry, PlaybookGraph
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _normalize_base_url(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    return raw.rstrip("/")
+
+
+def _host_from_url(value: str | None) -> str:
+    try:
+        return (urlparse(value or "").hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _is_local_host(host: str) -> bool:
+    return host in _LOCAL_HOSTS or host.endswith(".localhost")
 
 
 def build_l1_portal_title(graph: PlaybookGraph) -> str:
@@ -16,17 +40,25 @@ def build_l1_portal_share_url(token, request=None) -> str:
     token_value = str(token)
     relative_path = f"/l1-portal/{token_value}"
 
-    public_base = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').rstrip('/')
+    public_base = _normalize_base_url(getattr(settings, 'PUBLIC_BASE_URL', ''))
     if public_base:
         return f"{public_base}{relative_path}"
 
+    frontend_base = _normalize_base_url(getattr(settings, 'FRONTEND_URL', ''))
+    frontend_host = _host_from_url(frontend_base)
+    # If FRONTEND_URL is explicitly external, prefer it over request host
+    # to avoid leaking internal localhost links in generated share URLs.
+    if frontend_base and frontend_host and not _is_local_host(frontend_host):
+        return f"{frontend_base}{relative_path}"
+
     if request is not None:
         try:
-            return request.build_absolute_uri(relative_path)
+            request_url = request.build_absolute_uri(relative_path)
+            if request_url:
+                return request_url
         except Exception:
             pass
 
-    frontend_base = (getattr(settings, 'FRONTEND_URL', '') or '').rstrip('/')
     if frontend_base:
         return f"{frontend_base}{relative_path}"
 
