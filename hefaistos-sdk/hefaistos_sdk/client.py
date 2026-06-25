@@ -48,11 +48,12 @@ class HefaistosApiClient:
         
         self.api_url = api_url or os.environ.get('HEFAISTOS_API_URL')
         self.api_token = api_token or get_secret('api_token', 'HEFAISTOS_API_TOKEN')
+        self.token_file = os.environ.get('HEFAISTOS_API_TOKEN_FILE')
 
         # Fallback: read token from file if direct token not provided
         # Retry logic to handle timing issues when backend hasn't written token yet
         if (not self.api_token) and self.api_url:
-            token_file = os.environ.get('HEFAISTOS_API_TOKEN_FILE')
+            token_file = self.token_file
             if token_file:
                 max_retries = 30  # Wait up to 30 seconds for token file
                 for attempt in range(max_retries):
@@ -88,7 +89,48 @@ class HefaistosApiClient:
         token_masked = f"{self.api_token[:10]}...{self.api_token[-10:]}" if len(self.api_token) > 20 else "***"
         logger.info(f"HefaistosApiClient initialized for {self.api_url} with token: {token_masked}")
 
-    def _call_api(self, query, variables=None):
+    def _refresh_token_from_file(self):
+        """
+        Attempt to reload the API token from HEFAISTOS_API_TOKEN_FILE.
+        Returns True only when a new token is loaded.
+        """
+        if not self.token_file:
+            return False
+        if not os.path.isfile(self.token_file):
+            return False
+        try:
+            with open(self.token_file, 'r', encoding='utf-8') as f:
+                candidate = f.read().strip()
+            if not candidate or candidate == self.api_token:
+                return False
+            self.api_token = candidate
+            self.headers["Authorization"] = f"Bearer {self.api_token}"
+            token_masked = f"{self.api_token[:10]}...{self.api_token[-10:]}" if len(self.api_token) > 20 else "***"
+            logger.info(f"Reloaded API token from '{self.token_file}': {token_masked}")
+            return True
+        except OSError as e:
+            logger.warning(f"Could not reload token file '{self.token_file}': {e}")
+            return False
+
+    def _is_graphql_auth_error(self, response_json):
+        """
+        Detect GraphQL auth/token errors returned with HTTP 200.
+        """
+        for err in response_json.get('errors', []):
+            err_text = str(err).lower()
+            if any(marker in err_text for marker in (
+                'authentication',
+                'credentials',
+                'signature has expired',
+                'token has expired',
+                'jwt expired',
+                'invalid signature',
+                'permission denied',
+            )):
+                return True
+        return False
+
+    def _call_api(self, query, variables=None, retry_on_auth=True):
         """
         Private method to send a GraphQL query/mutation.
         """
@@ -101,6 +143,9 @@ class HefaistosApiClient:
             
             if response.status_code == 401:
                 logger.error(f"[_call_api] Authentication failed (401) - JWT token may be expired or invalid")
+                if retry_on_auth and self._refresh_token_from_file():
+                    logger.warning("[_call_api] Retrying request once with refreshed token after HTTP 401.")
+                    return self._call_api(query, variables, retry_on_auth=False)
                 emit_security_event(
                     level='error',
                     logger_name='ConnectorAuthClient',
@@ -129,6 +174,9 @@ class HefaistosApiClient:
             if "errors" in response_json:
                 logger.error(f"[_call_api] GraphQL errors: {response_json['errors']}")
                 logger.error(f"[_call_api] Variables: {variables}")
+                if retry_on_auth and self._is_graphql_auth_error(response_json) and self._refresh_token_from_file():
+                    logger.warning("[_call_api] Retrying request once with refreshed token after GraphQL auth error.")
+                    return self._call_api(query, variables, retry_on_auth=False)
                 # Check if it's an authentication error
                 for err in response_json.get('errors', []):
                     if 'authentication' in str(err).lower() or 'credentials' in str(err).lower():

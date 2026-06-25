@@ -29,6 +29,11 @@ class BaseConnector(ABC):
             self.rabbitmq_port = int(port_env) if port_env else 5672
         except ValueError:
             self.rabbitmq_port = 5672
+        retry_delay_env = os.environ.get('CONNECTOR_REQUEUE_DELAY_SECONDS', '1')
+        try:
+            self.requeue_delay_seconds = max(float(retry_delay_env), 0.0)
+        except ValueError:
+            self.requeue_delay_seconds = 1.0
 
         if not all([self.rabbitmq_host, self.rabbitmq_user, self.rabbitmq_pass]):
             raise ValueError("RABBITMQ_HOST, RABBITMQ_USER, and RABBITMQ_PASS env vars must be set.")
@@ -110,6 +115,12 @@ class BaseConnector(ABC):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
             else:
                 logging.error(f"[{self.service_name}] Failed to process message. Sending NACK (requeue=True).")
+                if self.requeue_delay_seconds > 0:
+                    logging.warning(
+                        f"[{self.service_name}] Requeue throttle active: sleeping "
+                        f"{self.requeue_delay_seconds:.2f}s before NACK."
+                    )
+                    time.sleep(self.requeue_delay_seconds)
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 
         except json.JSONDecodeError:
