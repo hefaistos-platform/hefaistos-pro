@@ -458,7 +458,7 @@ export function buildGenerateAllPlan(
 }
 
 /** Build initial OpenTide state from optional pre-existing rule or legacy single-format rule. */
-function buildOpenTideState(
+export function buildOpenTideState(
   initial: OpenTideRule | undefined,
   legacyRule: string,
   legacyFormat: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER',
@@ -475,13 +475,16 @@ function buildOpenTideState(
     response: {},
   });
 
-  // Start with existing platforms (if any), then backfill the legacy rule for its
-  // matching platform when that slot is still empty. This ensures that a rule
-  // generated on the Workbench is always visible in the modal even when a
-  // partially-filled OpenTide rule already exists.
+  // Start with existing platforms (if any), then backfill the legacy rule only
+  // when no platform content exists yet. This keeps tab content isolated and
+  // prevents format-to-format copying on reopen.
   const platforms: OpenTideRule['platforms'] = initial ? { ...initial.platforms } : {};
+  const snapshot: OpenTideRule = { metadata, platforms };
+  const hasExistingPlatformContent = DETECTION_FORMAT_REGISTRY.some((entry) =>
+    Boolean(entry.getContent(snapshot).trim())
+  );
 
-  if (legacyRule.trim()) {
+  if (legacyRule.trim() && !hasExistingPlatformContent) {
     if (legacyFormat === 'KQL' && !platforms.kql) platforms.kql = { query: legacyRule };
     else if (legacyFormat === 'SPL' && !platforms.spl) platforms.spl = { query: legacyRule };
     else if (legacyFormat === 'WAZUH' && !platforms.wazuh) platforms.wazuh = { rule: legacyRule };
@@ -1221,11 +1224,16 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
       .map((entry) => ({ entry, content: entry.getContent(finalOpenTideRule).trim() }))
       .filter((item) => item.content)
       .filter((item) => isDirty(item.content, savedSnapshots[item.entry.format] ?? ''));
+    const clearedEntries = DETECTION_FORMAT_REGISTRY.filter((entry) => {
+      const current = normalize(entry.getContent(finalOpenTideRule));
+      const previous = savedSnapshots[entry.format] ?? '';
+      return current.length === 0 && previous.length > 0;
+    });
     const hasMetadataChanges = isDirty(
       JSON.stringify(finalOpenTideRule.metadata ?? {}),
       savedMetadataSnapshot,
     );
-    if (entries.length === 0 && !hasMetadataChanges) {
+    if (entries.length === 0 && clearedEntries.length === 0 && !hasMetadataChanges) {
       message.info('No changes, nothing to save');
       return;
     }
@@ -1236,6 +1244,18 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
     setLastCommitSha(null);
     try {
       await persistWorkbench(finalOpenTideRule);
+      if (entries.length === 0) {
+        setSavedSnapshots((prev) => {
+          const next = { ...prev };
+          for (const entry of clearedEntries) {
+            next[entry.format] = '';
+          }
+          return next;
+        });
+        setSavedMetadataSnapshot(normalize(JSON.stringify(finalOpenTideRule.metadata ?? {})));
+        message.success('Saved workbench changes.');
+        return;
+      }
       const result = await saveAllDetectionRulesMutation({
         variables: {
           playbookId,
@@ -1261,6 +1281,9 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
           if (savedFormats.has(entry.format)) {
             next[entry.format] = normalize(content);
           }
+        }
+        for (const entry of clearedEntries) {
+          next[entry.format] = '';
         }
         return next;
       });

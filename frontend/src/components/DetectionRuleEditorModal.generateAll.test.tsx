@@ -1,7 +1,8 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import DetectionRuleEditorModal, {
   buildGenerateAllPlan,
+  buildOpenTideState,
   DEFAULT_OVERWRITE_ALL_CONTENT,
 } from './DetectionRuleEditorModal';
 import type { OpenTideRule } from '../types/opentide';
@@ -115,5 +116,46 @@ describe('DetectionRuleEditorModal generate-all overwrite behavior', () => {
     );
 
     expect(screen.getByRole('checkbox', { name: /overwrite all content/i })).not.toBeChecked();
+  });
+
+  test('buildOpenTideState does not backfill legacy content into another format when platform content already exists', () => {
+    const initial: OpenTideRule = {
+      metadata: BASE_RULE.metadata,
+      platforms: {
+        qradar: { query: 'SELECT * FROM events' },
+      },
+    };
+
+    const state = buildOpenTideState(
+      initial,
+      'SELECT * FROM events',
+      'KQL',
+      undefined,
+    );
+
+    expect(state.platforms.qradar?.query).toBe('SELECT * FROM events');
+    expect(state.platforms.kql?.query ?? '').toBe('');
+  });
+
+  test('SAVE ALL persists cleared content via onSave even when no non-empty rules remain', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    render(
+      <DetectionRuleEditorModal
+        visible
+        onClose={jest.fn()}
+        playbookId="11111111-1111-1111-1111-111111111111"
+        initialRule="SecurityEvent | take 1"
+        initialFormat="KQL"
+        initialMode="logic"
+        onSave={onSave}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /clear content/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save all/i }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalled();
+    });
   });
 });
