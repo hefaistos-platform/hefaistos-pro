@@ -3,6 +3,7 @@ import os
 import time
 import logging
 import json
+import hashlib
 from abc import ABC, abstractmethod
 from .client import HefaistosApiClient, get_secret # <-- ADD get_secret
 
@@ -34,6 +35,12 @@ class BaseConnector(ABC):
             self.requeue_delay_seconds = max(float(retry_delay_env), 0.0)
         except ValueError:
             self.requeue_delay_seconds = 1.0
+        max_retries_env = os.environ.get('CONNECTOR_MAX_RETRIES_PER_MESSAGE', '20')
+        try:
+            self.max_retries_per_message = max(int(max_retries_env), 0)
+        except ValueError:
+            self.max_retries_per_message = 20
+        self._failure_counts = {}
 
         if not all([self.rabbitmq_host, self.rabbitmq_user, self.rabbitmq_pass]):
             raise ValueError("RABBITMQ_HOST, RABBITMQ_USER, and RABBITMQ_PASS env vars must be set.")
@@ -102,6 +109,7 @@ class BaseConnector(ABC):
     def _message_callback(self, ch, method, properties, body):
         """Internal callback for all messages."""
         routing_key = method.routing_key
+        message_key = f"{routing_key}:{hashlib.sha256(body).hexdigest()}"
         logging.info(f"[{self.service_name}] Received message with routing key: {routing_key}")
 
         try:
@@ -112,9 +120,20 @@ class BaseConnector(ABC):
 
             if success:
                 logging.info(f"[{self.service_name}] Successfully processed message. Sending ACK.")
+                self._failure_counts.pop(message_key, None)
                 ch.basic_ack(delivery_tag=method.delivery_tag)
             else:
+                failure_count = self._failure_counts.get(message_key, 0) + 1
+                self._failure_counts[message_key] = failure_count
                 logging.error(f"[{self.service_name}] Failed to process message. Sending NACK (requeue=True).")
+                if self.max_retries_per_message > 0 and failure_count >= self.max_retries_per_message:
+                    logging.error(
+                        f"[{self.service_name}] Message failed {failure_count} times. "
+                        f"Dropping without requeue (CONNECTOR_MAX_RETRIES_PER_MESSAGE={self.max_retries_per_message})."
+                    )
+                    self._failure_counts.pop(message_key, None)
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    return
                 if self.requeue_delay_seconds > 0:
                     logging.warning(
                         f"[{self.service_name}] Requeue throttle active: sleeping "

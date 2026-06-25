@@ -48,7 +48,12 @@ class HefaistosApiClient:
         
         self.api_url = api_url or os.environ.get('HEFAISTOS_API_URL')
         self.api_token = api_token or get_secret('api_token', 'HEFAISTOS_API_TOKEN')
-        self.token_file = os.environ.get('HEFAISTOS_API_TOKEN_FILE')
+        self.token_file = (
+            os.environ.get('HEFAISTOS_API_TOKEN_FILE')
+            or os.environ.get('CONNECTOR_TOKEN_FILE')
+            or '/run/connector/token.jwt'
+        )
+        self.last_auth_error = False
 
         # Fallback: read token from file if direct token not provided
         # Retry logic to handle timing issues when backend hasn't written token yet
@@ -88,6 +93,7 @@ class HefaistosApiClient:
         # Log masked token for debugging (show first 10 and last 10 chars)
         token_masked = f"{self.api_token[:10]}...{self.api_token[-10:]}" if len(self.api_token) > 20 else "***"
         logger.info(f"HefaistosApiClient initialized for {self.api_url} with token: {token_masked}")
+        logger.info(f"HefaistosApiClient token file path: {self.token_file}")
 
     def _refresh_token_from_file(self):
         """
@@ -95,13 +101,21 @@ class HefaistosApiClient:
         Returns True only when a new token is loaded.
         """
         if not self.token_file:
+            logger.warning("Token refresh skipped: HEFAISTOS_API_TOKEN_FILE/CONNECTOR_TOKEN_FILE not configured.")
             return False
         if not os.path.isfile(self.token_file):
+            logger.warning(f"Token refresh skipped: token file not found at '{self.token_file}'.")
             return False
         try:
             with open(self.token_file, 'r', encoding='utf-8') as f:
                 candidate = f.read().strip()
-            if not candidate or candidate == self.api_token:
+            if not candidate:
+                logger.warning(f"Token refresh skipped: token file '{self.token_file}' is empty.")
+                return False
+            if candidate == self.api_token:
+                logger.warning(
+                    f"Token refresh skipped: token file '{self.token_file}' contains the same token currently in use."
+                )
                 return False
             self.api_token = candidate
             self.headers["Authorization"] = f"Bearer {self.api_token}"
@@ -137,6 +151,7 @@ class HefaistosApiClient:
         body = {"query": query, "variables": variables or {}}
         logger.info(f"[_call_api] Making request to {self.api_url}")
         logger.debug(f"[_call_api] Request body: {body}")
+        self.last_auth_error = False
         try:
             response = requests.post(self.api_url, headers=self.headers, json=body, timeout=10)
             logger.info(f"[_call_api] Response status: {response.status_code}")
@@ -146,6 +161,7 @@ class HefaistosApiClient:
                 if retry_on_auth and self._refresh_token_from_file():
                     logger.warning("[_call_api] Retrying request once with refreshed token after HTTP 401.")
                     return self._call_api(query, variables, retry_on_auth=False)
+                self.last_auth_error = True
                 emit_security_event(
                     level='error',
                     logger_name='ConnectorAuthClient',
@@ -177,6 +193,8 @@ class HefaistosApiClient:
                 if retry_on_auth and self._is_graphql_auth_error(response_json) and self._refresh_token_from_file():
                     logger.warning("[_call_api] Retrying request once with refreshed token after GraphQL auth error.")
                     return self._call_api(query, variables, retry_on_auth=False)
+                if self._is_graphql_auth_error(response_json):
+                    self.last_auth_error = True
                 # Check if it's an authentication error
                 for err in response_json.get('errors', []):
                     if 'authentication' in str(err).lower() or 'credentials' in str(err).lower():
