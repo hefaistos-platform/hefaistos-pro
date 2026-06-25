@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 import pyotp
 
 from identity.models import AccountSetupToken, UserMfaSettings
-from identity.schema import InviteUser, PrepareAccountActivation, CompleteAccountActivation, StartMfaLogin
+from identity.schema import (
+    InviteUser,
+    PrepareAccountActivation,
+    CompleteAccountActivation,
+    StartMfaLogin,
+    SubmitRegistrationRequest,
+)
 from identity.decorators import role_required, Roles
 
 User = get_user_model()
@@ -318,3 +324,43 @@ class BotMfaBypassLoginTests(TestCase):
         self.assertFalse(result.mfa_required)
         self.assertIsNone(result.challenge_id)
         self.assertTrue(bool(result.token))
+
+
+class SubmitRegistrationRequestTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Registration Org")
+        self.platform_admin = User.objects.create_superuser(
+            username="platform_admin",
+            email="platform-admin@example.com",
+            password="SuperPass123!",
+        )
+
+    @patch("core.email_service.get_email_service")
+    def test_submit_registration_request_sends_email_to_platform_admins(self, mock_get_email_service):
+        service = MagicMock()
+        service.is_configured.return_value = True
+        service.send_message.return_value = True
+        service.from_email = "noreply@example.com"
+        mock_get_email_service.return_value = service
+
+        info = MagicMock()
+        info.context = MagicMock()
+        info.context.user = MagicMock(is_anonymous=True)
+        info.context.META = {"REMOTE_ADDR": "127.0.0.1"}
+
+        result = SubmitRegistrationRequest.mutate(
+            None,
+            info,
+            name="John Doe",
+            email="john.doe@example.com",
+            subject="Need access",
+            message="Please register my account.",
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.message, "Registration request sent successfully.")
+        service.send_message.assert_called_once()
+
+        kwargs = service.send_message.call_args.kwargs
+        self.assertEqual(kwargs["to"], ["platform-admin@example.com"])
+        self.assertEqual(kwargs["headers"]["Reply-To"], "john.doe@example.com")

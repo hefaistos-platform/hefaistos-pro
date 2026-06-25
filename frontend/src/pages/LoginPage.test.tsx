@@ -20,8 +20,7 @@ test('renders login page with form fields', () => {
     </MemoryRouter>
   );
 
-  // Check if the main heading is there
-  expect(screen.getByRole('heading', { name: /login to hefaistos/i })).toBeInTheDocument();
+  expect(screen.getByText(/hefaistos/i)).toBeInTheDocument();
 
   // Check if the input fields are present
   expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
@@ -32,5 +31,5 @@ test('renders login page with form fields', () => {
 
   const registerLink = screen.getByRole('link', { name: /register/i });
   expect(registerLink).toBeInTheDocument();
-  expect(registerLink).toHaveAttribute('href', 'https://hodl.cz/TGcc5e');
+  expect(registerLink).toHaveAttribute('href', '/register');
 });

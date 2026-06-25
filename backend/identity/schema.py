@@ -3,6 +3,7 @@ import logging
 import hashlib
 import secrets
 import json
+import html
 from graphene_django import DjangoObjectType
 from graphene_file_upload.scalars import Upload
 from .models import (
@@ -28,7 +29,9 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.signals import user_logged_in
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from graphql_jwt.shortcuts import get_token
 import pyotp
@@ -2077,6 +2080,126 @@ class ResetPassword(graphene.Mutation):
         return ResetPassword(ok=True, message="Password has been reset successfully. You can now log in.")
 
 
+class SubmitRegistrationRequest(graphene.Mutation):
+    """Public registration request form submission from login page."""
+    class Arguments:
+        name = graphene.String(required=True)
+        email = graphene.String(required=True)
+        subject = graphene.String(required=True)
+        message = graphene.String(required=True)
+
+    ok = graphene.Boolean(required=True)
+    message = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, name, email, subject, message):
+        request = info.context
+        source_ip = extract_client_ip(request)
+        submitted_at = timezone.now().isoformat()
+
+        sender_name = (name or '').strip()
+        sender_email = (email or '').strip()
+        request_subject = (subject or '').strip()
+        request_message = (message or '').strip()
+
+        if not sender_name or not sender_email or not request_subject or not request_message:
+            raise Exception("All fields are required.")
+
+        if len(sender_name) > 120:
+            raise Exception("Name is too long (max 120 characters).")
+        if len(request_subject) > 200:
+            raise Exception("Subject is too long (max 200 characters).")
+        if len(request_message) > 5000:
+            raise Exception("Message is too long (max 5000 characters).")
+
+        try:
+            validate_email(sender_email)
+        except ValidationError:
+            raise Exception("Enter a valid email address.")
+
+        from core.email_service import get_email_service
+        service = get_email_service(organization=None)
+        if not service.is_configured():
+            raise Exception("Registration service is currently unavailable.")
+
+        # Prefer platform admins first; fallback to org admins if needed.
+        recipient_emails = sorted({
+            (value or '').strip()
+            for value in CustomUser.objects.filter(is_active=True)
+            .filter(Q(is_superuser=True) | Q(is_staff=True))
+            .exclude(email__isnull=True)
+            .exclude(email='')
+            .values_list('email', flat=True)
+            if value
+        })
+        if not recipient_emails:
+            recipient_emails = sorted({
+                (value or '').strip()
+                for value in CustomUser.objects.filter(is_active=True, role=Roles.ADMIN)
+                .exclude(email__isnull=True)
+                .exclude(email='')
+                .values_list('email', flat=True)
+                if value
+            })
+
+        if not recipient_emails:
+            fallback_recipient = (
+                getattr(service, 'from_email', '') or getattr(service, 'smtp_username', '')
+            )
+            fallback_recipient = (fallback_recipient or '').strip()
+            if '@' in fallback_recipient:
+                recipient_emails = [fallback_recipient]
+
+        if not recipient_emails:
+            raise Exception("No registration recipient is configured.")
+
+        email_subject = f"HEFAISTOS registration request: {request_subject}"
+        text_body = (
+            "New HEFAISTOS registration request submitted.\n\n"
+            f"Name: {sender_name}\n"
+            f"Email: {sender_email}\n"
+            f"Subject: {request_subject}\n"
+            f"Submitted at: {submitted_at}\n"
+            f"Source IP: {source_ip}\n\n"
+            "Message:\n"
+            f"{request_message}\n"
+        )
+
+        escaped_message = html.escape(request_message)
+        html_body = f"""<html><body>
+<h2>New HEFAISTOS registration request</h2>
+<p><strong>Name:</strong> {html.escape(sender_name)}</p>
+<p><strong>Email:</strong> {html.escape(sender_email)}</p>
+<p><strong>Subject:</strong> {html.escape(request_subject)}</p>
+<p><strong>Submitted at:</strong> {html.escape(submitted_at)}</p>
+<p><strong>Source IP:</strong> {html.escape(source_ip or 'unknown')}</p>
+<p><strong>Message:</strong></p>
+<pre style="white-space:pre-wrap;font-family:inherit">{escaped_message}</pre>
+</body></html>"""
+
+        sent = service.send_message(
+            to=recipient_emails,
+            subject=email_subject,
+            text=text_body,
+            html=html_body,
+            headers={
+                'Reply-To': sender_email,
+                'X-HEFAISTOS-Form': 'registration',
+            },
+            hide_recipients=True,
+        )
+        if not sent:
+            raise Exception("Failed to send registration request. Please try again later.")
+
+        logger.info(
+            "Registration request submitted by %s <%s> from IP %s",
+            sender_name,
+            sender_email,
+            source_ip,
+        )
+        return SubmitRegistrationRequest(ok=True, message="Registration request sent successfully.")
+
+
 class Mutation(graphene.ObjectType):
     prepare_account_activation = PrepareAccountActivation.Field()
     complete_account_activation = CompleteAccountActivation.Field()
@@ -2116,6 +2239,7 @@ class Mutation(graphene.ObjectType):
     admin_reset_user_password = AdminResetUserPassword.Field()
     request_password_reset = RequestPasswordReset.Field()
     reset_password = ResetPassword.Field()
+    submit_registration_request = SubmitRegistrationRequest.Field()
 
     @role_required([Roles.ADMIN])
     def resolve_admin_update_user(self, info, user_id, email=None, role=None, bio=None, job_title=None, slack_handle=None, organization_id=None):

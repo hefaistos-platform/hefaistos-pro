@@ -7,6 +7,7 @@ import { RepoListPage } from './pages/RepoListPage';
 import { CreateRepoPage } from './pages/CreateRepoPage';
 import { KanbanBoardPage } from './pages/KanbanBoardPage'
 import { LoginPage } from './pages/LoginPage';
+import { RegistrationPage } from './pages/RegistrationPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { ActivateAccountPage } from './pages/ActivateAccountPage';
@@ -66,6 +67,7 @@ const AppRoutes = () => {
         path="/login"
         element={!isAuthenticated ? <LoginPage /> : <Navigate to={redirectAfterLogin} replace />}
       />
+      <Route path="/register" element={<RegistrationPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/activate-account" element={<ActivateAccountPage />} />

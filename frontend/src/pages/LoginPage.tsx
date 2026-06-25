@@ -279,14 +279,9 @@ export const LoginPage = () => {
                 Forgot Password?
               </Link>
               <span style={{ margin: '0 8px', color: '#1677ff', fontSize: 13 }}>|</span>
-              <a
-                href="https://hodl.cz/TGcc5e"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: '#1677ff', fontSize: 13 }}
-              >
+              <Link to="/register" style={{ color: '#1677ff', fontSize: 13 }}>
                 Register
-              </a>
+              </Link>
             </div>
           </Form>
         ) : (
