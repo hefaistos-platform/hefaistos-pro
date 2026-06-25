@@ -47,8 +47,9 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@apollo/client/react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import yaml from 'js-yaml';
+import { useTheme } from '../context/ThemeContext';
 
 import {
   START_OPENTIDE_PREVIEW_TASK,
@@ -92,6 +93,8 @@ interface YamlTabProps {
 }
 
 const YamlTab: React.FC<YamlTabProps> = ({ yamlText, label, editedValue, onEdit }) => {
+  const { resolvedTheme } = useTheme();
+  const syntaxTheme = resolvedTheme === 'dark' ? vscDarkPlus : oneLight;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [parseError, setParseError] = useState<string | null>(null);
@@ -179,7 +182,13 @@ const YamlTab: React.FC<YamlTabProps> = ({ yamlText, label, editedValue, onEdit 
             rows={18}
             value={draft}
             onChange={(e) => { setDraft(e.target.value); setParseError(null); }}
-            style={{ fontFamily: 'monospace', fontSize: 11 }}
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 11,
+              background: 'var(--hef-bg-subtle)',
+              color: 'var(--hef-text-primary)',
+              borderColor: 'var(--hef-border)',
+            }}
           />
           {parseError && (
             <Text type="danger" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
@@ -190,10 +199,16 @@ const YamlTab: React.FC<YamlTabProps> = ({ yamlText, label, editedValue, onEdit 
       ) : (
         <SyntaxHighlighter
           language="yaml"
-          style={oneLight}
+          style={syntaxTheme}
           showLineNumbers
           wrapLines
-          customStyle={{ fontSize: 11, maxHeight: 400, overflowY: 'auto', borderRadius: 4 }}
+          customStyle={{
+            fontSize: 11,
+            maxHeight: 400,
+            overflowY: 'auto',
+            borderRadius: 4,
+            background: 'var(--hef-bg-subtle)',
+          }}
         >
           {displayText || '# (empty)'}
         </SyntaxHighlighter>
@@ -474,6 +489,7 @@ export const OpenTidePreviewModal: React.FC<OpenTidePreviewModalProps> = ({
     <Modal
       open={visible}
       onCancel={handleClose}
+      className="opentide-preview-modal"
       title={
         <Space>
           <span>Preview OpenTIDE Metadata</span>
@@ -493,7 +509,8 @@ export const OpenTidePreviewModal: React.FC<OpenTidePreviewModalProps> = ({
           gap: 16,
           marginBottom: 12,
           padding: '8px 12px',
-          background: '#f5f5f5',
+          background: 'var(--hef-bg-subtle)',
+          border: '1px solid var(--hef-border)',
           borderRadius: 6,
         }}
       >
@@ -610,7 +627,7 @@ export const OpenTidePreviewModal: React.FC<OpenTidePreviewModalProps> = ({
             <Spin tip="Loading previous preview…" size="large" />
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#8c8c8c' }}>
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--hef-text-muted)' }}>
             <ReloadOutlined style={{ fontSize: 32, marginBottom: 12, display: 'block' }} />
             <p style={{ margin: 0 }}>
               Click <strong>Generate Preview</strong> to compile the OpenTIDE metadata.

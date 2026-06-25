@@ -132,7 +132,7 @@ export const CreateKBArticlePage = () => {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
+    <div className="knowledge-theme" style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
       <Breadcrumb style={{ marginBottom: 16 }}>
         <Breadcrumb.Item>
           <button onClick={() => navigate('/kb')} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'none', padding: 0 }}>Knowledge Base</button>
@@ -244,7 +244,7 @@ export const CreateKBArticlePage = () => {
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
               Content (Markdown) *
             </label>
-            <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--hef-border)', borderRadius: '6px', overflow: 'hidden' }}>
               <SimpleMDE
                 value={content}
                 onChange={setContent}

@@ -87,6 +87,9 @@ const CapabilityAbstractionMapModalInner: React.FC<CapabilityAbstractionMapModal
 
   const activeNodes = useMemo(() => (isAutoMode ? derivedNodes : manualNodes), [isAutoMode, derivedNodes, manualNodes]);
   const activeEdges = useMemo(() => (isAutoMode ? derivedEdges : manualEdges), [isAutoMode, derivedEdges, manualEdges]);
+  const isDarkTheme =
+    typeof document !== 'undefined' &&
+    document.documentElement.getAttribute('data-theme') === 'dark';
 
   const handleDownloadPng = useCallback(async () => {
     const container = flowContainerRef.current;
@@ -97,7 +100,10 @@ const CapabilityAbstractionMapModalInner: React.FC<CapabilityAbstractionMapModal
 
     const viewport = container.querySelector('.react-flow__viewport') as HTMLElement | null;
     try {
-      const dataUrl = await toPng(viewport ?? container, { backgroundColor: '#f9fafb', cacheBust: true });
+      const dataUrl = await toPng(viewport ?? container, {
+        backgroundColor: isDarkTheme ? '#0f172a' : '#f9fafb',
+        cacheBust: true,
+      });
       const link = document.createElement('a');
       link.href = dataUrl;
       link.download = 'capability-abstraction-map.png';
@@ -105,7 +111,7 @@ const CapabilityAbstractionMapModalInner: React.FC<CapabilityAbstractionMapModal
     } catch {
       message.error('Failed to generate PNG');
     }
-  }, []);
+  }, [isDarkTheme]);
 
   return (
     <Modal
@@ -114,7 +120,7 @@ const CapabilityAbstractionMapModalInner: React.FC<CapabilityAbstractionMapModal
       footer={null}
       width="100vw"
       style={{ top: 0 }}
-      className="fullscreen-modal"
+      className="fullscreen-modal workbench-map-modal"
       styles={{ body: { padding: 0, height: 'calc(100vh - 55px)' } }}
       destroyOnClose={false}
     >
@@ -172,7 +178,7 @@ const CapabilityAbstractionMapModalInner: React.FC<CapabilityAbstractionMapModal
             fitView
           >
             {isAutoMode && <CapabilityAbstractionLayerBands focusLayer={focusLayer} bands={layerBands} />}
-            <Background color="#f1f5f9" gap={20} />
+            <Background color={isDarkTheme ? '#243246' : '#f1f5f9'} gap={20} />
             <Controls />
           </ReactFlow>
 

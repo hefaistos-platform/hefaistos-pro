@@ -520,7 +520,7 @@ export const AdminNewsPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div className="news-admin-theme" style={{ padding: '24px' }}>
       <Card>
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           {isBotAuditor && (
@@ -567,6 +567,7 @@ export const AdminNewsPage: React.FC = () => {
       <Modal
         title={editingPost ? 'Edit News Post' : 'Create News Post'}
         open={isModalOpen}
+        className="news-admin-theme"
         onCancel={() => {
           setIsModalOpen(false);
           setEditingPost(null);
@@ -627,7 +628,7 @@ export const AdminNewsPage: React.FC = () => {
                   key: 'editor',
                   label: '✏️ Editor',
                   children: (
-                    <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
+                    <div style={{ border: '1px solid var(--hef-border)', borderRadius: '6px', overflow: 'hidden' }}>
                       <SimpleMDE
                         value={previewContent}
                         onChange={(val) => {
@@ -646,12 +647,12 @@ export const AdminNewsPage: React.FC = () => {
                   children: (
                     <Card
                       size="small"
-                      style={{ marginBottom: 16, background: '#f5f5f5', minHeight: 300 }}
+                      style={{ marginBottom: 16, background: 'var(--hef-bg-subtle)', minHeight: 300, borderColor: 'var(--hef-border)' }}
                     >
                       {previewContent.trim() ? (
                         <MarkdownRenderer content={previewContent} variant="small" />
                       ) : (
-                        <p style={{ color: '#999', fontStyle: 'italic' }}>
+                        <p style={{ color: 'var(--hef-text-muted)', fontStyle: 'italic' }}>
                           No content to preview...
                         </p>
                       )}

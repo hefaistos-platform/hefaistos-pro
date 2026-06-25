@@ -483,7 +483,7 @@ export const CapabilityAbstractionPanel: React.FC<CapabilityAbstractionPanelProp
   };
 
   return (
-    <Card title="Capability Abstraction Library" style={{ marginTop: 16 }}>
+    <Card className="capability-library-card" title="Capability Abstraction Library" style={{ marginTop: 16 }}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Alert
           type="info"
@@ -517,7 +517,9 @@ export const CapabilityAbstractionPanel: React.FC<CapabilityAbstractionPanelProp
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Text strong>📌 Selected abstractions ({selectedIds.length})</Text>
             <Tooltip title="Selected items are saved automatically. Entries remain in the platform library even after this workbench is deleted.">
-              <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: 13, cursor: 'help' }} />
+              <InfoCircleOutlined
+                style={{ color: 'var(--hef-text-muted)', fontSize: 13, cursor: 'help' }}
+              />
             </Tooltip>
           </div>
           {selectedIds.length === 0 ? (
@@ -535,9 +537,9 @@ export const CapabilityAbstractionPanel: React.FC<CapabilityAbstractionPanelProp
                       gap: 6,
                       flexWrap: 'wrap',
                       padding: '5px 10px',
-                      background: '#fafafa',
+                      background: 'var(--hef-bg-subtle)',
                       borderRadius: 6,
-                      border: '1px solid #f0f0f0',
+                      border: '1px solid var(--hef-border)',
                     }}
                   >
                     <Tag color="geekblue" style={{ margin: 0 }}>{getLayerLabel(entry.abstractionLayer)}</Tag>
@@ -550,7 +552,7 @@ export const CapabilityAbstractionPanel: React.FC<CapabilityAbstractionPanelProp
                       type="text"
                       size="small"
                       icon={<CloseOutlined />}
-                      style={{ marginLeft: 'auto', color: '#8c8c8c' }}
+                      style={{ marginLeft: 'auto', color: 'var(--hef-text-muted)' }}
                       title="Remove from selection"
                       onClick={() => handleSelection(selectedIds.filter((id) => id !== entry.id))}
                     />
@@ -773,6 +775,7 @@ export const CapabilityAbstractionPanel: React.FC<CapabilityAbstractionPanelProp
         onOk={handleSave}
         okButtonProps={{ loading: creating || updating }}
         destroyOnClose
+        className="capability-library-modal"
       >
         <Form<FormValues> form={form} layout="vertical">
           {!editingEntry && (

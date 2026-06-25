@@ -152,7 +152,7 @@ export const TestingGuidance: React.FC<TestingProps> = ({ data, onChange }) => {
   };
 
   return (
-    <div className="p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6">
+    <div className="testing-guidance-section p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}

@@ -67,7 +67,7 @@ export const CreateDataSourcePage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
+    <div className="knowledge-theme" style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
       <Breadcrumb style={{ marginBottom: 16 }}>
         <Breadcrumb.Item>
           <button onClick={() => navigate('/catalog')} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'none', padding: 0 }}>Data Catalog</button>
@@ -119,7 +119,7 @@ export const CreateDataSourcePage: React.FC = () => {
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
               Description
             </label>
-            <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
+            <div style={{ border: '1px solid var(--hef-border)', borderRadius: '6px', overflow: 'hidden' }}>
               <SimpleMDE
                 value={description}
                 onChange={setDescription}

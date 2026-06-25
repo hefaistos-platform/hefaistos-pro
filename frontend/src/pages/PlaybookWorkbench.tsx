@@ -1902,7 +1902,7 @@ export const PlaybookWorkbench = () => {
           <Button 
             variant="secondary"
             onClick={() => setMaieuticModalVisible(true)}
-            className="w-10 h-10 p-2 flex items-center justify-center bg-orange-500 hover:bg-orange-600 border-orange-600 text-white"
+            className="w-10 h-10 p-2 flex items-center justify-center bg-violet-600 hover:bg-violet-700 border-violet-700 text-white"
             title="Launch hypothesis-driven detection engineering workflow (Maieutic Engine)"
           >
             <PixelIcon name="lightbulb" className="w-5 h-5" />

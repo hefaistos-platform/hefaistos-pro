@@ -465,7 +465,7 @@ const PainPointsPage = () => {
           onCancel={() => setShowDetailsModal(false)}
           width={700}
           footer={null}
-          className="pain-details-modal"
+          className="pain-details-modal pain-theme-modal"
         >
           <div className="pain-details-content">
             <div className="details-section">
@@ -517,7 +517,7 @@ const PainPointsPage = () => {
                             {!isElOne && (
                               <Button
                                 onClick={() => setReplyingTo(comment.id)}
-                                style={{ color: '#1890ff', padding: '0', fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                style={{ color: 'var(--hef-text-link)', padding: '0', fontSize: '13px', background: 'none', border: 'none', cursor: 'pointer' }}
                               >
                                 💬 Reply
                               </Button>
@@ -562,7 +562,7 @@ const PainPointsPage = () => {
                 {replyingTo && (
                   <div className="reply-info">
                     <span>Replying to a comment</span>
-                    <Button onClick={() => setReplyingTo(null)} style={{ color: '#1890ff', padding: '0', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer' }}>Clear</Button>
+                    <Button onClick={() => setReplyingTo(null)} style={{ color: 'var(--hef-text-link)', padding: '0', fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer' }}>Clear</Button>
                   </div>
                 )}
                 <TextArea

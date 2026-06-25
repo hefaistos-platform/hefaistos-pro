@@ -127,7 +127,7 @@ export const PainArchiveModal: React.FC<PainArchiveModalProps> = ({
       onCancel={onClose}
       width={800}
       footer={null}
-      className="pain-archive-modal"
+      className="pain-archive-modal pain-theme-modal"
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: '50px' }}>

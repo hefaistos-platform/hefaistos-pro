@@ -1350,7 +1350,7 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
       }
       width="100vw"
       style={{ top: 0, paddingBottom: 0 }}
-      className="fullscreen-modal"
+      className="fullscreen-modal detection-editor-modal"
       styles={{
         content: {
           height: '100vh',

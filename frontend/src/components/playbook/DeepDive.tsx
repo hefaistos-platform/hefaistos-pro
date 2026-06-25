@@ -234,7 +234,7 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
   }, [rulesData]);
 
   return (
-    <div className="p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6">
+    <div className="deep-dive-section p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6">
       <h2 className="text-xl font-bold mb-4 text-hefaistos-primary">Part 2: Deep Dive (Operational Context)</h2>
 
       {/* 1. Goal */}

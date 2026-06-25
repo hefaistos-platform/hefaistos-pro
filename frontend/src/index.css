@@ -687,6 +687,57 @@ code {
   color: var(--hef-text-primary);
 }
 
+.workbench-theme .deep-dive-section,
+.workbench-theme .testing-guidance-section {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-theme .deep-dive-section .text-hefaistos-primary,
+.workbench-theme .testing-guidance-section .text-hefaistos-primary {
+  color: var(--hef-text-link) !important;
+}
+
+.workbench-theme .deep-dive-section .EasyMDEContainer,
+.workbench-theme .testing-guidance-section .EasyMDEContainer {
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-theme .deep-dive-section .EasyMDEContainer .CodeMirror,
+.workbench-theme .deep-dive-section .EasyMDEContainer .editor-preview,
+.workbench-theme .deep-dive-section .EasyMDEContainer .editor-preview-side,
+.workbench-theme .testing-guidance-section .EasyMDEContainer .CodeMirror,
+.workbench-theme .testing-guidance-section .EasyMDEContainer .editor-preview,
+.workbench-theme .testing-guidance-section .EasyMDEContainer .editor-preview-side {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+}
+
+.workbench-theme .testing-guidance-section textarea.bg-gray-900 {
+  background: #0a1220 !important;
+  color: #a7f3d0 !important;
+  border-color: var(--hef-border-strong) !important;
+}
+
+.workbench-theme .testing-guidance-section .border-dashed {
+  border-color: var(--hef-border-strong) !important;
+}
+
+.workbench-theme .capability-library-card.ant-card,
+.workbench-theme .capability-library-card .ant-card-head,
+.workbench-theme .capability-library-card .ant-card-body {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-theme .capability-library-card .ant-input,
+.workbench-theme .capability-library-card .ant-input-textarea textarea,
+.workbench-theme .capability-library-card .ant-select-selector {
+  background: var(--hef-bg-subtle) !important;
+  border-color: var(--hef-border) !important;
+  color: var(--hef-text-primary) !important;
+}
+
 /* Legacy Workbench detail (/playbooks/detail/:id) */
 .workbench-detail-theme {
   color: var(--hef-text-primary);
@@ -736,4 +787,339 @@ code {
 
 .workbench-detail-theme a {
   color: var(--hef-text-link);
+}
+
+/* Global markdown editor theming (EasyMDE) */
+:root[data-theme='dark'] .EasyMDEContainer .editor-toolbar {
+  background: var(--hef-bg-subtle);
+  border-color: var(--hef-border);
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .editor-toolbar button {
+  color: var(--hef-text-secondary) !important;
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .editor-toolbar button:hover,
+:root[data-theme='dark'] .EasyMDEContainer .editor-toolbar button.active {
+  background: var(--hef-bg-hover);
+  border-color: var(--hef-border-strong);
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .editor-toolbar i.separator {
+  border-color: var(--hef-border);
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .CodeMirror,
+:root[data-theme='dark'] .EasyMDEContainer .CodeMirror-scroll,
+:root[data-theme='dark'] .EasyMDEContainer .editor-preview,
+:root[data-theme='dark'] .EasyMDEContainer .editor-preview-side {
+  background: var(--hef-bg-surface) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .CodeMirror-cursor {
+  border-left-color: var(--hef-text-primary) !important;
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .CodeMirror-gutters {
+  background: var(--hef-bg-subtle);
+  border-right-color: var(--hef-border);
+}
+
+:root[data-theme='dark'] .EasyMDEContainer .CodeMirror-linenumber {
+  color: var(--hef-text-muted);
+}
+
+/* Capability map modal (portal-rendered, outside workbench-theme wrapper) */
+.workbench-map-modal .bg-white {
+  background: var(--hef-bg-surface) !important;
+}
+
+.workbench-map-modal .bg-gray-100,
+.workbench-map-modal .bg-gray-200 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.workbench-map-modal .bg-blue-50 {
+  background: var(--hef-info-bg) !important;
+}
+
+.workbench-map-modal .border,
+.workbench-map-modal .border-b,
+.workbench-map-modal .border-gray-200,
+.workbench-map-modal .border-gray-300 {
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-map-modal .text-gray-500,
+.workbench-map-modal .text-gray-600,
+.workbench-map-modal .text-gray-700 {
+  color: var(--hef-text-secondary) !important;
+}
+
+.workbench-map-modal .text-blue-700 {
+  color: var(--hef-info-text) !important;
+}
+
+.workbench-map-modal .react-flow__controls button {
+  background: var(--hef-bg-surface);
+  color: var(--hef-text-primary);
+  border-color: var(--hef-border);
+}
+
+/* Detection editor modal (portal-rendered) */
+.detection-editor-modal .bg-white {
+  background: var(--hef-bg-surface) !important;
+}
+
+.detection-editor-modal .bg-gray-50,
+.detection-editor-modal .bg-gray-100,
+.detection-editor-modal .bg-gray-200 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.detection-editor-modal .bg-blue-50,
+.detection-editor-modal .bg-blue-100 {
+  background: var(--hef-info-bg) !important;
+}
+
+.detection-editor-modal .bg-amber-50,
+.detection-editor-modal .bg-amber-100 {
+  background: var(--hef-warning-bg) !important;
+}
+
+.detection-editor-modal .border,
+.detection-editor-modal .border-b,
+.detection-editor-modal .border-t,
+.detection-editor-modal .border-r,
+.detection-editor-modal .border-gray-100,
+.detection-editor-modal .border-gray-200,
+.detection-editor-modal .border-gray-300 {
+  border-color: var(--hef-border) !important;
+}
+
+.detection-editor-modal .text-gray-400,
+.detection-editor-modal .text-gray-500 {
+  color: var(--hef-text-muted) !important;
+}
+
+.detection-editor-modal .text-gray-600,
+.detection-editor-modal .text-gray-700,
+.detection-editor-modal .text-gray-800 {
+  color: var(--hef-text-secondary) !important;
+}
+
+.detection-editor-modal .text-amber-700 {
+  color: var(--hef-warning-text) !important;
+}
+
+.detection-editor-modal .ant-select-selector,
+.detection-editor-modal .ant-input,
+.detection-editor-modal .ant-input-number,
+.detection-editor-modal .ant-input-number-input,
+.detection-editor-modal .ant-input-affix-wrapper {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.detection-editor-modal .ant-tabs-tab {
+  color: var(--hef-text-secondary) !important;
+}
+
+.detection-editor-modal .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--hef-text-link) !important;
+}
+
+.detection-editor-modal .prose,
+.detection-editor-modal .prose p,
+.detection-editor-modal .prose li,
+.detection-editor-modal .prose h1,
+.detection-editor-modal .prose h2,
+.detection-editor-modal .prose h3,
+.detection-editor-modal .prose h4 {
+  color: var(--hef-text-primary) !important;
+}
+
+/* OpenTIDE preview modal */
+.opentide-preview-modal .ant-modal-content,
+.opentide-preview-modal .ant-modal-header,
+.opentide-preview-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.opentide-preview-modal .ant-modal-title,
+.opentide-preview-modal .ant-typography,
+.opentide-preview-modal .ant-tabs-tab-btn {
+  color: var(--hef-text-primary) !important;
+}
+
+.opentide-preview-modal .ant-input,
+.opentide-preview-modal .ant-input-textarea textarea,
+.opentide-preview-modal .ant-tabs-content-holder {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.opentide-preview-modal .opentide-metadata-preview .opentide-metadata-action {
+  background: var(--hef-bg-accent) !important;
+  color: var(--hef-text-link) !important;
+  border-color: var(--hef-info-border) !important;
+}
+
+.opentide-preview-modal .opentide-metadata-preview .opentide-metadata-action-brand {
+  background: var(--hef-brand-bg) !important;
+  color: var(--hef-brand-text) !important;
+  border-color: var(--hef-brand-border) !important;
+}
+
+.opentide-preview-modal .opentide-metadata-preview .border-gray-200 {
+  border-color: var(--hef-border) !important;
+}
+
+.opentide-field-editor-modal .ant-modal-content,
+.opentide-field-editor-modal .ant-modal-header,
+.opentide-field-editor-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+}
+
+.opentide-field-editor-modal .ant-input,
+.opentide-field-editor-modal .ant-input-textarea textarea {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.capability-library-modal .ant-modal-content,
+.capability-library-modal .ant-modal-header,
+.capability-library-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.capability-library-modal .ant-input,
+.capability-library-modal .ant-input-textarea textarea,
+.capability-library-modal .ant-select-selector {
+  background: var(--hef-bg-subtle) !important;
+  border-color: var(--hef-border) !important;
+  color: var(--hef-text-primary) !important;
+}
+
+/* Threat report populate modal content */
+.threat-report-populate .bg-white {
+  background: var(--hef-bg-surface) !important;
+}
+
+.threat-report-populate .bg-gray-50 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.threat-report-populate .border,
+.threat-report-populate .border-gray-200,
+.threat-report-populate .border-gray-300 {
+  border-color: var(--hef-border) !important;
+}
+
+.threat-report-populate .text-gray-600,
+.threat-report-populate .text-gray-700,
+.threat-report-populate .text-gray-800 {
+  color: var(--hef-text-secondary) !important;
+}
+
+.threat-report-populate input,
+.threat-report-populate textarea,
+.threat-report-populate select {
+  background: var(--hef-bg-subtle);
+  color: var(--hef-text-primary);
+  border-color: var(--hef-border);
+}
+
+/* Knowledge base + data source creation/edit forms */
+.knowledge-theme .ant-card,
+.knowledge-theme .ant-card-head,
+.knowledge-theme .ant-card-body {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.knowledge-theme .ant-input,
+.knowledge-theme .ant-input-textarea textarea,
+.knowledge-theme .ant-select-selector,
+.knowledge-theme .ant-breadcrumb,
+.knowledge-theme .ant-typography {
+  color: var(--hef-text-primary) !important;
+}
+
+.knowledge-theme .ant-input,
+.knowledge-theme .ant-input-textarea textarea,
+.knowledge-theme .ant-select-selector {
+  background: var(--hef-bg-subtle) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.knowledge-theme .EasyMDEContainer .CodeMirror,
+.knowledge-theme .EasyMDEContainer .editor-preview,
+.knowledge-theme .EasyMDEContainer .editor-preview-side {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.knowledge-theme-modal .ant-modal-content,
+.knowledge-theme-modal .ant-modal-header,
+.knowledge-theme-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+}
+
+.knowledge-theme-modal .ant-input,
+.knowledge-theme-modal .ant-input-textarea textarea {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+/* News admin/editor */
+.news-admin-theme .ant-card,
+.news-admin-theme .ant-card-head,
+.news-admin-theme .ant-card-body {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.news-admin-theme .ant-input,
+.news-admin-theme .ant-input-textarea textarea,
+.news-admin-theme .ant-select-selector,
+.news-admin-theme .ant-picker,
+.news-admin-theme .ant-tabs-content-holder {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.news-admin-theme .ant-modal-content,
+.news-admin-theme .ant-modal-header,
+.news-admin-theme .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+}
+
+.news-admin-theme .EasyMDEContainer .CodeMirror,
+.news-admin-theme .EasyMDEContainer .editor-preview,
+.news-admin-theme .EasyMDEContainer .editor-preview-side {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.pain-points-page .EasyMDEContainer .CodeMirror,
+.pain-points-page .EasyMDEContainer .editor-preview,
+.pain-points-page .EasyMDEContainer .editor-preview-side,
+.pain-theme-modal .EasyMDEContainer .CodeMirror,
+.pain-theme-modal .EasyMDEContainer .editor-preview,
+.pain-theme-modal .EasyMDEContainer .editor-preview-side {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
 }

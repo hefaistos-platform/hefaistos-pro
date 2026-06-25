@@ -544,7 +544,7 @@ export const ThreatReportPopulateModal: React.FC<ThreatReportPopulateModalProps>
       title="Populate Workbench from Threat Report"
       size="2xl"
     >
-      <div className="space-y-4">
+      <div className="threat-report-populate space-y-4">
         <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
           <p className="font-semibold">Feature summary</p>
           <p>

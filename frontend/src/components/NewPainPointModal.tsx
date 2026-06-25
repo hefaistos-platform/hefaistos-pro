@@ -144,7 +144,7 @@ export const NewPainPointModal: React.FC<NewPainPointModalProps> = ({
         </AntButton>,
       ]}
       width={600}
-      className="new-pain-modal"
+      className="new-pain-modal pain-theme-modal"
     >
       <div className="pain-form">
         <div className="form-group">
@@ -172,7 +172,7 @@ export const NewPainPointModal: React.FC<NewPainPointModalProps> = ({
                 key: 'editor',
                 label: '✏️ Editor',
                 children: (
-                  <div style={{ border: '1px solid #d9d9d9', borderRadius: '6px', overflow: 'hidden' }}>
+                  <div style={{ border: '1px solid var(--hef-border)', borderRadius: '6px', overflow: 'hidden' }}>
                     <SimpleMDE
                       value={description}
                       onChange={setDescription}
@@ -188,12 +188,12 @@ export const NewPainPointModal: React.FC<NewPainPointModalProps> = ({
                 children: (
                   <Card
                     size="small"
-                    style={{ marginBottom: 16, background: '#f5f5f5', minHeight: 200 }}
+                    style={{ marginBottom: 16, background: 'var(--hef-bg-subtle)', minHeight: 200, borderColor: 'var(--hef-border)' }}
                   >
                     {description.trim() ? (
                       <MarkdownRenderer content={description} variant="small" />
                     ) : (
-                      <p style={{ color: '#999', fontStyle: 'italic' }}>
+                      <p style={{ color: 'var(--hef-text-muted)', fontStyle: 'italic' }}>
                         No content to preview. Start typing in the editor tab...
                       </p>
                     )}

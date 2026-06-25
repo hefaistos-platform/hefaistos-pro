@@ -217,7 +217,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ field, overrideValue, onSave, onRes
             marginBottom: 0,
             fontFamily: 'monospace',
             fontSize: 11,
-            color: '#555',
+            color: 'var(--hef-text-secondary)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
             maxHeight: 80,
@@ -236,12 +236,19 @@ const FieldRow: React.FC<FieldRowProps> = ({ field, overrideValue, onSave, onRes
         onOk={handleSaveComplex}
         okText="Save"
         width={600}
+        className="opentide-field-editor-modal"
       >
         <Input.TextArea
           rows={12}
           value={editText}
           onChange={(e) => { setEditText(e.target.value); setEditError(null); }}
-          style={{ fontFamily: 'monospace', fontSize: 12 }}
+          style={{
+            fontFamily: 'monospace',
+            fontSize: 12,
+            background: 'var(--hef-bg-subtle)',
+            color: 'var(--hef-text-primary)',
+            borderColor: 'var(--hef-border)',
+          }}
         />
         {editError && (
           <Text type="danger" style={{ marginTop: 4, display: 'block' }}>

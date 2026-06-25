@@ -168,6 +168,7 @@ export const KnowledgeBasePage = () => {
     modal.confirm({
       title: 'Edit Category',
       icon: null,
+      className: 'knowledge-theme-modal',
       content: (
         <div style={{ marginTop: 8 }}>
           <div style={{ marginBottom: 8 }}>
@@ -198,7 +199,7 @@ export const KnowledgeBasePage = () => {
   };
 
   return (
-    <>
+    <div className="knowledge-theme">
       {error && (
         <div style={{ marginBottom: 12 }}>
           <Typography.Text type="danger">Error: {error.message}</Typography.Text>
@@ -224,7 +225,7 @@ export const KnowledgeBasePage = () => {
                 style={{
                   cursor: 'pointer',
                   borderLeft: `5px solid ${getCategoryColor(index)}`,
-                  background: selectedCategoryId === cat.id ? '#f0f2f5' : 'white',
+                  background: selectedCategoryId === cat.id ? 'var(--hef-bg-subtle)' : 'var(--hef-bg-surface)',
                   transition: 'all 0.3s ease',
                   width: '180px',
                   flexShrink: 0,
@@ -391,6 +392,7 @@ export const KnowledgeBasePage = () => {
 
       <Modal
         title="Create Category"
+        className="knowledge-theme-modal"
         open={isCreateCatOpen}
         onCancel={() => setIsCreateCatOpen(false)}
         onOk={async () => {
@@ -416,6 +418,6 @@ export const KnowledgeBasePage = () => {
           </div>
         </div>
       </Modal>
-    </>
+    </div>
   );
 };
