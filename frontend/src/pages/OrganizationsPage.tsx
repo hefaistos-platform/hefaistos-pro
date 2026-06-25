@@ -1511,18 +1511,12 @@ export const OrganizationsPage: React.FC = () => {
               <Form.Item name="azureOpenaiDeployment" label="Azure OpenAI Deployment">
                 <Input placeholder="gpt-5-deployment" />
               </Form.Item>
-              <Form.Item name="orgPreferredModel" label="Default Preferred Model">
-                <Select
-                  allowClear
-                  options={[
-                    { value: 'OLLAMA', label: 'OLLAMA' },
-                    { value: 'GPT-5.5', label: 'GPT-5.5' },
-                    { value: 'GPT-5.4', label: 'GPT-5.4' },
-                    { value: 'GEMINI-3.5-FLASH', label: 'GEMINI-3.5-FLASH' },
-                    { value: 'CLAUDE-SONNET-4.6', label: 'CLAUDE-SONNET-4.6' },
-                    { value: 'AZURE-OPENAI', label: 'AZURE-OPENAI' },
-                  ]}
-                />
+              <Form.Item
+                name="orgPreferredModel"
+                label="Default Preferred Model"
+                extra="Leave blank to auto-detect based on enabled providers."
+              >
+                <Input allowClear placeholder="e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6, llama3.1" />
               </Form.Item>
               <Divider />
               <Space wrap>

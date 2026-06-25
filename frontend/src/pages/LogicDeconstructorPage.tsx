@@ -10,6 +10,18 @@ type DeconstructRuleResult = {
   };
 };
 
+type AiProvider = 'openai' | 'gemini' | 'claude' | 'ollama' | 'unknown';
+
+const inferProviderFromModel = (value: string): AiProvider => {
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return 'unknown';
+  if (normalized.startsWith('GEMINI')) return 'gemini';
+  if (normalized.startsWith('CLAUDE')) return 'claude';
+  if (normalized.startsWith('OLLAMA') || normalized.startsWith('LLAMA') || normalized.startsWith('MISTRAL')) return 'ollama';
+  if (normalized.startsWith('GPT')) return 'openai';
+  return 'unknown';
+};
+
 const DECONSTRUCT_RULE_MUTATION = gql`
   mutation DeconstructRule($ruleText: String, $ruleUrl: String) {
     deconstructRule(ruleText: $ruleText, ruleUrl: $ruleUrl) {
@@ -98,49 +110,48 @@ export const LogicDeconstructorPage: React.FC = () => {
         <div className="w-full md:w-1/3 space-y-2">
           <label className="block text-sm font-medium">AI Model</label>
           <div className="text-xs text-gray-600 mb-1">
-            Your selected Model is {modelSel || 'Not set'}.{aiData?.myAiSettings?.useOrgAi && aiData?.myAiSettings?.hasOllama ? ' (Organizational AI)' : ''} If you like to change it, make your choice here.
+            Your selected model is {modelSel || 'Not set'}.{aiData?.myAiSettings?.useOrgAi && aiData?.myAiSettings?.hasOllama ? ' (Organizational AI)' : ''} Enter any provider model name below.
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <input
+              type="text"
               className="border rounded p-2 text-sm w-full"
               value={modelSel}
-              onChange={async (e) => {
-                const model = e.target.value;
-                setUpdateError("");
-                setModelSel(model); // optimistic UI
+              placeholder="e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6, llama3.1"
+              onChange={(e) => {
+                setUpdateError('');
+                setModelSel(e.target.value);
+              }}
+              onKeyDown={async (e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const model = modelSel.trim();
                 try {
+                  setUpdateError('');
                   await updateAiSettings({ variables: { preferredModel: model || undefined } });
+                  setModelSel(model);
+                } catch (err: any) {
+                  setUpdateError(err?.message || 'Failed to update preferred model');
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="px-3 py-2 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+              disabled={updatingModel}
+              onClick={async () => {
+                const model = modelSel.trim();
+                try {
+                  setUpdateError('');
+                  await updateAiSettings({ variables: { preferredModel: model || undefined } });
+                  setModelSel(model);
                 } catch (err: any) {
                   setUpdateError(err?.message || 'Failed to update preferred model');
                 }
               }}
             >
-              <option value="">Select model</option>
-              <option value="GPT-5.5">GPT-5.5</option>
-              <option value="GPT-5.4">GPT-5.4</option>
-              <option value="GPT-5.4-MINI">GPT-5.4 Mini</option>
-              <option value="GEMINI-3.1-PRO-PREVIEW">Gemini 3.1 Pro Preview</option>
-              <option value="GEMINI-3.5-FLASH">Gemini 3.5 Flash</option>
-              <option value="GEMINI-3-FLASH-PREVIEW">Gemini 3 Flash Preview</option>
-              <option value="GEMINI-3.1-FLASH-LITE">Gemini 3.1 Flash Lite</option>
-              <option value="GEMINI-3.1-FLASH-LITE-PREVIEW">Gemini 3.1 Flash Lite Preview</option>
-              <option value="CLAUDE-OPUS-4.7">Claude Opus 4.7</option>
-              <option value="CLAUDE-SONNET-4.6">Claude Sonnet 4.6</option>
-              <option value="CLAUDE-HAIKU-4.5-20251001">Claude Haiku 4.5 (20251001)</option>
-              {aiData?.myAiSettings?.hasOllama && (() => {
-                const orgModel = aiData.myAiSettings!.effectivePreferredModel || '';
-                const knownModels = [
-                  'GPT-5.5','GPT-5.4','GPT-5.4-MINI',
-                  'GEMINI-3.1-PRO-PREVIEW','GEMINI-3.5-FLASH','GEMINI-3-FLASH-PREVIEW',
-                  'GEMINI-3.1-FLASH-LITE','GEMINI-3.1-FLASH-LITE-PREVIEW',
-                  'CLAUDE-OPUS-4.7','CLAUDE-SONNET-4.6','CLAUDE-HAIKU-4.5-20251001',
-                ];
-                if (orgModel && !knownModels.includes(orgModel)) {
-                  return <option value={orgModel}>{orgModel} (Organizational AI)</option>;
-                }
-                return null;
-              })()}
-            </select>
+              Save
+            </button>
             {updatingModel && <span className="text-xs text-gray-500">Updating...</span>}
           </div>
           {updateError && <div className="text-xs text-red-600 mt-1">{updateError}</div>}
@@ -153,26 +164,23 @@ export const LogicDeconstructorPage: React.FC = () => {
               {aiData.myAiSettings.hasOllama ? 'Ollama (Org) ' : ''}
               ]
               {(() => {
-                const m = modelSel || '';
+                const m = modelSel.trim();
+                const provider = inferProviderFromModel(m);
                 // When org AI (Ollama) is active and the model is the org model, no warning needed
                 if (aiData.myAiSettings.hasOllama && aiData.myAiSettings.useOrgAi) {
                   return null;
                 }
-                const available = {
-                  'GPT-5.5': aiData.myAiSettings.decrypted_openai,
-                  'GPT-5.4': aiData.myAiSettings.decrypted_openai,
-                  'GPT-5.4-MINI': aiData.myAiSettings.decrypted_openai,
-                  'GEMINI-3.1-PRO-PREVIEW': aiData.myAiSettings.decrypted_gemini,
-                  'GEMINI-3.5-FLASH': aiData.myAiSettings.decrypted_gemini,
-                  'GEMINI-3-FLASH-PREVIEW': aiData.myAiSettings.decrypted_gemini,
-                  'GEMINI-3.1-FLASH-LITE': aiData.myAiSettings.decrypted_gemini,
-                  'GEMINI-3.1-FLASH-LITE-PREVIEW': aiData.myAiSettings.decrypted_gemini,
-                  'CLAUDE-OPUS-4.7': aiData.myAiSettings.decrypted_claude,
-                  'CLAUDE-SONNET-4.6': aiData.myAiSettings.decrypted_claude,
-                  'CLAUDE-HAIKU-4.5-20251001': aiData.myAiSettings.decrypted_claude,
-                } as Record<string, boolean>;
-                if (m && available[m] === false) {
+                const providerAvailable = {
+                  openai: aiData.myAiSettings.decrypted_openai,
+                  gemini: aiData.myAiSettings.decrypted_gemini,
+                  claude: aiData.myAiSettings.decrypted_claude,
+                  ollama: aiData.myAiSettings.hasOllama,
+                } as Record<Exclude<AiProvider, 'unknown'>, boolean>;
+                if (provider !== 'unknown' && m && providerAvailable[provider] === false) {
                   return <span className="ml-1 text-yellow-700">(Selected provider has no key)</span>;
+                }
+                if (provider === 'unknown' && m) {
+                  return <span className="ml-1 text-gray-500">(Provider could not be inferred from model name)</span>;
                 }
                 return null;
               })()}

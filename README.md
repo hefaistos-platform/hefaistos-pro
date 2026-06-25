@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
-[![Django](https://img.shields.io/badge/django-6.0-green.svg)](https://djangoproject.com)
+[![Django](https://img.shields.io/badge/django-6.0.5-green.svg)](https://djangoproject.com)
 [![React](https://img.shields.io/badge/react-19.2-61dafb.svg)](https://reactjs.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5+-blue.svg)](https://typescriptlang.org)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ed.svg)](https://docker.com)
@@ -93,11 +93,14 @@ The visual workbench provides a complete detection engineering environment:
 
 Multi-provider AI integration for intelligent rule generation:
 
-| Provider | Models |
-|----------|--------|
-| **OpenAI** | GPT-5.5, GPT-5.4, GPT-5.4 Mini |
-| **Google Gemini** | Gemini 3.1 Pro Preview, Gemini 3.5 Flash, Gemini 3 Flash Preview, Gemini 3.1 Flash Lite, Gemini 3.1 Flash Lite Preview |
-| **Anthropic Claude** | Claude Opus 4.7, Claude Sonnet 4.6, Claude Haiku 4.5 |
+| Provider | Model selection |
+|----------|-----------------|
+| **OpenAI** | Enter any valid model identifier (for example `GPT-5.5`) |
+| **Google Gemini** | Enter any valid Gemini model identifier (for example `GEMINI-3.5-FLASH`) |
+| **Anthropic Claude** | Enter any valid Claude model identifier (for example `CLAUDE-SONNET-4.6`) |
+| **Self-hosted/Ollama** | Enter your Ollama model name (for example `llama3.1`, `mistral`) |
+
+Model selection is now **free-text** in user and organization settings, so no frontend redeploy is required when providers publish new model names.
 
 **AI Capabilities:**
 
@@ -220,6 +223,14 @@ For SHARP fast-track rollout on a clean environment, use:
 ```
 
 This executes `docker compose down -v`, rebuilds images, starts the stack, runs migrations, rebuilds search indexes, and executes smoke checks.
+
+---
+
+## 📘 Installation Documents
+
+- Full installation guide: [INSTALL_MANUAL.md](INSTALL_MANUAL.md)
+- SHARP clean bootstrap operator runbook: [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](scripts/SHARP_BOOTSTRAP_RUNBOOK.md)
+- SHARP acceptance checklist template: [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md)
 
 ---
 

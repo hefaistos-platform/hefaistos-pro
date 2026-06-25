@@ -357,29 +357,9 @@ interface UpdateAiSettingsVars {
   useOrgAi?: boolean;
 }
 
-
-const AI_MODEL_OPTIONS = [
-  { value: 'GPT-5.5', label: 'GPT-5.5' },
-  { value: 'GPT-5.4', label: 'GPT-5.4' },
-  { value: 'GPT-5.4-MINI', label: 'GPT-5.4 Mini' },
-  { value: 'GEMINI-3.1-PRO-PREVIEW', label: 'Gemini 3.1 Pro Preview' },
-  { value: 'GEMINI-3.5-FLASH', label: 'Gemini 3.5 Flash' },
-  { value: 'GEMINI-3-FLASH-PREVIEW', label: 'Gemini 3 Flash Preview' },
-  { value: 'GEMINI-3.1-FLASH-LITE', label: 'Gemini 3.1 Flash Lite' },
-  { value: 'GEMINI-3.1-FLASH-LITE-PREVIEW', label: 'Gemini 3.1 Flash Lite Preview' },
-  { value: 'CLAUDE-OPUS-4.7', label: 'Claude Opus 4.7' },
-  { value: 'CLAUDE-SONNET-4.6', label: 'Claude Sonnet 4.6' },
-  { value: 'CLAUDE-HAIKU-4.5-20251001', label: 'Claude Haiku 4.5 (20251001)' },
-];
-
 const normalizePreferredModel = (value?: string | null) => {
   if (!value) return '';
-  const raw = value.trim();
-  if (!raw) return '';
-  if (AI_MODEL_OPTIONS.some(option => option.value === raw)) return raw;
-  const normalized = raw.replace(/[\s_]+/g, '-').toUpperCase();
-  if (AI_MODEL_OPTIONS.some(option => option.value === normalized)) return normalized;
-  return raw;
+  return value.trim();
 };
 
 // Query: myProfileSummary for ACH Analyses
@@ -436,7 +416,7 @@ export const UserProfile: React.FC = () => {
   const [startWebauthnRegistration, { loading: startingWebauthn }] = useMutation(START_WEBAUTHN_REGISTRATION);
   const [finishWebauthnRegistration, { loading: finishingWebauthn }] = useMutation(FINISH_WEBAUTHN_REGISTRATION);
   const [deleteWebauthnCredential] = useMutation(DELETE_WEBAUTHN_CREDENTIAL);
-  const [aiForm, setAiForm] = useState({ openaiKey: '', geminiKey: '', claudeKey: '', preferredModel: 'GEMINI-3-FLASH-PREVIEW', useOrgAi: false });
+  const [aiForm, setAiForm] = useState({ openaiKey: '', geminiKey: '', claudeKey: '', preferredModel: '', useOrgAi: false });
 
   // Sync preferredModel and useOrgAi from server once settings load; always reflect server value
   useEffect(() => {
@@ -988,7 +968,7 @@ export const UserProfile: React.FC = () => {
           <span>AI Assistant Settings</span>
           <span className="text-xs font-mono px-2 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">Experimental</span>
         </h2>
-        <p className="text-xs text-gray-500 mb-4">Store provider keys (never shown again) and choose a default model used for AI rule generation.</p>
+        <p className="text-xs text-gray-500 mb-4">Store provider keys (never shown again) and set a default model used for AI rule generation. You can type any model identifier supported by your provider.</p>
 
         {/* Organization AI toggle (always shown; disabled when org has no providers configured) */}
         <div className={`mb-5 p-4 rounded-lg border ${orgAiData?.orgAiSettings?.hasAnyProvider ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -1062,17 +1042,15 @@ export const UserProfile: React.FC = () => {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-600 block mb-1">Preferred Model</label>
-            <select
+            <input
+              type="text"
               className="w-full p-2 text-sm border rounded"
-              value={normalizePreferredModel(aiForm.preferredModel) || ''}
+              value={aiForm.preferredModel}
               onChange={e => setAiForm({ ...aiForm, preferredModel: e.target.value })}
+              placeholder="e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6, llama3.1"
               disabled={aiForm.useOrgAi}
-            >
-              <option value="">Select model</option>
-              {AI_MODEL_OPTIONS.map(option => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            />
+            <p className="text-xs text-gray-500 mt-1">Leave blank to let HEFAISTOS auto-select based on configured providers.</p>
           </div>
         </div>
         {aiForm.useOrgAi && (

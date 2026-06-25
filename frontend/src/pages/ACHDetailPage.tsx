@@ -331,7 +331,7 @@ const SET_ACH_REMOTE_PULL = gql`
 `;
 
 const UPDATE_AI_PREFERRED_MODEL = gql`
-  mutation UpdateAIPreferredModel($preferredModel: String!) {
+  mutation UpdateAIPreferredModel($preferredModel: String) {
     updateAiSettings(preferredModel: $preferredModel) {
       settings {
         preferredModel
@@ -341,20 +341,6 @@ const UPDATE_AI_PREFERRED_MODEL = gql`
     }
   }
 `;
-
-const AI_MODEL_OPTIONS = [
-  { value: 'GPT-5.5', label: 'GPT-5.5' },
-  { value: 'GPT-5.4', label: 'GPT-5.4' },
-  { value: 'GPT-5.4-MINI', label: 'GPT-5.4 Mini' },
-  { value: 'GEMINI-3.1-PRO-PREVIEW', label: 'Gemini 3.1 Pro Preview' },
-  { value: 'GEMINI-3.5-FLASH', label: 'Gemini 3.5 Flash' },
-  { value: 'GEMINI-3-FLASH-PREVIEW', label: 'Gemini 3 Flash Preview' },
-  { value: 'GEMINI-3.1-FLASH-LITE', label: 'Gemini 3.1 Flash Lite' },
-  { value: 'GEMINI-3.1-FLASH-LITE-PREVIEW', label: 'Gemini 3.1 Flash Lite Preview' },
-  { value: 'CLAUDE-OPUS-4.7', label: 'Claude Opus 4.7' },
-  { value: 'CLAUDE-SONNET-4.6', label: 'Claude Sonnet 4.6' },
-  { value: 'CLAUDE-HAIKU-4.5-20251001', label: 'Claude Haiku 4.5 (20251001)' },
-];
 
 const SCORE_OPTIONS = [
   { value: 'CC', label: 'Very Consistent (CC)', color: 'bg-green-900 text-green-100' },
@@ -407,7 +393,12 @@ export const ACHDetailPage: React.FC = () => {
   const [devilsAdvocateResult, setDevilsAdvocateResult] = useState<{msg: string, reasoning: string} | null>(null);
   const [loadingDevilsAdvocate, setLoadingDevilsAdvocate] = useState(false);
   const [devilsAdvocateProgress, setDevilsAdvocateProgress] = useState<string>('');
+  const [aiModelInput, setAiModelInput] = useState('');
   const navigate = useNavigate();
+
+  React.useEffect(() => {
+    setAiModelInput(aiSettingsData?.myAiSettings?.preferredModel || '');
+  }, [aiSettingsData?.myAiSettings?.preferredModel]);
 
   if (loading) return <div style={{ padding: 24 }}>Loading...</div>;
   if (error) return <div style={{ padding: 24 }}><Text type="danger">Error: {error.message}</Text></div>;
@@ -756,33 +747,51 @@ export const ACHDetailPage: React.FC = () => {
                 </Tag>
               </Tooltip>
             ) : (
-              <Select
-                size="small"
-                loading={updatingModel}
-                value={myAiSettings.preferredModel || undefined}
-                placeholder="Select AI model"
-                style={{ minWidth: 200 }}
-                onChange={async (value: string) => {
-                  try {
-                    const res = await updateAiPreferredModel({ variables: { preferredModel: value }, refetchQueries: ['GetMyAISettings'] });
-                    const warn = res.data?.updateAiSettings?.warning;
-                    if (warn) message.warning(warn);
-                    else message.success('AI model updated');
-                  } catch (err: any) {
-                    message.error(err?.message || 'Failed to update AI model');
-                  }
-                }}
-              >
-                {myAiSettings.hasOpenai && AI_MODEL_OPTIONS.filter(o => o.value.startsWith('GPT')).map(o => (
-                  <Option key={o.value} value={o.value}>{o.label}</Option>
-                ))}
-                {myAiSettings.hasGemini && AI_MODEL_OPTIONS.filter(o => o.value.startsWith('GEMINI')).map(o => (
-                  <Option key={o.value} value={o.value}>{o.label}</Option>
-                ))}
-                {myAiSettings.hasClaude && AI_MODEL_OPTIONS.filter(o => o.value.startsWith('CLAUDE')).map(o => (
-                  <Option key={o.value} value={o.value}>{o.label}</Option>
-                ))}
-              </Select>
+              <Space.Compact>
+                <Input
+                  size="small"
+                  style={{ minWidth: 280 }}
+                  placeholder="Enter AI model (e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6)"
+                  value={aiModelInput}
+                  onChange={(e) => setAiModelInput(e.target.value)}
+                  onPressEnter={async () => {
+                    try {
+                      const preferredModel = aiModelInput.trim();
+                      const res = await updateAiPreferredModel({
+                        variables: { preferredModel: preferredModel || undefined },
+                        refetchQueries: ['GetMyAISettings'],
+                      });
+                      const warn = res.data?.updateAiSettings?.warning;
+                      if (warn) message.warning(warn);
+                      else message.success('AI model updated');
+                      setAiModelInput(preferredModel);
+                    } catch (err: any) {
+                      message.error(err?.message || 'Failed to update AI model');
+                    }
+                  }}
+                />
+                <Button
+                  size="small"
+                  loading={updatingModel}
+                  onClick={async () => {
+                    try {
+                      const preferredModel = aiModelInput.trim();
+                      const res = await updateAiPreferredModel({
+                        variables: { preferredModel: preferredModel || undefined },
+                        refetchQueries: ['GetMyAISettings'],
+                      });
+                      const warn = res.data?.updateAiSettings?.warning;
+                      if (warn) message.warning(warn);
+                      else message.success('AI model updated');
+                      setAiModelInput(preferredModel);
+                    } catch (err: any) {
+                      message.error(err?.message || 'Failed to update AI model');
+                    }
+                  }}
+                >
+                  Save
+                </Button>
+              </Space.Compact>
             )
           )}
           {!analysis.savedAsTemplate && (

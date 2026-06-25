@@ -609,38 +609,14 @@ export const UserManagementPage = () => {
               </p>
               <div>
                 <label className="block text-xs font-semibold mb-1">Preferred Model</label>
-                <select
+                <input
+                  type="text"
                   className="w-full p-2 border rounded text-sm"
                   value={orgAiForm.orgPreferredModel}
                   onChange={e => setOrgAiForm({ ...orgAiForm, orgPreferredModel: e.target.value })}
-                >
-                  <option value="">Auto-detect</option>
-                  <optgroup label="Azure OpenAI">
-                    <option value="AZURE-GPT-5.5">Azure GPT-5.5</option>
-                    <option value="AZURE-GPT-5.4">Azure GPT-5.4</option>
-                    <option value="AZURE-GPT-5.4-MINI">Azure GPT-5.4 Mini</option>
-                  </optgroup>
-                  <optgroup label="OpenAI">
-                    <option value="GPT-5.5">GPT-5.5</option>
-                    <option value="GPT-5.4">GPT-5.4</option>
-                    <option value="GPT-5.4-MINI">GPT-5.4 Mini</option>
-                  </optgroup>
-                  <optgroup label="Google Gemini">
-                    <option value="GEMINI-3.1-PRO-PREVIEW">Gemini 3.1 Pro Preview</option>
-                    <option value="GEMINI-3.5-FLASH">Gemini 3.5 Flash</option>
-                    <option value="GEMINI-3-FLASH-PREVIEW">Gemini 3 Flash Preview</option>
-                    <option value="GEMINI-3.1-FLASH-LITE">Gemini 3.1 Flash Lite</option>
-                    <option value="GEMINI-3.1-FLASH-LITE-PREVIEW">Gemini 3.1 Flash Lite Preview</option>
-                  </optgroup>
-                  <optgroup label="Anthropic Claude">
-                    <option value="CLAUDE-OPUS-4.7">Claude Opus 4.7</option>
-                    <option value="CLAUDE-SONNET-4.6">Claude Sonnet 4.6</option>
-                    <option value="CLAUDE-HAIKU-4.5-20251001">Claude Haiku 4.5 (20251001)</option>
-                  </optgroup>
-                  <optgroup label="Self-Hosted">
-                    <option value="OLLAMA">Ollama</option>
-                  </optgroup>
-                </select>
+                  placeholder="Auto-detect if blank (e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6, llama3.1)"
+                />
+                <p className="mt-1 text-xs text-gray-500">Leave blank to auto-detect from enabled providers.</p>
               </div>
             </div>
 
