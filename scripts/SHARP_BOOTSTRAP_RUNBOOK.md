@@ -8,6 +8,9 @@ This runbook mirrors `scripts/sharp_bootstrap.sh` for operator-friendly manual e
 
 This is intentional for SHARP because no in-place data migration is planned.
 
+PostgreSQL 18+ note: data is mounted at `/var/lib/postgresql` (parent path), not `/var/lib/postgresql/data`.
+If you hit `unused mount/volume` DB startup errors, remove legacy `<project>_postgres_data` volumes before retrying.
+
 ## 1. Stop and Reset Runtime State
 
 ```bash

@@ -131,3 +131,34 @@ Use [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](scripts/SHARP_ACCEPTANCE_REPOR
 5. Elasticsearch indexing/search works.
 6. RabbitMQ workers process events.
 7. Dark and light themes render correctly on critical pages.
+
+## 12. Troubleshooting: PostgreSQL 18 "unused mount/volume" Error
+
+If `docker compose logs -f db` shows:
+
+- `Error: in 18+, these Docker images are configured ...`
+- `Counter to that, there appears to be PostgreSQL data in: /var/lib/postgresql/data (unused mount/volume)`
+
+then old pre-18 volume state is being picked up.
+
+Run:
+
+```bash
+docker compose down -v --remove-orphans
+docker volume ls | grep postgres_data || true
+```
+
+If you still see legacy volumes from old runs (for example `<project>_postgres_data`), remove them:
+
+```bash
+docker volume rm <project>_postgres_data
+```
+
+Then start again:
+
+```bash
+docker compose up -d db
+docker compose logs -f db
+```
+
+SHARP now mounts PostgreSQL data at `/var/lib/postgresql` (PostgreSQL 18+ recommended layout), not `/var/lib/postgresql/data`.

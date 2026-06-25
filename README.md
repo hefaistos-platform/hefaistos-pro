@@ -224,6 +224,8 @@ For SHARP fast-track rollout on a clean environment, use:
 
 This executes `docker compose down -v`, rebuilds images, starts the stack, runs migrations, rebuilds search indexes, and executes smoke checks.
 
+PostgreSQL 18+ compatibility note: SHARP uses `/var/lib/postgresql` mount layout. If you encounter DB startup errors mentioning `unused mount/volume` and `/var/lib/postgresql/data`, remove old legacy DB volumes and rerun bootstrap.
+
 ---
 
 ## 📘 Installation Documents

@@ -92,7 +92,8 @@ services:
     env_file:
       - .env
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      # PostgreSQL 18+ expects the parent mount and manages versioned subdirectories.
+      - postgres_data_v18:/var/lib/postgresql
     environment:
       POSTGRES_DB: ${DB_NAME:-hefaistos_db}
       POSTGRES_USER: ${DB_USER:-hefaistos_user}
@@ -432,7 +433,7 @@ services:
 
 # --- VOLUMES & NETWORKS ---
 volumes:
-  postgres_data:
+  postgres_data_v18:
   rabbitmq_data:
   elasticsearch_data:
   connector-token:
