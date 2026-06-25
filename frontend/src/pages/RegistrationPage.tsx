@@ -77,14 +77,14 @@ export const RegistrationPage = () => {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#0b1221,#122b55 55%,#0b1221)' }}>
-      <Card style={{ width: 520, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+    <div className="auth-shell">
+      <Card className="auth-card" style={{ width: 520 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <span className="logo-title" style={{ display: 'block', fontSize: 32 }}>
             HEFAISTOS
           </span>
         </div>
-        <Typography.Paragraph style={{ textAlign: 'center', marginBottom: 24, color: '#1677ff', fontSize: 14, fontWeight: 500 }}>
+        <Typography.Paragraph className="auth-subtitle">
           Registration Request
         </Typography.Paragraph>
 
@@ -157,12 +157,12 @@ export const RegistrationPage = () => {
         </Form>
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+          <Link to="/login" className="theme-link">
             ← Back to Login
           </Link>
         </div>
 
-        <Typography.Paragraph style={{ marginTop: 24, fontSize: 12, textAlign: 'center', opacity: 0.65 }}>
+        <Typography.Paragraph className="auth-footer">
           © {new Date().getFullYear()} HEFAISTOS Platform
         </Typography.Paragraph>
       </Card>

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { Layout, Menu, Button, Typography, App, Space, Dropdown, Alert } from 'antd';
@@ -24,10 +25,12 @@ import {
   AppstoreOutlined,
   SyncOutlined,
   FileSearchOutlined,
+  MonitorOutlined,
+  MoonOutlined,
+  SunOutlined,
 } from '@ant-design/icons';
 import { NotificationBell } from './NotificationBell';
 import { NewsIcon } from './NewsIcon';
-// Theme toggle removed (light theme only)
 
 
 const { Header, Sider, Content } = Layout;
@@ -58,6 +61,7 @@ interface MeRoleData {
 
 export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { logout } = useAuth();
+  const { mode, resolvedTheme, setMode } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -210,17 +214,42 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       }
     ];
 
+  const themeMenuItems: MenuProps['items'] = [
+    {
+      key: 'light',
+      icon: <SunOutlined />,
+      label: 'Light',
+      onClick: () => setMode('light'),
+    },
+    {
+      key: 'dark',
+      icon: <MoonOutlined />,
+      label: 'Dark',
+      onClick: () => setMode('dark'),
+    },
+    {
+      key: 'system',
+      icon: <MonitorOutlined />,
+      label: 'System',
+      onClick: () => setMode('system'),
+    },
+  ];
+
+  const activeThemeIcon = mode === 'light' ? <SunOutlined /> : mode === 'dark' ? <MoonOutlined /> : <MonitorOutlined />;
+  const activeThemeLabel = mode === 'system' ? `System (${resolvedTheme})` : mode;
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth={60} width={230} style={{ background: '#ffffff', borderRight: '1px solid #e5e7eb' }}>
+      <Sider breakpoint="lg" collapsedWidth={60} width={230} className="main-sider">
         <div style={{ height: 56 }} />
         <Menu
           mode="inline"
+          theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
           selectedKeys={[selectedKey]}
           items={items}
           style={{ borderInlineEnd: 'none' }}
         />
-          <div style={{ position: 'absolute', bottom: 0, width: '100%', padding: 12, borderTop: '1px solid #f0f0f0' }}>
+          <div className="menu-footer" style={{ position: 'absolute', bottom: 0, width: '100%', padding: 12 }}>
           <Button
             type="text"
             icon={<LogoutOutlined />}
@@ -235,16 +264,21 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
         </div>
       </Sider>
       <Layout>
-          <Header style={{ background: '#f5f8fc', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'space-between' }}>
+          <Header className="main-header" style={{ padding: '0 24px', display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div className="logo-brand" onClick={() => navigate('/')} title="Go to Lifecycle Hub" role="button" aria-label="Go home">
               <span className="logo-title">HEFAISTOS</span>
             </div>
-            <Typography.Text style={{ fontSize: 16, fontWeight: 600, color: '#1677ff' }}>
+            <Typography.Text className="layout-section-title">
               {items.find(i => i.key === selectedKey)?.label}
             </Typography.Text>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <Dropdown menu={{ items: themeMenuItems, selectable: true, selectedKeys: [mode] }} trigger={['click']}>
+              <Button icon={activeThemeIcon}>
+                Theme: {activeThemeLabel}
+              </Button>
+            </Dropdown>
             {/* User Dropdown Menu */}
             <Dropdown
               menu={{
@@ -253,24 +287,8 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
               trigger={['click']}
             >
               <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  maxWidth: 260,
-                  padding: '4px 10px',
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 18,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                  fontSize: 12,
-                  lineHeight: 1.2,
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s'
-                }}
+                className="user-chip"
                 title={email ? `${username || 'User'} (${userRole || ''}) • ${email}` : `${username || 'User'} (${userRole || ''})`}
-                onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f7ff')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
                 role="button"
                 aria-label="User menu"
               >
@@ -284,21 +302,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
                   maxWidth: '100%'
                 }}>
                   {/* Avatar Thumbnail */}
-                  <span style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: '50%',
-                    overflow: 'hidden',
-                    background: '#dbeafe',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: '#1e3a8a',
-                    flexShrink: 0,
-                    border: '1px solid #bfdbfe'
-                  }}>
+                  <span className="user-avatar">
                     {meData?.me?.avatarUrl ? (
                       <img
                         src={meData.me.avatarUrl}
@@ -309,29 +313,12 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
                       (username || 'U').charAt(0).toUpperCase()
                     )}
                   </span>
-                  <span style={{ fontWeight: 600, color: '#34495e' }}>{username || 'User'}</span>
+                  <span className="user-name">{username || 'User'}</span>
                   {userRole && (
-                    <span style={{
-                      background: '#e0f2ff',
-                      color: '#1677ff',
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: '2px 6px',
-                      borderRadius: 10,
-                      letterSpacing: '0.5px',
-                      flexShrink: 0
-                    }}>{userRole}</span>
+                    <span className="user-role-badge">{userRole}</span>
                   )}
                   {email && (
-                    <span style={{
-                      color: '#6b7280',
-                      fontSize: 11,
-                      fontWeight: 500,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: 110
-                    }}>{email}</span>
+                    <span className="user-email">{email}</span>
                   )}
                 </span>
               </div>
@@ -342,7 +329,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
             </Space>
           </div>
         </Header>
-          <Content style={{ margin: 0, padding: '24px 32px', background: '#f9fbfd' }}>
+          <Content className="main-content" style={{ margin: 0, padding: '24px 32px' }}>
           <App>
             {isBotAuditor && (
               <Alert

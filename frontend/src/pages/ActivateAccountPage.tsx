@@ -140,8 +140,8 @@ export const ActivateAccountPage = () => {
 
   if (!token) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#0b1221,#122b55 55%,#0b1221)' }}>
-        <Card style={{ width: 460, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+      <div className="auth-shell">
+        <Card className="auth-card" style={{ width: 460 }}>
           <Alert
             type="error"
             showIcon
@@ -149,7 +149,7 @@ export const ActivateAccountPage = () => {
             description="No activation token found. Ask your administrator to send a new invitation."
           />
           <div style={{ textAlign: 'center', marginTop: 16 }}>
-            <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+            <Link to="/login" className="theme-link">
               Back to Login
             </Link>
           </div>
@@ -159,14 +159,14 @@ export const ActivateAccountPage = () => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#0b1221,#122b55 55%,#0b1221)' }}>
-      <Card style={{ width: 520, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+    <div className="auth-shell">
+      <Card className="auth-card" style={{ width: 520 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <span className="logo-title" style={{ display: 'block', fontSize: 32 }}>
             HEFAISTOS
           </span>
         </div>
-        <Typography.Paragraph style={{ textAlign: 'center', marginBottom: 20, color: '#1677ff', fontSize: 14, fontWeight: 500 }}>
+        <Typography.Paragraph className="auth-subtitle" style={{ marginBottom: 20 }}>
           Complete Account Setup
         </Typography.Paragraph>
 
@@ -193,7 +193,7 @@ export const ActivateAccountPage = () => {
                     <p style={{ marginBottom: 8 }}>These codes are shown once. Store them in a secure location.</p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8 }}>
                       {backupCodes.map((code) => (
-                        <code key={code} style={{ background: '#f5f5f5', padding: '4px 8px', borderRadius: 4 }}>
+                        <code key={code} className="auth-token-box" style={{ padding: '4px 8px' }}>
                           {code}
                         </code>
                       ))}
@@ -203,7 +203,7 @@ export const ActivateAccountPage = () => {
               />
             )}
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+              <Link to="/login" className="theme-link">
                 Go to Login
               </Link>
             </div>
@@ -256,7 +256,7 @@ export const ActivateAccountPage = () => {
                 {activationContext.totpSecret && (
                   <div style={{ marginBottom: 12 }}>
                     <Typography.Text strong>Authenticator secret</Typography.Text>
-                    <div style={{ marginTop: 4, marginBottom: 8, background: '#f5f5f5', borderRadius: 4, padding: 10, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    <div className="auth-token-box" style={{ marginTop: 4, marginBottom: 8, fontFamily: 'monospace' }}>
                       {activationContext.totpSecret}
                     </div>
                   </div>
@@ -264,7 +264,7 @@ export const ActivateAccountPage = () => {
                 {activationContext.otpauthUri && (
                   <div style={{ marginBottom: 12 }}>
                     <Typography.Text strong>OTP URI (manual import)</Typography.Text>
-                    <div style={{ marginTop: 4, marginBottom: 8, background: '#f5f5f5', borderRadius: 4, padding: 10, fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>
+                    <div className="auth-token-box" style={{ marginTop: 4, marginBottom: 8, fontFamily: 'monospace', fontSize: 12 }}>
                       {activationContext.otpauthUri}
                     </div>
                   </div>
@@ -293,14 +293,14 @@ export const ActivateAccountPage = () => {
               {completing ? 'Completing Setup...' : 'Complete Setup'}
             </Button>
             <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+              <Link to="/login" className="theme-link">
                 Back to Login
               </Link>
             </div>
           </Form>
         )}
 
-        <Typography.Paragraph style={{ marginTop: 24, fontSize: 12, textAlign: 'center', opacity: 0.65 }}>
+        <Typography.Paragraph className="auth-footer">
           © {new Date().getFullYear()} HEFAISTOS Platform
         </Typography.Paragraph>
       </Card>

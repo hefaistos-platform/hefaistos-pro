@@ -219,14 +219,14 @@ export const LoginPage = () => {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#0b1221,#122b55 55%,#0b1221)' }}>
-      <Card style={{ width: 420, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+    <div className="auth-shell">
+      <Card className="auth-card" style={{ width: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <span className="logo-title" style={{ display: 'block', fontSize: 32 }}>
             HEFAISTOS
           </span>
         </div>
-        <Typography.Paragraph style={{ textAlign: 'center', marginBottom: 24, color: '#1677ff', fontSize: 14, fontWeight: 500 }}>
+        <Typography.Paragraph className="auth-subtitle">
           Detection Engineering Portal
         </Typography.Paragraph>
         {error && (
@@ -275,11 +275,11 @@ export const LoginPage = () => {
               {loading ? 'Signing In...' : 'Login'}
             </Button>
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <Link to="/forgot-password" style={{ color: '#1677ff', fontSize: 13 }}>
+              <Link to="/forgot-password" className="theme-link" style={{ fontSize: 13 }}>
                 Forgot Password?
               </Link>
-              <span style={{ margin: '0 8px', color: '#1677ff', fontSize: 13 }}>|</span>
-              <Link to="/register" style={{ color: '#1677ff', fontSize: 13 }}>
+              <span className="theme-link" style={{ margin: '0 8px', fontSize: 13 }}>|</span>
+              <Link to="/register" className="theme-link" style={{ fontSize: 13 }}>
                 Register
               </Link>
             </div>
@@ -348,7 +348,7 @@ export const LoginPage = () => {
             </div>
           </Form>
         )}
-        <Typography.Paragraph style={{ marginTop: 24, fontSize: 12, textAlign: 'center', opacity: 0.65 }}>
+        <Typography.Paragraph className="auth-footer">
           © {new Date().getFullYear()} HEFAISTOS Platform
         </Typography.Paragraph>
       </Card>

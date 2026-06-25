@@ -4,10 +4,54 @@ import 'antd/dist/reset.css';
 import './index.css';
 import App from './App';
 import { PlaybookMetaProvider } from './context/PlaybookMetaContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import reportWebVitals from './reportWebVitals';
 import { ApolloProvider } from '@apollo/client/react'; // CORRECTED IMPORT PATH
 import client from './apollo-client';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
+
+const ThemedProviders = () => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+
+  const configTheme = React.useMemo(
+    () => ({
+      algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+      token: {
+        colorPrimary: '#1677ff',
+        colorLink: '#3b82f6',
+        borderRadius: 8,
+        colorBgLayout: isDark ? '#0f172a' : '#f5f8fc',
+      },
+      components: {
+        Card: {
+          headerBg: isDark ? '#13233d' : '#e6f2ff',
+          padding: 16,
+        },
+        Tag: {
+          defaultBg: isDark ? '#102a4a' : '#e6f4ff',
+          defaultColor: isDark ? '#93c5fd' : '#0958d9',
+        },
+        Layout: {
+          headerBg: isDark ? '#0b1220' : '#f5f8fc',
+          bodyBg: isDark ? '#0f172a' : '#f9fbfd',
+          siderBg: isDark ? '#0b1220' : '#ffffff',
+        },
+      },
+    }),
+    [isDark]
+  );
+
+  return (
+    <ConfigProvider theme={configTheme}>
+      <AntdApp>
+        <PlaybookMetaProvider>
+          <App />
+        </PlaybookMetaProvider>
+      </AntdApp>
+    </ConfigProvider>
+  );
+};
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -16,33 +60,9 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <ApolloProvider client={client}>
-      <ConfigProvider
-        theme={{
-          algorithm: theme.defaultAlgorithm,
-          token: {
-            colorPrimary: '#1677ff',
-            colorLink: '#1677ff',
-            borderRadius: 8,
-            colorBgLayout: '#f5f8fc',
-          },
-          components: {
-            Card: {
-              headerBg: '#e6f2ff',
-              padding: 16,
-            },
-            Tag: {
-              defaultBg: '#e6f4ff',
-              defaultColor: '#0958d9'
-            },
-          }
-        }}
-      >
-        <AntdApp>
-          <PlaybookMetaProvider>
-            <App />
-          </PlaybookMetaProvider>
-        </AntdApp>
-      </ConfigProvider>
+      <ThemeProvider>
+        <ThemedProviders />
+      </ThemeProvider>
     </ApolloProvider>
   </React.StrictMode>
 );

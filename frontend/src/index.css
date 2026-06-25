@@ -3,6 +3,44 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+:root[data-theme='light'] {
+  --hef-transition-fast: 160ms ease;
+  --hef-bg-page: #f9fbfd;
+  --hef-bg-surface: #ffffff;
+  --hef-bg-subtle: #f5f8fc;
+  --hef-bg-accent: #e6f2ff;
+  --hef-bg-hover: #f0f7ff;
+  --hef-bg-auth: linear-gradient(135deg, #dbeafe 0%, #eff6ff 45%, #f8fafc 100%);
+  --hef-text-primary: #0f172a;
+  --hef-text-secondary: #475569;
+  --hef-text-muted: #64748b;
+  --hef-text-link: #1677ff;
+  --hef-border: #dbe4ef;
+  --hef-border-strong: #c7d5e4;
+  --hef-shadow-card: 0 8px 30px rgba(15, 23, 42, 0.12);
+  --hef-logo-title: #0958d9;
+  --hef-logo-subtitle: #1f2937;
+}
+
+:root[data-theme='dark'] {
+  --hef-bg-page: #0f172a;
+  --hef-bg-surface: #111827;
+  --hef-bg-subtle: #0b1220;
+  --hef-bg-accent: #11253f;
+  --hef-bg-hover: #1b2e49;
+  --hef-bg-auth: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1e293b 100%);
+  --hef-text-primary: #e2e8f0;
+  --hef-text-secondary: #cbd5e1;
+  --hef-text-muted: #94a3b8;
+  --hef-text-link: #60a5fa;
+  --hef-border: #243246;
+  --hef-border-strong: #334155;
+  --hef-shadow-card: 0 12px 36px rgba(2, 6, 23, 0.55);
+  --hef-logo-title: #93c5fd;
+  --hef-logo-subtitle: #dbeafe;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -10,6 +48,9 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--hef-bg-page);
+  color: var(--hef-text-primary);
+  transition: background var(--hef-transition-fast), color var(--hef-transition-fast);
 }
 
 code {
@@ -17,7 +58,137 @@ code {
     monospace;
 }
 
-/* reverting to light-only, remove theme variables */
+.theme-link {
+  color: var(--hef-text-link);
+  font-size: 14px;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--hef-bg-auth);
+  padding: 24px;
+}
+
+.auth-card {
+  box-shadow: var(--hef-shadow-card);
+  border: 1px solid var(--hef-border);
+  background: var(--hef-bg-surface);
+}
+
+.auth-subtitle {
+  text-align: center;
+  margin-bottom: 24px;
+  color: var(--hef-text-link);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.auth-footer {
+  margin-top: 24px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--hef-text-muted);
+}
+
+.auth-token-box {
+  background: var(--hef-bg-subtle);
+  color: var(--hef-text-secondary);
+  border: 1px solid var(--hef-border);
+  padding: 10px;
+  border-radius: 6px;
+  word-break: break-all;
+  font-size: 12px;
+}
+
+.main-sider {
+  background: var(--hef-bg-surface) !important;
+  border-right: 1px solid var(--hef-border);
+}
+
+.menu-footer {
+  border-top: 1px solid var(--hef-border);
+}
+
+.main-header {
+  background: var(--hef-bg-subtle) !important;
+  border-bottom: 1px solid var(--hef-border);
+}
+
+.main-content {
+  background: var(--hef-bg-page) !important;
+}
+
+.layout-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--hef-text-link) !important;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  max-width: 260px;
+  padding: 4px 10px;
+  background: var(--hef-bg-surface);
+  border: 1px solid var(--hef-border);
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  line-height: 1.2;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background var(--hef-transition-fast), border-color var(--hef-transition-fast);
+}
+
+.user-chip:hover {
+  background: var(--hef-bg-hover);
+  border-color: var(--hef-border-strong);
+}
+
+.user-name {
+  font-weight: 600;
+  color: var(--hef-text-secondary);
+}
+
+.user-role-badge {
+  background: var(--hef-bg-accent);
+  color: var(--hef-text-link);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.user-email {
+  color: var(--hef-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+
+.user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--hef-bg-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hef-text-link);
+  flex-shrink: 0;
+  border: 1px solid var(--hef-border);
+}
 
 /* --- Brand Logo styles --- */
 .logo-brand {
@@ -30,14 +201,14 @@ code {
 .logo-title {
   font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
   font-weight: 800;
-  color: #0958d9; /* Blue */
+  color: var(--hef-logo-title);
   letter-spacing: 2px;
   font-size: 22px;
 }
 .logo-subtitle {
   font-family: 'Press Start 2P', system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
   font-weight: 700;
-  color: #1f2937; /* Near black */
+  color: var(--hef-logo-subtitle);
   letter-spacing: 1px;
   font-size: 12px;
   opacity: 0.9;

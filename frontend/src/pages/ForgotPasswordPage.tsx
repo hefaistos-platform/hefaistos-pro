@@ -65,14 +65,14 @@ export const ForgotPasswordPage = () => {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#0b1221,#122b55 55%,#0b1221)' }}>
-      <Card style={{ width: 420, boxShadow: '0 8px 30px rgba(0,0,0,0.35)' }}>
+    <div className="auth-shell">
+      <Card className="auth-card" style={{ width: 420 }}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <span className="logo-title" style={{ display: 'block', fontSize: 32 }}>
             HEFAISTOS
           </span>
         </div>
-        <Typography.Paragraph style={{ textAlign: 'center', marginBottom: 24, color: '#1677ff', fontSize: 14, fontWeight: 500 }}>
+        <Typography.Paragraph className="auth-subtitle">
           Password Reset
         </Typography.Paragraph>
 
@@ -90,7 +90,7 @@ export const ForgotPasswordPage = () => {
                 <Typography.Paragraph style={{ fontSize: 13, marginBottom: 8 }}>
                   Email is not configured. Share the link below with the user:
                 </Typography.Paragraph>
-                <div style={{ background: '#f5f5f5', padding: 10, borderRadius: 4, wordBreak: 'break-all', fontSize: 12, marginBottom: 8 }}>
+                <div className="auth-token-box" style={{ marginBottom: 8 }}>
                   {`${window.location.origin}/reset-password?token=${resetToken}`}
                 </div>
                 <Button size="small" onClick={handleCopy} style={{ marginBottom: 8 }}>
@@ -99,7 +99,7 @@ export const ForgotPasswordPage = () => {
               </div>
             )}
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+              <Link to="/login" className="theme-link">
                 ← Back to Login
               </Link>
             </div>
@@ -132,14 +132,14 @@ export const ForgotPasswordPage = () => {
               </Button>
             </Form>
             <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <Link to="/login" style={{ color: '#1677ff', fontSize: 14 }}>
+              <Link to="/login" className="theme-link">
                 ← Back to Login
               </Link>
             </div>
           </>
         )}
 
-        <Typography.Paragraph style={{ marginTop: 24, fontSize: 12, textAlign: 'center', opacity: 0.65 }}>
+        <Typography.Paragraph className="auth-footer">
           © {new Date().getFullYear()} HEFAISTOS Platform
         </Typography.Paragraph>
       </Card>
