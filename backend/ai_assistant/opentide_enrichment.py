@@ -91,7 +91,16 @@ def _get_vocab(category: str) -> list:
 # Helper: unified AI provider call
 # ---------------------------------------------------------------------------
 
-def call_ai_provider(prompt: str, user_settings, response_format: str = "json") -> str:
+def call_ai_provider(
+    prompt: str,
+    user_settings,
+    response_format: str = "json",
+    *,
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+    temperature: float = 0.1,
+    max_tokens: int = 4000,
+) -> str:
     """
     Unified AI provider call with error handling.
 
@@ -99,9 +108,13 @@ def call_ai_provider(prompt: str, user_settings, response_format: str = "json") 
     supports OpenAI, Gemini, Claude and Ollama providers.
 
     Args:
-        prompt: Combined system + user prompt text.
+        prompt: Backward-compatible fallback prompt when user_prompt is omitted.
         user_settings: UserAISettings (or effective OrgAISettings) instance.
-        response_format: "json" or "text" (informational only).
+        response_format: "json" or "text".
+        system_prompt: Optional system-role instruction text.
+        user_prompt: Optional user-role task text.
+        temperature: Model temperature.
+        max_tokens: Max output token budget where supported.
 
     Returns:
         Raw AI response text, or empty string on failure.
@@ -119,28 +132,47 @@ def call_ai_provider(prompt: str, user_settings, response_format: str = "json") 
     except ImportError:
         _anthropic = None
 
-    from ai_assistant.engine import build_available, _resolve_provider, _call_ollama
+    from ai_assistant.engine import (
+        _call_ollama,
+        _map_claude,
+        _map_gemini,
+        _map_gpt,
+        _openai_chat_create_with_token_fallback,
+        _resolve_provider,
+        build_available,
+    )
 
     available = build_available(user_settings)
     if not available:
         return ''
 
     provider = _resolve_provider(user_settings, available)
+    system_text = (system_prompt or "You are a strict cybersecurity data extraction assistant.").strip()
+    user_text = (user_prompt if user_prompt is not None else prompt or "").strip()
+    if not user_text:
+        return ''
 
     try:
         if 'GPT' in provider:
             if not user_settings.get_openai_key() or _openai is None:
                 return ''
 
-            def _map_gpt(label: str) -> str:
-                m = {'GPT-5.5': 'gpt-5.5', 'GPT-5.4': 'gpt-5.4', 'GPT-5.4-MINI': 'gpt-5.4-mini'}
-                return m.get(label, 'gpt-5.4-mini')
-
             client = _openai.OpenAI(api_key=user_settings.get_openai_key())
-            response = client.chat.completions.create(
-                model=_map_gpt(provider),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+            messages = [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": user_text},
+            ]
+            kwargs = {
+                "temperature": temperature,
+            }
+            if response_format == "json":
+                kwargs["response_format"] = {"type": "json_object"}
+            response = _openai_chat_create_with_token_fallback(
+                client,
+                _map_gpt(provider),
+                messages,
+                max_tokens=max_tokens,
+                **kwargs,
             )
             return response.choices[0].message.content or ''
 
@@ -148,38 +180,30 @@ def call_ai_provider(prompt: str, user_settings, response_format: str = "json") 
             if not user_settings.get_gemini_key() or _genai is None:
                 return ''
 
-            def _map_gemini(label: str) -> str:
-                m = {
-                    'GEMINI-3.1-PRO-PREVIEW': 'gemini-3.1-pro-preview',
-                    'GEMINI-3.5-FLASH': 'gemini-3.5-flash',
-                    'GEMINI-3-FLASH-PREVIEW': 'gemini-3-flash-preview',
-                    'GEMINI-3.1-FLASH-LITE': 'gemini-3.1-flash-lite',
-                    'GEMINI-3.1-FLASH-LITE-PREVIEW': 'gemini-3.1-flash-lite-preview',
-                }
-                return m.get(label, 'gemini-3.5-flash')
-
             _genai.configure(api_key=user_settings.get_gemini_key())
-            model = _genai.GenerativeModel(_map_gemini(provider))
-            response = model.generate_content(prompt)
+            model = _genai.GenerativeModel(_map_gemini(provider), system_instruction=system_text)
+            generation_config = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            }
+            if response_format == "json":
+                generation_config["response_mime_type"] = "application/json"
+            response = model.generate_content(
+                user_text,
+                generation_config=generation_config,
+            )
             return response.text or ''
 
         elif 'CLAUDE' in provider:
             if not user_settings.get_claude_key() or _anthropic is None:
                 return ''
 
-            def _map_claude(label: str) -> str:
-                m = {
-                    'CLAUDE-OPUS-4.7': 'claude-opus-4-7',
-                    'CLAUDE-SONNET-4.6': 'claude-sonnet-4-6',
-                    'CLAUDE-HAIKU-4.5-20251001': 'claude-haiku-4-5-20251001',
-                }
-                return m.get(label, 'claude-haiku-4-5-20251001')
-
             client = _anthropic.Anthropic(api_key=user_settings.get_claude_key())
             message = client.messages.create(
                 model=_map_claude(provider),
-                max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                system=system_text,
+                messages=[{"role": "user", "content": user_text}],
             )
             return message.content[0].text or ''
 
@@ -187,7 +211,10 @@ def call_ai_provider(prompt: str, user_settings, response_format: str = "json") 
             return _call_ollama(
                 user_settings.get_ollama_url(),
                 user_settings.get_ollama_model(),
-                [{"role": "user", "content": prompt}],
+                [
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": user_text},
+                ],
             )
 
         elif provider == 'AZURE-OPENAI':
@@ -203,10 +230,21 @@ def call_ai_provider(prompt: str, user_settings, response_format: str = "json") 
                 api_key=api_key,
                 api_version="2024-02-01",
             )
-            response = client.chat.completions.create(
-                model=deployment,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+            messages = [
+                {"role": "system", "content": system_text},
+                {"role": "user", "content": user_text},
+            ]
+            kwargs = {
+                "temperature": temperature,
+            }
+            if response_format == "json":
+                kwargs["response_format"] = {"type": "json_object"}
+            response = _openai_chat_create_with_token_fallback(
+                client,
+                deployment,
+                messages,
+                max_tokens=max_tokens,
+                **kwargs,
             )
             return response.choices[0].message.content or ''
 
@@ -249,8 +287,11 @@ def ai_classify_detection_type(playbook_data: Dict, user_settings) -> str:
     Returns:
         "THREAT" or "BUSINESS"
     """
-    prompt = (
+    system_prompt = (
         "You are a senior detection engineering architect. "
+        "Classify detection use-cases and return only strict JSON."
+    )
+    user_prompt = (
         "Classify the following detection use-case as either THREAT-driven or BUSINESS-driven.\n\n"
         "THREAT-driven: focuses on adversary techniques, MITRE ATT&CK tactics, malware, threat actors.\n"
         "BUSINESS-driven: focuses on compliance requirements, policy violations, insider risk, "
@@ -264,7 +305,13 @@ def ai_classify_detection_type(playbook_data: Dict, user_settings) -> str:
         "Return the JSON object only."
     )
 
-    raw = call_ai_provider(prompt, user_settings)
+    raw = call_ai_provider(
+        '',
+        user_settings,
+        response_format="json",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
     result = _parse_json_response(raw, {})
     classification = (result.get('classification') or 'THREAT').upper()
     if classification not in ('THREAT', 'BUSINESS'):
@@ -300,8 +347,11 @@ def ai_generate_bdr_schema(
         if classification != 'BUSINESS':
             return None
 
-    prompt = (
+    system_prompt = (
         "You are a senior compliance and detection architect. "
+        "Return only strict JSON that conforms to the requested schema."
+    )
+    user_prompt = (
         "Generate a Business-Driven Detection Rule (BDR) schema entry for the detection below.\n\n"
         "Output ONLY a single JSON object with these exact keys (no extra keys, no markdown):\n"
         "{\n"
@@ -322,7 +372,13 @@ def ai_generate_bdr_schema(
         "Return the JSON object only."
     )
 
-    raw = call_ai_provider(prompt, user_settings)
+    raw = call_ai_provider(
+        '',
+        user_settings,
+        response_format="json",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
     result = _parse_json_response(raw, {})
 
     # Apply defaults for any missing required fields
@@ -358,8 +414,11 @@ def ai_enrich_mdr_response(playbook_data: Dict, user_settings) -> Dict:
     Returns:
         Enriched response dict conforming to MDR schema v2.1 response section.
     """
-    prompt = (
+    system_prompt = (
         "You are a senior SOC analyst and incident responder. "
+        "Return only strict JSON that conforms to the requested schema."
+    )
+    user_prompt = (
         "Generate a structured response procedure for the detection use-case below.\n\n"
         "Output ONLY a single JSON object (no markdown) with this exact structure:\n"
         "{\n"
@@ -386,7 +445,13 @@ def ai_enrich_mdr_response(playbook_data: Dict, user_settings) -> Dict:
         "Return the JSON object only."
     )
 
-    raw = call_ai_provider(prompt, user_settings)
+    raw = call_ai_provider(
+        '',
+        user_settings,
+        response_format="json",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
     result = _parse_json_response(raw, {})
 
     # Ensure required fields with safe defaults
@@ -431,8 +496,11 @@ def ai_map_platforms_and_targets(technical_context: str, user_settings) -> Dict:
     Returns:
         Dict with 'platforms', 'targets', and 'domains' lists.
     """
-    prompt = (
+    system_prompt = (
         "You are a detection engineering specialist. "
+        "Extract platform/target/domain values and return only strict JSON."
+    )
+    user_prompt = (
         "Extract the relevant platforms, targets and security domains mentioned or implied "
         "in the technical context below.\n\n"
         "Output ONLY a single JSON object (no markdown):\n"
@@ -448,7 +516,13 @@ def ai_map_platforms_and_targets(technical_context: str, user_settings) -> Dict:
         "Return the JSON object only."
     )
 
-    raw = call_ai_provider(prompt, user_settings)
+    raw = call_ai_provider(
+        '',
+        user_settings,
+        response_format="json",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
     result = _parse_json_response(raw, {})
 
     return {
@@ -683,8 +757,11 @@ def ai_generate_detection_objective(playbook_data: Dict, user_settings) -> Dict:
     _entity_examples = ' | '.join(sorted(_DOM_VALID_ENTITIES))
     _methodology_examples = ' | '.join(sorted(valid_methodologies))
 
-    prompt = (
+    system_prompt = (
         "You are a senior detection architect. "
+        "Return only strict JSON that conforms to the requested DOM schema."
+    )
+    user_prompt = (
         "Generate a Detection Objective Model (DOM) for the detection use-case below.\n\n"
         "IMPORTANT: Do NOT generate any detection queries or rule logic. "
         "Signals must only contain descriptive metadata about what data sources and "
@@ -727,7 +804,13 @@ def ai_generate_detection_objective(playbook_data: Dict, user_settings) -> Dict:
         "Return the JSON object only. Do not include any query logic or pseudocode in signals."
     )
 
-    raw = call_ai_provider(prompt, user_settings)
+    raw = call_ai_provider(
+        '',
+        user_settings,
+        response_format="json",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
     result = _parse_json_response(raw, {})
 
     priority = result.get('priority', 'Medium')
