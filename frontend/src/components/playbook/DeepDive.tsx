@@ -290,8 +290,8 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
             <button
               type="button"
               onClick={() => setShowTranslateControls((prev) => !prev)}
-              disabled={aiGenerating || translating || !localData.response?.trim()}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={aiGenerating || translating}
+              className="inline-flex items-center gap-1.5 min-w-[92px] justify-center px-3 py-1 text-xs font-semibold rounded border border-blue-700 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               title="AI: Translate response playbook while preserving cyber security and IT terms"
             >
               {translating ? 'Translating...' : 'Translate'}
