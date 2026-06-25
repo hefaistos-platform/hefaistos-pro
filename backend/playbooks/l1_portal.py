@@ -15,7 +15,12 @@ def _normalize_base_url(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
         return ""
-    if not raw.startswith(("http://", "https://")):
+    # Docker/env files are sometimes authored with quoted values.
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {"'", '"'}:
+        raw = raw[1:-1].strip()
+    if not raw:
+        return ""
+    if not raw.lower().startswith(("http://", "https://")):
         raw = f"https://{raw}"
     return raw.rstrip("/")
 
