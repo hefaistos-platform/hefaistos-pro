@@ -7,10 +7,12 @@ from playbooks.models import PlaybookGraph, CapabilityAbstraction
 
 from .schema import (
     _build_playbook_generation_context,
+    _compose_translated_response_playbook,
     _coerce_markdown_text,
     _extract_threat_report_parts,
     _map_layer_name,
     _parse_capability_entries,
+    _split_translated_response_playbook,
 )
 
 
@@ -54,6 +56,9 @@ class PlaybookGenerationContextTests(TestCase):
             context["capability_abstractions"][0]["component_artifact"],
             "mshta child process chain",
         )
+        # Detection-generation context intentionally excludes response_playbook,
+        # so translated response text never affects AI rule generation prompts.
+        self.assertNotIn("response_playbook", context)
 
 
 class ThreatReportMappingHelperTests(TestCase):
@@ -136,3 +141,32 @@ class ThreatReportMappingHelperTests(TestCase):
         self.assertIn("- **Mapped Techniques:**", rendered)
         self.assertIn("- MITRE ATT&CK [T1574.002]", rendered)
         self.assertIn("- **Environment Preconditions:**", rendered)
+
+
+class ResponsePlaybookTranslationTests(TestCase):
+    def test_split_translated_response_playbook_extracts_original_and_translation(self):
+        source = (
+            "[Translation: DE]\n"
+            "1. Host isolieren.\n\n"
+            "---\n\n"
+            "[Original]\n"
+            "1. Isolate host."
+        )
+
+        parsed = _split_translated_response_playbook(source)
+
+        self.assertEqual(parsed["language"], "DE")
+        self.assertEqual(parsed["translated"], "1. Host isolieren.")
+        self.assertEqual(parsed["original"], "1. Isolate host.")
+
+    def test_compose_translated_response_playbook_formats_expected_layout(self):
+        rendered = _compose_translated_response_playbook(
+            original="1. Isolate host.",
+            translated="1. Aislar host.",
+            language_code="SP",
+        )
+
+        self.assertIn("[Translation: SP]", rendered)
+        self.assertIn("[Original]", rendered)
+        self.assertIn("1. Aislar host.", rendered)
+        self.assertTrue(rendered.rstrip().endswith("1. Isolate host."))

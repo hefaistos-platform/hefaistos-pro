@@ -51,6 +51,28 @@ const GENERATE_RESPONSE_PLAYBOOK_MUTATION = gql`
   }
 `;
 
+const TRANSLATE_RESPONSE_PLAYBOOK_MUTATION = gql`
+  mutation TranslateResponsePlaybook($playbookId: UUID!, $targetLanguage: String!) {
+    translateResponsePlaybookAi(playbookId: $playbookId, targetLanguage: $targetLanguage) {
+      success
+      message
+      providerUsed
+      targetLanguage
+      translatedText
+      responsePlaybook
+    }
+  }
+`;
+
+type TranslationLanguageCode = 'CZ' | 'DE' | 'SP' | 'FR';
+
+const TRANSLATION_LANGUAGE_OPTIONS: Array<{ value: TranslationLanguageCode; label: string }> = [
+  { value: 'CZ', label: 'CZ (Czech)' },
+  { value: 'DE', label: 'DE (German)' },
+  { value: 'SP', label: 'SP (Spanish)' },
+  { value: 'FR', label: 'FR (French)' },
+];
+
 interface MiniRule { id: string; title: string }
 interface RulesConnData {
   rulesConnection: {
@@ -61,6 +83,22 @@ interface RulesConnData {
 }
 interface RulesConnVars { text?: string; first: number; after?: string; repositoryId?: string }
 
+interface TranslateResponsePlaybookResult {
+  translateResponsePlaybookAi?: {
+    success?: boolean;
+    message?: string;
+    providerUsed?: string;
+    targetLanguage?: string;
+    translatedText?: string;
+    responsePlaybook?: string;
+  };
+}
+
+interface TranslateResponsePlaybookVars {
+  playbookId: string;
+  targetLanguage: string;
+}
+
 export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange, onLinkRules }) => {
   // Local state to handle user input without triggering immediate mutations
   const [localData, setLocalData] = useState(data);
@@ -68,9 +106,15 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
   const [ruleSearch, setRuleSearch] = useState<string>("");
   const [options, setOptions] = useState<{ label: string; value: string }[]>([]);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [showTranslateControls, setShowTranslateControls] = useState(false);
+  const [targetLanguage, setTargetLanguage] = useState<TranslationLanguageCode>('CZ');
+  const [translating, setTranslating] = useState(false);
 
   const [searchRules, { data: rulesData }] = useLazyQuery<RulesConnData, RulesConnVars>(RULES_CONNECTION_QUERY);
   const [generateResponsePlaybook] = useMutation(GENERATE_RESPONSE_PLAYBOOK_MUTATION);
+  const [translateResponsePlaybook] = useMutation<TranslateResponsePlaybookResult, TranslateResponsePlaybookVars>(
+    TRANSLATE_RESPONSE_PLAYBOOK_MUTATION
+  );
 
   const backendSnapshot = useMemo<DeepDiveFormData>(() => ({
     goal: data.goal,
@@ -120,6 +164,34 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
       }
     } finally {
       setAiGenerating(false);
+    }
+  };
+
+  const handleTranslateResponse = async () => {
+    if (!playbookId) return;
+    if (!localData.response?.trim()) {
+      message.warning('Response Playbook is empty. Add content before translation.');
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const res = await translateResponsePlaybook({ variables: { playbookId, targetLanguage } });
+      const payload = res.data?.translateResponsePlaybookAi;
+      const translatedResponse = payload?.responsePlaybook?.trim() || '';
+
+      if (payload?.success && translatedResponse) {
+        setLocalData(prev => ({ ...prev, response: translatedResponse }));
+        onChange('response', translatedResponse);
+        setShowTranslateControls(false);
+        message.success(payload.message || `Response Playbook translated to ${targetLanguage}.`);
+      } else {
+        message.error(payload?.message || 'Translation failed.');
+      }
+    } catch (e: any) {
+      message.error(e?.message || 'Translation failed');
+    } finally {
+      setTranslating(false);
     }
   };
 
@@ -194,25 +266,66 @@ export const DeepDive = React.memo<DeepDiveProps>(({ playbookId, data, onChange,
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
           <label className="block text-sm font-bold">Response Playbook</label>
-          <button
-            type="button"
-            onClick={handleAIGenerateResponse}
-            disabled={aiGenerating}
-            className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="AI: Generate response steps based on goal, technical context, false positives, and blind spots"
-          >
-            {aiGenerating ? (
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={handleAIGenerateResponse}
+              disabled={aiGenerating || translating}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="AI: Generate response steps based on goal, technical context, false positives, and blind spots"
+            >
+              {aiGenerating ? (
+                <>
+                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>✨ AI Assist</>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowTranslateControls((prev) => !prev)}
+              disabled={aiGenerating || translating || !localData.response?.trim()}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="AI: Translate response playbook while preserving cyber security and IT terms"
+            >
+              {translating ? 'Translating...' : 'Translate'}
+            </button>
+
+            {showTranslateControls && (
               <>
-                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                </svg>
-                Generating...
+                <Select
+                  size="small"
+                  style={{ minWidth: 150 }}
+                  value={targetLanguage}
+                  options={TRANSLATION_LANGUAGE_OPTIONS}
+                  onChange={(value) => setTargetLanguage(value as TranslationLanguageCode)}
+                  disabled={translating}
+                />
+                <button
+                  type="button"
+                  onClick={handleTranslateResponse}
+                  disabled={translating}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-hefaistos-primary text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Apply
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTranslateControls(false)}
+                  disabled={translating}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Cancel
+                </button>
               </>
-            ) : (
-              <>✨ AI Assist</>
             )}
-          </button>
+          </div>
         </div>
         <SimpleMDE 
             value={localData.response} 

@@ -17,6 +17,7 @@ from .engine import (
     run_logic_deconstruction,
     suggest_rule_improvements,
     generate_similar_rules,
+    run_custom_prompt,
     run_maieutic_questioning,
     run_strain_extraction,
     fetch_and_extract_from_url,
@@ -30,6 +31,23 @@ from platform_data.models import MitreAttackTechnique
 from identity.decorators import role_required, Roles
 
 logger = logging.getLogger(__name__)
+
+
+SUPPORTED_RESPONSE_PLAYBOOK_TRANSLATIONS = {
+    'CZ': 'Czech',
+    'DE': 'German',
+    'SP': 'Spanish',
+    'FR': 'French',
+}
+
+RESPONSE_PLAYBOOK_TRANSLATION_PATTERN = re.compile(
+    r'^\s*\[Translation:\s*(CZ|DE|SP|FR)\]\s*\n'
+    r'(?P<translated>.*?)'
+    r'\n\s*---\s*\n'
+    r'\s*\[Original\]\s*\n'
+    r'(?P<original>.*?)\s*$',
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def _get_effective_ai_settings(user_settings):
@@ -105,6 +123,32 @@ def _build_playbook_generation_context(playbook) -> dict:
         'detection_focus_layer': playbook.detection_focus_layer or '',
         'capability_abstractions': _serialize_capability_abstractions(playbook),
     }
+
+
+def _split_translated_response_playbook(value: str | None) -> dict:
+    raw = (value or '').strip()
+    if not raw:
+        return {'language': None, 'translated': '', 'original': ''}
+
+    match = RESPONSE_PLAYBOOK_TRANSLATION_PATTERN.match(raw)
+    if not match:
+        return {'language': None, 'translated': '', 'original': raw}
+
+    return {
+        'language': (match.group(1) or '').upper() or None,
+        'translated': (match.group('translated') or '').strip(),
+        'original': (match.group('original') or '').strip(),
+    }
+
+
+def _compose_translated_response_playbook(original: str, translated: str, language_code: str) -> str:
+    return (
+        f"[Translation: {language_code}]\n"
+        f"{(translated or '').strip()}\n\n"
+        f"---\n\n"
+        f"[Original]\n"
+        f"{(original or '').strip()}"
+    )
 
 
 def _normalize_lookup_key(value: str) -> str:
@@ -1295,6 +1339,143 @@ class GenerateResponsePlaybook(graphene.Mutation):
         return GenerateResponsePlaybook(response_playbook=playbook_text, provider_used=provider)
 
 
+class TranslateResponsePlaybook(graphene.Mutation):
+    """Translate response playbook text while preserving one original + one translation layout."""
+
+    class Arguments:
+        playbook_id = graphene.UUID(required=True)
+        target_language = graphene.String(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    provider_used = graphene.String()
+    target_language = graphene.String()
+    translated_text = graphene.String()
+    response_playbook = graphene.String()
+
+    def mutate(self, info, playbook_id, target_language):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError("Authentication required")
+
+        lang_code = (target_language or '').strip().upper()
+        if lang_code not in SUPPORTED_RESPONSE_PLAYBOOK_TRANSLATIONS:
+            allowed = ', '.join(sorted(SUPPORTED_RESPONSE_PLAYBOOK_TRANSLATIONS.keys()))
+            return TranslateResponsePlaybook(
+                success=False,
+                message=f"Unsupported target language. Allowed values: {allowed}.",
+                provider_used='NONE',
+                target_language=lang_code or None,
+                translated_text='',
+                response_playbook='',
+            )
+
+        try:
+            settings = UserAISettings.objects.get(user=user)
+        except UserAISettings.DoesNotExist:
+            return TranslateResponsePlaybook(
+                success=False,
+                message="Please configure AI Settings in your profile first.",
+                provider_used='NONE',
+                target_language=lang_code,
+                translated_text='',
+                response_playbook='',
+            )
+
+        try:
+            graph = PlaybookGraph.objects.get(pk=playbook_id, organization=user.organization)
+        except PlaybookGraph.DoesNotExist:
+            return TranslateResponsePlaybook(
+                success=False,
+                message="Playbook not found.",
+                provider_used='NONE',
+                target_language=lang_code,
+                translated_text='',
+                response_playbook='',
+            )
+
+        parsed = _split_translated_response_playbook(graph.response_playbook)
+        original_text = (parsed.get('original') or '').strip()
+        if not original_text:
+            return TranslateResponsePlaybook(
+                success=False,
+                message="Response Playbook is empty. Add content before requesting translation.",
+                provider_used='NONE',
+                target_language=lang_code,
+                translated_text='',
+                response_playbook='',
+            )
+
+        target_label = SUPPORTED_RESPONSE_PLAYBOOK_TRANSLATIONS[lang_code]
+        system_prompt = (
+            "You are a cybersecurity localization specialist. "
+            "Translate the provided response playbook into the requested target language. "
+            "Preserve markdown structure, numbering, bullets, and line breaks. "
+            "Do not add commentary, prefaces, or explanations. "
+            "Do NOT translate proper names, product names, vendor names, MITRE ATT&CK IDs, "
+            "IOC values (hashes, IPs, domains), query syntax, code snippets, commands, file paths, "
+            "registry paths, API names, or specialized cybersecurity/IT terminology."
+        )
+        user_prompt = (
+            f"Target language code: {lang_code}\n"
+            f"Target language name: {target_label}\n\n"
+            "Translate the text below:\n\n"
+            f"{original_text}"
+        )
+
+        try:
+            translated_text, provider = run_custom_prompt(
+                _get_effective_ai_settings(settings),
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+            )
+        except Exception as exc:
+            logger.exception(
+                "translate_response_playbook_ai failed: playbook_id=%s user=%s language=%s",
+                playbook_id,
+                getattr(user, 'username', 'unknown'),
+                lang_code,
+            )
+            return TranslateResponsePlaybook(
+                success=False,
+                message=f"Translation failed: {exc}",
+                provider_used='ERROR',
+                target_language=lang_code,
+                translated_text='',
+                response_playbook='',
+            )
+
+        translated = (translated_text or '').strip()
+        translated = re.sub(r'^```[a-zA-Z]*\s*', '', translated).strip()
+        translated = re.sub(r'\s*```$', '', translated).strip()
+        if (not translated) or translated.lower().startswith('error:'):
+            return TranslateResponsePlaybook(
+                success=False,
+                message=translated or "AI returned empty translation output.",
+                provider_used=provider or 'NONE',
+                target_language=lang_code,
+                translated_text='',
+                response_playbook='',
+            )
+
+        formatted_response = _compose_translated_response_playbook(
+            original=original_text,
+            translated=translated,
+            language_code=lang_code,
+        )
+        graph.response_playbook = formatted_response
+        graph.save(update_fields=['response_playbook'])
+
+        return TranslateResponsePlaybook(
+            success=True,
+            message=f"Response Playbook translated to {target_label}.",
+            provider_used=provider,
+            target_language=lang_code,
+            translated_text=translated,
+            response_playbook=formatted_response,
+        )
+
+
 class UpdateOrgAISettings(graphene.Mutation):
     """Update organization-wide AI settings. Admin only."""
     class Arguments:
@@ -2380,6 +2561,7 @@ class Mutation(graphene.ObjectType):
     extract_strain_data = ExtractStrainData.Field()
     extract_strain_data_from_url = ExtractStrainDataFromURL.Field()
     generate_response_playbook_ai = GenerateResponsePlaybook.Field()
+    translate_response_playbook_ai = TranslateResponsePlaybook.Field()
     # Async (non-blocking) variants that avoid gateway timeouts
     start_generate_rule_task = StartGenerateRuleTask.Field()
     start_suggest_improvements_task = StartSuggestImprovementsTask.Field()
