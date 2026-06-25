@@ -350,6 +350,12 @@ class AuthProviderSettings(models.Model):
         return self._split_csv(self.role_reviewer_values)
 
     @classmethod
+    def _org_singleton_key(cls, organization) -> str:
+        # singleton_key max length is 32; keep org-scoped key deterministic and within limit.
+        org_hex = str(getattr(organization, 'id', '')).replace('-', '')
+        return f"org:{org_hex[:28]}"
+
+    @classmethod
     def get_solo(cls):
         obj, _ = cls.objects.get_or_create(singleton_key='default', organization=None)
         return obj
@@ -358,12 +364,13 @@ class AuthProviderSettings(models.Model):
     def get_for_organization(cls, organization):
         if organization is None:
             return cls.get_solo()
+        org_key = cls._org_singleton_key(organization)
         obj, _ = cls.objects.get_or_create(
             organization=organization,
-            defaults={'singleton_key': f'org:{organization.id}'},
+            defaults={'singleton_key': org_key},
         )
-        if not obj.singleton_key:
-            obj.singleton_key = f'org:{organization.id}'
+        if not obj.singleton_key or len(obj.singleton_key) > 32:
+            obj.singleton_key = org_key
             obj.save(update_fields=['singleton_key'])
         return obj
 
