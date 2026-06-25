@@ -1,5 +1,6 @@
 // Import GraphQLError type from 'graphql'
 import { GraphQLError } from 'graphql';
+import { isDevEnvironment } from '../config/env';
 
 // Types for structured error logging
 interface FieldError {
@@ -107,7 +108,7 @@ export const logGraphQLError = (error: any, componentName: string): void => {
     console.groupEnd();
   }
 
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevEnvironment()) {
     console.debug('Raw error:', parsed.raw);
   }
 

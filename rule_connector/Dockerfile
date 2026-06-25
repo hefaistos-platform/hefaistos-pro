@@ -1,5 +1,5 @@
 # Use the same Python base as the backend
-FROM python:3.11-slim
+FROM python:3.12-slim-bookworm
 
 # Install git
 RUN apt-get update \

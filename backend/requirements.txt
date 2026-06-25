@@ -11,18 +11,18 @@ charset-normalizer==3.4.4
 cryptography==46.0.3
 diff-match-patch==20241021
 distro==1.9.0
-Django==5.2.7
+Django==6.0.5
 django-cors-headers==4.9.0
-django-elasticsearch-dsl==8.1
+django-elasticsearch-dsl==9.0
 django-graphql-jwt==0.4.0
 django-import-export==4.3.13
 django-taggit==6.1.0
-djangorestframework==3.15.2
-djangorestframework_simplejwt==5.4.0
+djangorestframework==3.17.1
+djangorestframework_simplejwt==5.5.1
 docstring_parser==0.17.0
-elastic-transport==8.17.1
-elasticsearch==8.19.2
-elasticsearch-dsl==8.17.1
+elastic-transport==9.2.1
+elasticsearch==9.3.0
+elasticsearch-dsl==8.18.0
 et_xmlfile==2.0.0
 flake8==7.1.0
 gitdb==4.0.12
@@ -98,7 +98,5 @@ jsonschema==4.25.1
 pyotp==2.9.0
 webauthn==2.7.0
 
-channels>=4.0.0
-daphne>=4.0.0
-
-django-cors-headers
+channels==4.3.2
+daphne==4.2.2

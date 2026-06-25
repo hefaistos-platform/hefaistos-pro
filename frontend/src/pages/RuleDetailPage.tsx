@@ -6,10 +6,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, gql } from '@apollo/client';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { solarizedlight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Button, Space, message, Modal, Input } from 'antd';
 import { DeleteOutlined, EditOutlined, SaveOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { RuleConversionModal } from '../components/RuleConversionModal';
 import { RuleDeploymentModal } from '../components/RuleDeploymentModal';
+import { useTheme } from '../context/ThemeContext';
 
 // Define the GraphQL query to fetch a single rule
 const GET_RULE_QUERY = gql`
@@ -89,6 +91,8 @@ interface GetRuleVars {
 }
 
 export const RuleDetailPage = () => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const { ruleId } = useParams<{ ruleId: string }>();
   const navigate = useNavigate();
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -108,10 +112,8 @@ export const RuleDetailPage = () => {
   const [deleteRule] = useMutation(DELETE_RULE_MUTATION);
   const [updateRule, { loading: saving }] = useMutation(UPDATE_RULE_MUTATION);
 
-  // Lock code block theme to light-only for consistency
-
   if (loading) return <p>Loading rule details...</p>;
-  if (error) return <p style={{ color: 'red' }}>Error fetching rule: {error.message}</p>;
+  if (error) return <p style={{ color: 'var(--hef-danger-text)' }}>Error fetching rule: {error.message}</p>;
   if (!data ||!data.rule) return <p>Rule not found.</p>;
 
   const { rule } = data;
@@ -207,11 +209,11 @@ export const RuleDetailPage = () => {
   };
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ padding: 24, color: 'var(--hef-text-primary)' }}>
       <h2>{rule.title}</h2>
       <p><strong>Status:</strong> {rule.status || 'N/A'}</p>
       <p><strong>Author:</strong> {rule.author || 'N/A'}</p>
-      <p>{rule.description || 'No description available.'}</p>
+      <p style={{ color: 'var(--hef-text-secondary)' }}>{rule.description || 'No description available.'}</p>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }}>
         <h3 style={{ margin: 0 }}>Raw Rule Content</h3>
         <Space>
@@ -249,7 +251,17 @@ export const RuleDetailPage = () => {
           </Button>
         </Space>
       </div>
-      <SyntaxHighlighter language="yaml" style={solarizedlight} customStyle={{ maxHeight: '600px', overflowY: 'auto' }}>
+      <SyntaxHighlighter
+        language="yaml"
+        style={isDark ? oneDark : solarizedlight}
+        customStyle={{
+          maxHeight: '600px',
+          overflowY: 'auto',
+          border: '1px solid var(--hef-border)',
+          borderRadius: 8,
+          background: isDark ? '#0f172a' : '#f8fafc',
+        }}
+      >
         {rule.rawContent}
       </SyntaxHighlighter>
 

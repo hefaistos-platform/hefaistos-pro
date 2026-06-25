@@ -10,6 +10,8 @@ import { Editor } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { LSPClient, LspConnectionStatus } from '../utils/lspClient';
 import { registerCustomLanguages } from '../utils/monacoLanguages';
+import { getApiBaseUrl } from '../config/env';
+import { useTheme } from '../context/ThemeContext';
 
 // GraphQL query string for autocomplete
 const GET_AUTOCOMPLETE_OPTIONS = `
@@ -120,6 +122,8 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   const lastRequestRef = useRef<number>(0);
   const lspClientRef = useRef<LSPClient | null>(null);
   const [lspStatus, setLspStatus] = useState<LspStatus>('disabled');
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   // Register custom Monaco language definitions once on mount
   useEffect(() => {
@@ -221,7 +225,7 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
 
           try {
             // Use the same API URL pattern as Apollo Client
-            const baseApiUrl = (process.env.REACT_APP_API_URL && process.env.REACT_APP_API_URL.replace(/\/+$/, '')) || window.location.origin;
+            const baseApiUrl = getApiBaseUrl();
             const uri = `${baseApiUrl}/graphql`;
             
             // Get auth token from localStorage
@@ -297,17 +301,44 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
       {enableLSP && lspStatus !== 'disabled' && (
         <div className="absolute top-2 right-2 z-10 pointer-events-none">
           {lspStatus === 'connecting' && (
-            <span className="text-xs text-gray-400 bg-gray-800 bg-opacity-80 px-2 py-0.5 rounded">
+            <span
+              style={{
+                fontSize: 12,
+                color: isDark ? '#94a3b8' : '#64748b',
+                background: isDark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(241, 245, 249, 0.95)',
+                padding: '2px 8px',
+                borderRadius: 8,
+                border: `1px solid ${isDark ? '#334155' : '#dbe4ef'}`,
+              }}
+            >
               🔄 LSP connecting…
             </span>
           )}
           {lspStatus === 'connected' && (
-            <span className="text-xs text-green-400 bg-gray-800 bg-opacity-80 px-2 py-0.5 rounded">
+            <span
+              style={{
+                fontSize: 12,
+                color: isDark ? '#86efac' : '#166534',
+                background: isDark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(240, 253, 244, 0.95)',
+                padding: '2px 8px',
+                borderRadius: 8,
+                border: `1px solid ${isDark ? '#14532d' : '#bbf7d0'}`,
+              }}
+            >
               ✓ LSP active
             </span>
           )}
           {lspStatus === 'error' && (
-            <span className="text-xs text-red-400 bg-gray-800 bg-opacity-80 px-2 py-0.5 rounded">
+            <span
+              style={{
+                fontSize: 12,
+                color: isDark ? '#fca5a5' : '#b91c1c',
+                background: isDark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(254, 242, 242, 0.95)',
+                padding: '2px 8px',
+                borderRadius: 8,
+                border: `1px solid ${isDark ? '#7f1d1d' : '#fecaca'}`,
+              }}
+            >
               ✗ LSP unavailable
             </span>
           )}
@@ -328,7 +359,7 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
             lspClientRef.current.didChange(uri, Date.now(), newValue);
           }
         }}
-        theme="vs-dark"
+        theme={isDark ? 'vs-dark' : 'vs'}
         options={{
           minimap: { enabled: true },
           fontSize: 14,
@@ -359,7 +390,18 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
           editorRef.current = editor;
           console.log('Editor mounted, language model:', editor.getModel()?.getLanguageId());
         }}
-        loading={<div style={{ padding: '16px', color: '#888' }}>Loading editor...</div>}
+        loading={
+          <div
+            style={{
+              padding: '16px',
+              color: 'var(--hef-text-muted)',
+              background: 'var(--hef-bg-surface)',
+              border: '1px solid var(--hef-border)',
+            }}
+          >
+            Loading editor...
+          </div>
+        }
       />
     </div>
   );

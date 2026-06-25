@@ -1361,18 +1361,21 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
         header: {
           marginBottom: 0,
           padding: '16px 24px',
-          borderBottom: '1px solid #f0f0f0',
+          borderBottom: '1px solid var(--hef-border)',
+          background: 'var(--hef-bg-surface)',
         },
         body: { 
           flex: 1,
           overflow: 'hidden',
           padding: 0,
           minHeight: 0,
+          background: 'var(--hef-bg-page)',
         },
         footer: {
           marginTop: 0,
           padding: '12px 24px',
-          borderTop: '1px solid #f0f0f0',
+          borderTop: '1px solid var(--hef-border)',
+          background: 'var(--hef-bg-surface)',
         },
       }}
       footer={

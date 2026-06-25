@@ -3,6 +3,7 @@ import { onError } from '@apollo/client/link/error';
 import { setContext } from '@apollo/client/link/context';
 import { logGraphQLError } from './utils/errorHandling';
 import { print } from 'graphql';
+import { getApiBaseUrl, isDevEnvironment } from './config/env';
 
 // --- Custom Upload Link (prevents JSON.stringify from stripping File objects) ---
 const uploadLink = new ApolloLink(operation => {
@@ -10,7 +11,7 @@ const uploadLink = new ApolloLink(operation => {
     const { query, variables, operationName } = operation;
     const context = operation.getContext();
     // Use configured API URL if provided, otherwise same-origin fallback
-    const baseApiUrl = (process.env.REACT_APP_API_URL && process.env.REACT_APP_API_URL.replace(/\/+$/, '')) || (typeof window !== 'undefined' ? window.location.origin : '');
+    const baseApiUrl = getApiBaseUrl();
     const uri = `${baseApiUrl}/graphql`;
     const headers = { ...(context.headers || {}) };
 
@@ -90,7 +91,7 @@ const uploadLink = new ApolloLink(operation => {
 // Dev logging link for operations (query, variables)
 const logLink = new ApolloLink((operation, forward) => {
   // Only log in development to avoid noisy consoles in prod
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevEnvironment()) {
     // eslint-disable-next-line no-console
     console.group(`Apollo Operation: ${operation.operationName || 'Unnamed'}`);
     // eslint-disable-next-line no-console
@@ -148,7 +149,7 @@ const errorLink = onError((error: any) => {
       networkError: networkError
     }, componentName);
     // eslint-disable-next-line no-console
-    if (process.env.NODE_ENV === 'development') console.debug('Network error full object:', networkError);
+    if (isDevEnvironment()) console.debug('Network error full object:', networkError);
   }
 });
 

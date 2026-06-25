@@ -18,7 +18,7 @@ x-connector-runtime: &connector-runtime
 services:
   # --- PROXY SERVICE (Entry Point) ---
   nginx:
-    image: nginx:alpine
+    image: nginx:1.28.0-alpine
     container_name: hefaistos-proxy
     ports:
       - "80:8080"     # HTTP (external 80 -> internal 8080)
@@ -87,7 +87,7 @@ services:
 
   # --- DATABASE ---
   db:
-    image: postgres:14
+    image: postgres:18.4
     container_name: hefaistos-db
     env_file:
       - .env
@@ -110,7 +110,7 @@ services:
 
   # --- ELASTICSEARCH ---
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.6
     container_name: hefaistos-elastic
     environment:
       - discovery.type=single-node
@@ -123,7 +123,7 @@ services:
       
   # --- RABBITMQ ---
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:4.3.2-management
     hostname: rabbitmq
     container_name: hefaistos-rabbitmq
     env_file:

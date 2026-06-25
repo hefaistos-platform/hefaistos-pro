@@ -1,13 +1,15 @@
 # Frontend production image: build React app and serve with Nginx
 
 # Build stage
-FROM node:18-alpine AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 
-# Install dependencies
-COPY package.json package-lock.json* yarn.lock* ./
-# Use legacy peer deps to tolerate React 19 peer dependency ranges
-RUN if [ -f yarn.lock ]; then yarn install --frozen-lockfile; else npm install --legacy-peer-deps; fi
+# Lock npm to an explicit version for deterministic CI/build behavior
+RUN npm install -g npm@11.17.0
+
+# Install dependencies deterministically
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY . ./
@@ -16,10 +18,10 @@ COPY . ./
 RUN npm run build
 
 # Runtime stage
-FROM nginx:alpine
+FROM nginx:1.28.0-alpine
 
 # Copy build output to Nginx html directory
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 
 # Add SPA-friendly Nginx config (fallback to index.html)
 COPY nginx.conf /etc/nginx/conf.d/default.conf

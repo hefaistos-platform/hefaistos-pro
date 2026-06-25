@@ -1,7 +1,7 @@
 @import '@xyflow/react/dist/style.css';
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
 
 :root,
 :root[data-theme='light'] {
@@ -18,6 +18,12 @@
   --hef-text-link: #1677ff;
   --hef-border: #dbe4ef;
   --hef-border-strong: #c7d5e4;
+  --hef-danger-bg: #fff1f2;
+  --hef-danger-border: #fecdd3;
+  --hef-danger-text: #be123c;
+  --hef-success-bg: #f0fdf4;
+  --hef-success-border: #bbf7d0;
+  --hef-success-text: #166534;
   --hef-shadow-card: 0 8px 30px rgba(15, 23, 42, 0.12);
   --hef-logo-title: #0958d9;
   --hef-logo-subtitle: #1f2937;
@@ -36,6 +42,12 @@
   --hef-text-link: #60a5fa;
   --hef-border: #243246;
   --hef-border-strong: #334155;
+  --hef-danger-bg: #3f1d28;
+  --hef-danger-border: #7f1d1d;
+  --hef-danger-text: #fecaca;
+  --hef-success-bg: #0f2d1d;
+  --hef-success-border: #14532d;
+  --hef-success-text: #86efac;
   --hef-shadow-card: 0 12px 36px rgba(2, 6, 23, 0.55);
   --hef-logo-title: #93c5fd;
   --hef-logo-subtitle: #dbeafe;

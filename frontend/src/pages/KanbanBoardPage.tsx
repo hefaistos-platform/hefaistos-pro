@@ -767,7 +767,9 @@ export const KanbanBoardPage = () => {
   }, [legacyData, graphData, achData, advopsData, mveData, typeFilter, authorFilter, tagFilter, searchQuery]);
 
   if (loadingLegacy || loadingGraphs || loadingACH || loadingADVOPS || loadingMVE) return <p>Loading playbook board...</p>;
-  if (errorLegacy || errorGraphs || errorACH || errorADVOPS || errorMVE) return <p style={{ color: 'red' }}>Error loading playbooks.</p>;
+  if (errorLegacy || errorGraphs || errorACH || errorADVOPS || errorMVE) {
+    return <p style={{ color: 'var(--hef-danger-text)' }}>Error loading playbooks.</p>;
+  }
   const canDrag = ['ADMIN', 'REVIEWER'].includes(meData?.me?.role || '');
   // Use filtered list instead of all and apply status column visibility
   const allowedStatuses = statusFilter.length ? statusFilter : undefined;
@@ -900,12 +902,12 @@ export const KanbanBoardPage = () => {
                     {...provided.droppableProps}
                     ref={provided.innerRef}
                     style={{
-                      background: '#f7f9fc',
+                      background: 'var(--hef-bg-subtle)',
                       padding: '0',
                       borderRadius: '8px',
                       minHeight: '200px',
                       minWidth: 0,
-                      border: '1px solid #e5e7eb'
+                      border: '1px solid var(--hef-border)'
                     }}
                   >
                     {/* Sticky, collapsible lane header */}
@@ -914,8 +916,8 @@ export const KanbanBoardPage = () => {
                         position: 'sticky',
                         top: 0,
                         zIndex: 1,
-                        background: '#eef3ff',
-                        borderBottom: '1px solid #c7d2fe',
+                        background: 'var(--hef-bg-accent)',
+                        borderBottom: '1px solid var(--hef-border-strong)',
                         padding: '10px 12px',
                         display: 'flex',
                         alignItems: 'center',
@@ -924,12 +926,19 @@ export const KanbanBoardPage = () => {
                         borderTopRightRadius: 8
                       }}
                     >
-                      <div style={{ color: '#1d4ed8', fontWeight: 700 }}>
+                      <div style={{ color: 'var(--hef-text-link)', fontWeight: 700 }}>
                         {column.title} <span style={{ fontWeight: 400 }}>({column.playbooks.length})</span>
                       </div>
                       <button
                         onClick={() => setCollapsed(prev => ({ ...prev, [column.id]: !prev[column.id] }))}
-                        style={{ fontSize: 12, color: '#1e293b', background: '#e2e8f0', border: '1px solid #cbd5e1', borderRadius: 6, padding: '2px 8px' }}
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--hef-text-primary)',
+                          background: 'var(--hef-bg-surface)',
+                          border: '1px solid var(--hef-border)',
+                          borderRadius: 6,
+                          padding: '2px 8px',
+                        }}
                       >
                         {collapsed[column.id] ? 'Expand' : 'Collapse'}
                       </button>
@@ -970,15 +979,15 @@ export const KanbanBoardPage = () => {
                                 }}
                                 styles={{ body: { padding: dense ? '6px 4px' : '10px 6px' } }}
                               >
-                                <div style={{ fontSize: dense ? 18 : 24, color: '#000', lineHeight: 1 }}>
+                                <div style={{ fontSize: dense ? 18 : 24, color: 'var(--hef-text-primary)', lineHeight: 1 }}>
                                   {config.icon}
                                 </div>
-                                <div style={{ marginTop: dense ? 2 : 6, fontWeight: 600, fontSize: dense ? 11 : 12, lineHeight: 1.3, color: '#000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  <Link to={config.url} style={{ color: '#000', textDecoration: 'none' }} title={playbook.title}>
+                                <div style={{ marginTop: dense ? 2 : 6, fontWeight: 600, fontSize: dense ? 11 : 12, lineHeight: 1.3, color: 'var(--hef-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <Link to={config.url} style={{ color: 'var(--hef-text-primary)', textDecoration: 'none' }} title={playbook.title}>
                                     {playbook.title}
                                   </Link>
                                 </div>
-                                <div style={{ marginTop: 2, fontSize: 11, color: '#000' }}>
+                                <div style={{ marginTop: 2, fontSize: 11, color: 'var(--hef-text-secondary)' }}>
                                   {config.label}
                                 </div>
                                 {playbook.kind === 'legacy' && (() => {
@@ -1039,7 +1048,7 @@ export const KanbanBoardPage = () => {
                               <Link
                                 to={config.url}
                                 style={{
-                                  color: '#000',
+                                  color: 'var(--hef-text-primary)',
                                   fontWeight: 500,
                                   fontSize: dense ? 12 : 13,
                                   flex: 1,
@@ -1051,7 +1060,7 @@ export const KanbanBoardPage = () => {
                               >
                                 {playbook.title}
                               </Link>
-                              <span style={{ fontSize: 10, color: '#999', marginLeft: 8, whiteSpace: 'nowrap' }}>
+                              <span style={{ fontSize: 10, color: 'var(--hef-text-muted)', marginLeft: 8, whiteSpace: 'nowrap' }}>
                                 {config.label}
                               </span>
                               {canDrag && (
@@ -1085,12 +1094,16 @@ export const KanbanBoardPage = () => {
           {!selected && <Typography.Text type="secondary">Select a card to see details</Typography.Text>}
           {selected && (
             <div>
-              <div style={{ marginBottom: 8, fontSize: 13, color: '#555' }}>
+              <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--hef-text-secondary)' }}>
                 {selected.playbookType} | {selected.author?.username || 'N/A'} | Status: {selected.status}
               </div>
               {selected.kind === 'graph' && selected.graphImageUrl && (
                 <div style={{ marginBottom: 12 }}>
-                  <img src={selected.graphImageUrl} alt="Graph Snapshot" style={{ width: '100%', borderRadius: 4, border: '1px solid #eee' }} />
+                  <img
+                    src={selected.graphImageUrl}
+                    alt="Graph Snapshot"
+                    style={{ width: '100%', borderRadius: 4, border: '1px solid var(--hef-border)' }}
+                  />
                 </div>
               )}
               {selected.tags && selected.tags.length > 0 && (

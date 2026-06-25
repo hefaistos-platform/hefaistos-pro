@@ -7,9 +7,9 @@
 **Enterprise Detection Engineering & Threat Intelligence Platform**
 
 [![License](https://img.shields.io/badge/license-Proprietary-blue.svg)]()
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
-[![Django](https://img.shields.io/badge/django-5.2-green.svg)](https://djangoproject.com)
-[![React](https://img.shields.io/badge/react-18+-61dafb.svg)](https://reactjs.org)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
+[![Django](https://img.shields.io/badge/django-6.0-green.svg)](https://djangoproject.com)
+[![React](https://img.shields.io/badge/react-19.2-61dafb.svg)](https://reactjs.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5+-blue.svg)](https://typescriptlang.org)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ed.svg)](https://docker.com)
 
@@ -47,7 +47,7 @@ HEFAISTOS is a comprehensive **Detection Engineering Platform** designed for sec
                     ▼                                    ▼
 ┌─────────────────────────────┐        ┌─────────────────────────────────┐
 │         Frontend            │        │           Backend               │
-│    React 18 + TypeScript    │        │   Django 5.2 + GraphQL          │
+│    React 19 + TypeScript    │        │   Django 6.0 + GraphQL          │
 │    TailwindCSS + Ant Design │        │   Gunicorn + WebSocket          │
 │    React Flow (Graphs)      │        │   JWT Authentication            │
 └─────────────────────────────┘        └─────────────────────────────────┘
@@ -210,6 +210,16 @@ docker compose exec backend python manage.py createsuperuser
 ```
 
 **Estimated Time:** 10-20 minutes | **Estimated Cost:** Free (all open source)
+
+### SHARP Clean Bootstrap (Destructive Reset)
+
+For SHARP fast-track rollout on a clean environment, use:
+
+```bash
+./scripts/sharp_bootstrap.sh
+```
+
+This executes `docker compose down -v`, rebuilds images, starts the stack, runs migrations, rebuilds search indexes, and executes smoke checks.
 
 ---
 

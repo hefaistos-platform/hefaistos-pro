@@ -1,5 +1,5 @@
-# Use the official Python image based on the newer "Bullseye" OS
-FROM python:3.11-slim-bullseye
+# Use the official Python 3.12 image as SHARP runtime baseline
+FROM python:3.12-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1

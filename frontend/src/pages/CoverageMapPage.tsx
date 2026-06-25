@@ -3,6 +3,7 @@ import { Button } from 'antd';
 import { gql, useQuery } from '@apollo/client';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PixelIcon } from '../components/ui/PixelIcon';
+import { getApiBaseUrl, getNavigatorBaseUrl } from '../config/env';
 
 const LOADED_ATTACK_VERSIONS_QUERY = gql`
   query CoverageMapLoadedVersions {
@@ -54,7 +55,7 @@ export const CoverageMapPage = () => {
 
   // Build absolute URL to the REST layer JSON
   const layerJsonUrl = useMemo(() => {
-    const apiBase = (process.env.REACT_APP_API_URL || window.location.origin).replace(/\/$/, '');
+    const apiBase = getApiBaseUrl();
     const url = new URL(`${apiBase}/api/coverage/layer.json`);
     url.searchParams.set('_', String(reloadToken));
     // Pass JWT as query token so backend can authenticate cross-origin fetches from Navigator
@@ -73,7 +74,7 @@ export const CoverageMapPage = () => {
     params.set('selecting_techniques', 'false');
 
     // Allow overriding Navigator host via env (fallback to locally hosted /navigator).
-    const configured = process.env.REACT_APP_NAVIGATOR_URL;
+    const configured = getNavigatorBaseUrl();
     const defaultLocal = `${window.location.origin}/navigator/`;
     const base = (configured && configured.trim().length > 0)
       ? configured
@@ -127,15 +128,37 @@ export const CoverageMapPage = () => {
   }, [layerJsonUrl]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', gap: '16px', margin: '-24px -32px', padding: '24px 32px', background: '#f9fbfd' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        gap: '16px',
+        margin: '-24px -32px',
+        padding: '24px 32px',
+        background: 'var(--hef-bg-page)',
+      }}
+    >
       {/* --- Header --- */}
-      <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: '#ffffff', border: '2px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+      <div
+        style={{
+          flexShrink: 0,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '16px',
+          background: 'var(--hef-bg-surface)',
+          border: '1px solid var(--hef-border)',
+          borderRadius: '8px',
+          boxShadow: 'var(--hef-shadow-card)',
+        }}
+      >
         <div>
           <h2 style={{ fontSize: '28px', fontWeight: 'bold', margin: 0, marginBottom: '8px' }}>ATT&CK Coverage Map</h2>
-          <p style={{ color: '#4b5563', margin: 0 }}>
+          <p style={{ color: 'var(--hef-text-secondary)', margin: 0 }}>
             Live coverage based on deployed detections.
             {enterpriseEntry && (
-              <span style={{ marginLeft: 12, color: '#6b7280', fontSize: 13 }}>
+              <span style={{ marginLeft: 12, color: 'var(--hef-text-muted)', fontSize: 13 }}>
                 ATT&amp;CK: v{enterpriseEntry.version}
                 {enterpriseEntry.importedAt && (
                   <span> (loaded {new Date(enterpriseEntry.importedAt).toLocaleDateString()})</span>
@@ -146,7 +169,7 @@ export const CoverageMapPage = () => {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           {/* D3FEND support removed */}
-          <span style={{ color: '#6b7280', fontSize: 12 }}>
+          <span style={{ color: 'var(--hef-text-muted)', fontSize: 12 }}>
             {lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Not updated yet'}
           </span>
           {isSuperuser && (
@@ -181,7 +204,16 @@ export const CoverageMapPage = () => {
 
       {/* --- UPDATED: Error Handling --- */}
       {error && (
-        <div style={{ marginBottom: '16px', padding: '16px', background: '#fee2e2', border: '2px solid #dc2626', color: '#dc2626', borderRadius: '6px' }}>
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '16px',
+            background: 'var(--hef-danger-bg)',
+            border: '1px solid var(--hef-danger-border)',
+            color: 'var(--hef-danger-text)',
+            borderRadius: '6px',
+          }}
+        >
           <h3 style={{ fontWeight: 'bold', margin: '0 0 8px 0' }}>Error Loading Coverage Layer</h3>
           <p style={{ margin: 0 }}>{error.message}</p>
         </div>
@@ -190,7 +222,16 @@ export const CoverageMapPage = () => {
 
       {/* --- NEW: Parse Error Display --- */}
       {parseError && (
-        <div style={{ marginBottom: '16px', padding: '16px', background: '#fee2e2', border: '2px solid #dc2626', color: '#dc2626', borderRadius: '6px' }}>
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '16px',
+            background: 'var(--hef-danger-bg)',
+            border: '1px solid var(--hef-danger-border)',
+            color: 'var(--hef-danger-text)',
+            borderRadius: '6px',
+          }}
+        >
           <h3 style={{ fontWeight: 'bold', margin: '0 0 8px 0' }}>Data Parsing Error</h3>
           <p style={{ margin: 0 }}>{parseError}</p>
         </div>
@@ -198,16 +239,29 @@ export const CoverageMapPage = () => {
       {/* --- END NEW --- */}
 
       {/* --- iframe Container --- */}
-      <div style={{ flex: 1, width: '100%', background: '#ffffff', border: '2px solid #e5e7eb', borderRadius: '8px', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <div
+        style={{
+          flex: 1,
+          width: '100%',
+          background: 'var(--hef-bg-surface)',
+          border: '1px solid var(--hef-border)',
+          borderRadius: '8px',
+          boxShadow: 'var(--hef-shadow-card)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative',
+        }}
+      >
         
         {/* --- Loading Skeleton Overlay --- */}
         {!isNavigatorLoaded && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', zIndex: 10 }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--hef-bg-subtle)', zIndex: 10 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ color: '#d1d5db', margin: '0 auto', fontSize: '64px' }}>
+              <div style={{ color: 'var(--hef-text-muted)', margin: '0 auto', fontSize: '64px' }}>
                 <PixelIcon name="folder" className="w-16 h-16" />
               </div>
-              <p style={{ fontSize: '18px', fontWeight: '500', color: '#6b7280', marginTop: '16px', margin: '16px 0 0 0' }}>Loading ATT&CK Navigator...</p>
+              <p style={{ fontSize: '18px', fontWeight: '500', color: 'var(--hef-text-secondary)', marginTop: '16px', margin: '16px 0 0 0' }}>Loading ATT&CK Navigator...</p>
             </div>
           </div>
         )}
