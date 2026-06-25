@@ -133,7 +133,7 @@ interface StrategyProps {
   selectedTechniqueId: string | null;
   onTechniqueChange: (t: any) => void;
   onStrategyChange: (strategy: any) => void; // Passes data back to parent
-  ruleFormat?: 'KQL' | 'WAZUH' | 'SPL';
+  ruleFormat?: 'KQL' | 'WAZUH' | 'SPL' | 'AQL';
 }
 
 // Simple UUID generator for non-secure contexts
@@ -333,7 +333,7 @@ export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueI
      }
 
      // 2. Generate the "Perfect" Template based on selected format
-     const cmt = ruleFormat === 'SPL' ? '`' : '//';
+     const cmt = ruleFormat === 'SPL' ? '`' : (ruleFormat === 'AQL' ? '--' : '//');
      const ruleTitle = `${strategy.name} - ${analytic.name}`;
      const ruleDesc = analytic.description.replace(/\n/g, ' ');
      const ruleDate = new Date().toISOString().split('T')[0];
@@ -430,6 +430,32 @@ index=main sourcetype=WinEventLog:Security
     <options>no_full_log</options>
   </rule>
 </group>`;
+     } else if (ruleFormat === 'AQL') {
+       ruleBody = `-- ----------------------------------------------------------------------
+-- DETECTION RULE (AQL / QRadar)
+-- ----------------------------------------------------------------------
+-- Rule name: ${ruleTitle}
+-- Description: ${ruleDesc}
+-- Author: HEFAISTOS Automation
+-- Date: ${ruleDate}
+-- Severity: Medium
+--
+-- TODO: Adjust event category/type and field mappings based on your log sources.
+-- CHECK "LIVE DATA" ABOVE for correct QID / category / property names.
+-- ----------------------------------------------------------------------
+SELECT
+  starttime,
+  sourceip,
+  destinationip,
+  username,
+  qidname(qid) AS qid_name
+FROM events
+WHERE
+  devicetype IS NOT NULL
+  AND qid IS NOT NULL
+  -- TODO: Replace with conditions from LIVE DATA above
+ORDER BY starttime DESC
+LAST 1 HOURS`;
      } else {
        // KQL (default fallback)
        ruleBody = `// ----------------------------------------------------------------------

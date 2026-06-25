@@ -671,6 +671,10 @@ interface CreateEdgeData {
   };
 }
 
+type WorkbenchRuleFormat = 'KQL' | 'WAZUH' | 'SPL' | 'AQL';
+const isWorkbenchRuleFormat = (format: string): format is WorkbenchRuleFormat =>
+  format === 'KQL' || format === 'WAZUH' || format === 'SPL' || format === 'AQL';
+
 export const PlaybookWorkbench = () => {
   const SIDEBAR_DEFAULT_WIDTH = 320;
   const SIDEBAR_COLLAPSED_WIDTH = 40;
@@ -1017,8 +1021,11 @@ export const PlaybookWorkbench = () => {
       if (data?.playbookGraph?.detectionRule) {
           const detectedFormat = (data.playbookGraph.tags || [])
             .map((tag: string) => tag.toUpperCase())
-            .find((tag: string) => tag === 'KQL' || tag === 'WAZUH' || tag === 'SPL') || '';
+            .find((tag: string) => isWorkbenchRuleFormat(tag)) || '';
           setLocalRule(data.playbookGraph.detectionRule);
+          if (isWorkbenchRuleFormat(detectedFormat)) {
+            setAiFormat(detectedFormat);
+          }
           setSavedLibrarySnapshot((prev) => ({
             format: detectedFormat || prev.format || 'KQL',
             content: normalize(data.playbookGraph.detectionRule),
@@ -1487,7 +1494,7 @@ export const PlaybookWorkbench = () => {
   }, [selectedNodeId, updateNodeColor, setNodes]);
 
   // AI Generate handler
-  const [aiFormat, setAiFormat] = useState<'KQL'|'WAZUH'|'SPL'>('KQL');
+  const [aiFormat, setAiFormat] = useState<WorkbenchRuleFormat>('KQL');
   const [savedLibrarySnapshot, setSavedLibrarySnapshot] = useState<{ format: string; content: string }>({
     format: '',
     content: '',
@@ -1565,7 +1572,7 @@ export const PlaybookWorkbench = () => {
     setDetectionMode(mode);
     
     // Update format in state
-    if (format === 'KQL' || format === 'WAZUH' || format === 'SPL') {
+    if (isWorkbenchRuleFormat(format)) {
       setAiFormat(format);
     }
     
