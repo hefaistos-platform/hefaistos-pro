@@ -391,7 +391,7 @@ export const PlaybookDetailPage: React.FC = () => {
   };
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
+    <Space className="workbench-detail-theme" direction="vertical" style={{ width: '100%' }} size="large">
       <Space align="baseline" style={{ justifyContent: 'space-between', width: '100%' }}>
         <div>
           <Typography.Title level={3} style={{ marginBottom: 4 }}>{p.title}</Typography.Title>
@@ -427,8 +427,8 @@ export const PlaybookDetailPage: React.FC = () => {
       <section style={{
         marginBottom: '2rem',
         padding: '1.5rem',
-        backgroundColor: '#f9fafb',
-        border: '2px dashed #d1d5db',
+        backgroundColor: 'var(--hef-bg-subtle)',
+        border: '2px dashed var(--hef-border)',
         borderRadius: '8px',
         textAlign: 'center'
       }}>
@@ -446,7 +446,7 @@ export const PlaybookDetailPage: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               opacity: 0,
-              backgroundColor: 'rgba(0,0,0,0.1)',
+              backgroundColor: 'color-mix(in srgb, var(--hef-bg-page) 30%, transparent)',
               transition: 'opacity 0.2s'
             }} className="group-hover:opacity-100">
               <Button onClick={() => {
@@ -458,7 +458,7 @@ export const PlaybookDetailPage: React.FC = () => {
           </div>
         ) : (
           <div>
-            <Typography.Title level={4} style={{ color: '#9ca3af', marginBottom: '0.5rem' }}>
+            <Typography.Title level={4} style={{ color: 'var(--hef-text-muted)', marginBottom: '0.5rem' }}>
               No Capability Map Attached
             </Typography.Title>
             <Button
@@ -587,7 +587,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 addonAfter="%"
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f0f0f0', overflow: 'hidden' }}>
+                <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--hef-border)', overflow: 'hidden' }}>
                   <div
                     style={{
                       width: `${formState.falsePositiveRate ?? 0}%`,
@@ -609,7 +609,7 @@ export const PlaybookDetailPage: React.FC = () => {
             p.falsePositiveRate !== null && p.falsePositiveRate !== undefined ? (
               <Space direction="vertical" style={{ width: '100%' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f0f0f0', overflow: 'hidden' }}>
+                  <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--hef-border)', overflow: 'hidden' }}>
                     <div
                       style={{
                         width: `${p.falsePositiveRate}%`,
@@ -866,7 +866,7 @@ export const PlaybookDetailPage: React.FC = () => {
                   <img
                     src={g.pngSnapshotUrl}
                     alt={g.title || 'Graph snapshot'}
-                    style={{ maxWidth: '100%', borderRadius: 4, border: '1px solid #e5e7eb' }}
+                    style={{ maxWidth: '100%', borderRadius: 4, border: '1px solid var(--hef-border)' }}
                   />
                 ) : (
                   <Typography.Text type="secondary">

@@ -84,7 +84,7 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({
   /* ── Collapsed strip ── */
   if (collapsed) {
     return (
-      <div className="relative flex flex-col items-center bg-white border-l border-gray-200 shadow-lg h-full" style={{ width: '100%' }}>
+      <div className="workbench-sidebar relative flex flex-col items-center bg-white border-l border-gray-200 shadow-lg h-full" style={{ width: '100%' }}>
         {/* Toggle button at top */}
         <button
           onClick={() => onCollapsedChange(false)}
@@ -117,7 +117,7 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({
   }
 
   return (
-    <div className="w-full bg-white border-l border-gray-200 flex flex-col h-full shadow-lg">
+    <div className="workbench-sidebar w-full bg-white border-l border-gray-200 flex flex-col h-full shadow-lg">
       
       {/* 1. Tab Switcher + Collapse button */}
       <div className="flex border-b border-gray-200">
@@ -292,9 +292,9 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({
                                                                                 width: `${currentFPR}%`,
                                                                                 backgroundColor: ((): string => {
                                                                                     const val = currentFPR;
-                                                                                    if (val >= 80) return '#22c55e';
-                                                                                    if (val >= 50) return '#f59e0b';
-                                                                                    return '#ef4444';
+                                                                                    if (val >= 80) return 'var(--hef-success-text)';
+                                                                                    if (val >= 50) return 'var(--hef-warning-text)';
+                                                                                    return 'var(--hef-danger-text)';
                                                                                 })()
                                                                             }}
                                                                         />
@@ -304,15 +304,15 @@ export const PlaybookSidebar: React.FC<SidebarProps> = ({
                                                                     style={{
                                                                         backgroundColor: ((): string => {
                                                                             const val = currentFPR;
-                                                                            if (val >= 80) return '#dcfce7';
-                                                                            if (val >= 50) return '#fef3c7';
-                                                                            return '#fee2e2';
+                                                                            if (val >= 80) return 'var(--hef-success-bg)';
+                                                                            if (val >= 50) return 'var(--hef-warning-bg)';
+                                                                            return 'var(--hef-danger-bg)';
                                                                         })(),
                                                                         color: ((): string => {
                                                                             const val = currentFPR;
-                                                                            if (val >= 80) return '#166534';
-                                                                            if (val >= 50) return '#92400e';
-                                                                            return '#991b1b';
+                                                                            if (val >= 80) return 'var(--hef-success-text)';
+                                                                            if (val >= 50) return 'var(--hef-warning-text)';
+                                                                            return 'var(--hef-danger-text)';
                                                                         })()
                                                                     }}
                                                                 >

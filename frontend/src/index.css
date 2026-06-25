@@ -514,3 +514,226 @@ code {
 .profile-theme .peer:checked + div {
   background: var(--hef-info-text) !important;
 }
+
+/* Workbench detail theming */
+.workbench-theme {
+  color: var(--hef-text-primary);
+}
+
+.workbench-theme .bg-white {
+  background: var(--hef-bg-surface) !important;
+}
+
+.workbench-theme .bg-gray-50,
+.workbench-theme .bg-gray-100,
+.workbench-theme .bg-gray-200 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.workbench-theme .bg-blue-50,
+.workbench-theme .bg-blue-100 {
+  background: var(--hef-info-bg) !important;
+}
+
+.workbench-theme .bg-emerald-50,
+.workbench-theme .bg-green-100 {
+  background: var(--hef-success-bg) !important;
+}
+
+.workbench-theme .bg-red-100 {
+  background: var(--hef-danger-bg) !important;
+}
+
+.workbench-theme .bg-orange-100,
+.workbench-theme .bg-yellow-100 {
+  background: var(--hef-warning-bg) !important;
+}
+
+.workbench-theme .bg-purple-50 {
+  background: var(--hef-brand-bg) !important;
+}
+
+.workbench-theme .bg-yellow-50 {
+  background: var(--hef-warning-bg) !important;
+}
+
+.workbench-theme .bg-purple-100 {
+  background: var(--hef-brand-bg) !important;
+}
+
+.workbench-theme .border,
+.workbench-theme .border-b,
+.workbench-theme .border-t,
+.workbench-theme .border-l,
+.workbench-theme .border-r,
+.workbench-theme .border-gray-100,
+.workbench-theme .border-gray-200,
+.workbench-theme .border-gray-300 {
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-theme .border-blue-200 {
+  border-color: var(--hef-info-border) !important;
+}
+
+.workbench-theme .border-blue-100 {
+  border-color: color-mix(in srgb, var(--hef-info-border) 75%, var(--hef-border)) !important;
+}
+
+.workbench-theme .border-emerald-200,
+.workbench-theme .border-green-200 {
+  border-color: var(--hef-success-border) !important;
+}
+
+.workbench-theme .border-yellow-200,
+.workbench-theme .border-yellow-300 {
+  border-color: var(--hef-warning-border) !important;
+}
+
+.workbench-theme .border-purple-200 {
+  border-color: var(--hef-brand-border) !important;
+}
+
+.workbench-theme .text-gray-400,
+.workbench-theme .text-gray-500 {
+  color: var(--hef-text-muted) !important;
+}
+
+.workbench-theme .text-gray-600,
+.workbench-theme .text-gray-700,
+.workbench-theme .text-gray-800 {
+  color: var(--hef-text-secondary) !important;
+}
+
+.workbench-theme .text-gray-900 {
+  color: var(--hef-text-primary) !important;
+}
+
+.workbench-theme .text-blue-700,
+.workbench-theme .text-blue-800 {
+  color: var(--hef-info-text) !important;
+}
+
+.workbench-theme .text-blue-300,
+.workbench-theme .text-blue-600 {
+  color: color-mix(in srgb, var(--hef-info-text) 90%, var(--hef-text-primary)) !important;
+}
+
+.workbench-theme .text-emerald-700,
+.workbench-theme .text-green-700,
+.workbench-theme .text-green-800 {
+  color: var(--hef-success-text) !important;
+}
+
+.workbench-theme .text-purple-700 {
+  color: var(--hef-brand-text) !important;
+}
+
+.workbench-theme .text-orange-800,
+.workbench-theme .text-yellow-800,
+.workbench-theme .text-yellow-600 {
+  color: var(--hef-warning-text) !important;
+}
+
+.workbench-theme .text-red-500,
+.workbench-theme .text-red-800 {
+  color: var(--hef-danger-text) !important;
+}
+
+.workbench-theme input,
+.workbench-theme select,
+.workbench-theme textarea:not(.bg-gray-900) {
+  background: var(--hef-bg-subtle);
+  color: var(--hef-text-primary);
+  border-color: var(--hef-border);
+}
+
+.workbench-theme input::placeholder,
+.workbench-theme textarea::placeholder {
+  color: var(--hef-text-muted);
+}
+
+.workbench-theme input:focus,
+.workbench-theme select:focus,
+.workbench-theme textarea:not(.bg-gray-900):focus {
+  border-color: var(--hef-info-border);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hef-info-bg) 65%, transparent);
+}
+
+.workbench-theme .hover\:bg-gray-50:hover,
+.workbench-theme .hover\:bg-gray-100:hover,
+.workbench-theme .hover\:bg-gray-200:hover,
+.workbench-theme .hover\:bg-blue-50:hover,
+.workbench-theme .hover\:bg-yellow-50:hover {
+  background: var(--hef-bg-hover) !important;
+}
+
+.workbench-theme .hover\:text-gray-700:hover,
+.workbench-theme .hover\:text-gray-900:hover {
+  color: var(--hef-text-primary) !important;
+}
+
+.workbench-theme .hover\:text-gray-800:hover {
+  color: var(--hef-text-secondary) !important;
+}
+
+.workbench-theme .hover\:text-red-500:hover {
+  color: var(--hef-danger-text) !important;
+}
+
+.workbench-theme .workbench-sidebar {
+  background: var(--hef-bg-surface) !important;
+  border-left-color: var(--hef-border) !important;
+  color: var(--hef-text-primary);
+}
+
+/* Legacy Workbench detail (/playbooks/detail/:id) */
+.workbench-detail-theme {
+  color: var(--hef-text-primary);
+}
+
+.workbench-detail-theme .ant-typography,
+.workbench-detail-theme .ant-descriptions-item-label,
+.workbench-detail-theme .ant-descriptions-item-content,
+.workbench-detail-theme .ant-card-head-title {
+  color: var(--hef-text-primary) !important;
+}
+
+.workbench-detail-theme .ant-card,
+.workbench-detail-theme .ant-card-bordered,
+.workbench-detail-theme .ant-card .ant-card-body,
+.workbench-detail-theme .ant-descriptions-view {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-detail-theme .ant-card-head {
+  background: var(--hef-bg-subtle) !important;
+  border-bottom-color: var(--hef-border) !important;
+}
+
+.workbench-detail-theme .ant-descriptions-bordered .ant-descriptions-item-label,
+.workbench-detail-theme .ant-descriptions-bordered .ant-descriptions-item-content,
+.workbench-detail-theme .ant-descriptions-bordered .ant-descriptions-view {
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-detail-theme .ant-input,
+.workbench-detail-theme .ant-input-affix-wrapper,
+.workbench-detail-theme .ant-input-number,
+.workbench-detail-theme .ant-input-number-input,
+.workbench-detail-theme .ant-select-selector {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-detail-theme .ant-btn-default {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.workbench-detail-theme a {
+  color: var(--hef-text-link);
+}

@@ -1772,12 +1772,12 @@ export const PlaybookWorkbench = () => {
 
   // Show loading while creating new playbook
   if (isNewPlaybook) {
-    return <div className="p-10">Creating new workbench...</div>;
+    return <div className="workbench-theme p-10">Creating new workbench...</div>;
   }
 
-  if (loading) return <div className="p-10">Loading Workbench...</div>;
-  if (error) return <div className="p-10 text-red-500">Error: {error.message}</div>;
-  if (!data?.playbookGraph) return <div className="p-10">Graph not found or access denied.</div>;
+  if (loading) return <div className="workbench-theme p-10">Loading Workbench...</div>;
+  if (error) return <div className="workbench-theme p-10 text-red-500">Error: {error.message}</div>;
+  if (!data?.playbookGraph) return <div className="workbench-theme p-10">Graph not found or access denied.</div>;
 
   const isAuthor = !!(data.playbookGraph.author?.id && data.me?.id && data.playbookGraph.author.id === data.me.id);
   const allowedOwnerStatuses = ['DEVELOPMENT', 'TESTING', 'TUNING'];
@@ -1796,7 +1796,7 @@ export const PlaybookWorkbench = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white">
+    <div className="workbench-theme flex flex-col h-screen bg-white">
       {/* --- Header --- */}
       <div className="border-b border-gray-200 p-4 flex justify-between items-center bg-white shadow-sm z-10">
         <div>
@@ -1900,9 +1900,9 @@ export const PlaybookWorkbench = () => {
 
           {/* Maieutic Engine Button - Icon only */}
           <Button 
-            variant="golden-orange" 
+            variant="secondary"
             onClick={() => setMaieuticModalVisible(true)}
-            className="w-10 h-10 p-2 flex items-center justify-center"
+            className="w-10 h-10 p-2 flex items-center justify-center bg-orange-500 hover:bg-orange-600 border-orange-600 text-white"
             title="Launch hypothesis-driven detection engineering workflow (Maieutic Engine)"
           >
             <PixelIcon name="lightbulb" className="w-5 h-5" />
@@ -1910,9 +1910,9 @@ export const PlaybookWorkbench = () => {
 
           {/* Threat Report Populate Button - Icon only */}
           <Button
-            variant="golden-orange"
+            variant="secondary"
             onClick={() => setThreatReportModalVisible(true)}
-            className="w-10 h-10 p-2 flex items-center justify-center"
+            className="w-10 h-10 p-2 flex items-center justify-center bg-orange-500 hover:bg-orange-600 border-orange-600 text-white"
             title="Populate workbench from Threat Report (PDF)"
           >
             <PixelIcon name="crystal" className="w-5 h-5" />
