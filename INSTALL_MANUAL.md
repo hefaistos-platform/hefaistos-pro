@@ -162,3 +162,9 @@ docker compose logs -f db
 ```
 
 SHARP now mounts PostgreSQL data at `/var/lib/postgresql` (PostgreSQL 18+ recommended layout), not `/var/lib/postgresql/data`.
+
+## 13. Authentication Setup (Entra OIDC + Generic OIDC)
+
+For SHARP authentication architecture and rollout guidance (including break-glass local superuser policy), see:
+
+- [AUTH_SETUP.md](AUTH_SETUP.md)

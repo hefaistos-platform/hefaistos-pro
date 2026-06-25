@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
-import { useMutation } from '@apollo/client/react';
+import { useMutation, useQuery } from '@apollo/client/react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Card, Form, Input, Button, Typography, Alert } from 'antd';
@@ -68,6 +68,38 @@ const VERIFY_PASSWORDLESS_LOGIN_MUTATION = gql`
   }
 `;
 
+const PUBLIC_AUTH_OPTIONS_QUERY = gql`
+  query PublicAuthOptions {
+    publicAuthOptions {
+      authMode
+      defaultLoginProvider
+      enableEntra
+      enableOidc
+      showLocalLogin
+    }
+  }
+`;
+
+const START_OIDC_LOGIN_MUTATION = gql`
+  mutation StartOidcLogin($provider: String!) {
+    startOidcLogin(provider: $provider) {
+      authorizationUrl
+      provider
+    }
+  }
+`;
+
+const COMPLETE_OIDC_LOGIN_MUTATION = gql`
+  mutation CompleteOidcLogin($code: String!, $state: String!) {
+    completeOidcLogin(code: $code, state: $state) {
+      ok
+      token
+      message
+      provider
+    }
+  }
+`;
+
 interface StartMfaLoginData {
   startMfaLogin: {
     token: string;
@@ -110,6 +142,32 @@ interface VerifyPasswordlessData {
   verifyPasswordlessLogin: { ok: boolean; token: string };
 }
 
+interface PublicAuthOptionsData {
+  publicAuthOptions: {
+    authMode: string;
+    defaultLoginProvider: string;
+    enableEntra: boolean;
+    enableOidc: boolean;
+    showLocalLogin: boolean;
+  };
+}
+
+interface StartOidcLoginData {
+  startOidcLogin: {
+    authorizationUrl: string;
+    provider: string;
+  };
+}
+
+interface CompleteOidcLoginData {
+  completeOidcLogin: {
+    ok: boolean;
+    token?: string | null;
+    message?: string | null;
+    provider?: string | null;
+  };
+}
+
 export const LoginPage = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -119,7 +177,11 @@ export const LoginPage = () => {
   const [showBackupCode, setShowBackupCode] = useState(false);
   const [mfaStep, setMfaStep] = useState(false);
   const [hasWebauthn, setHasWebauthn] = useState(false);
+  const [oidcError, setOidcError] = useState('');
   const { login } = useAuth();
+  const { data: publicAuthData } = useQuery<PublicAuthOptionsData>(PUBLIC_AUTH_OPTIONS_QUERY, {
+    fetchPolicy: 'cache-and-network',
+  });
 
   const [startMfaLogin, { loading: loginLoading, error: loginError }] = useMutation<StartMfaLoginData, StartMfaLoginVars>(START_MFA_LOGIN_MUTATION);
   const [verifyMfaLogin, { loading: verifyLoading, error: verifyError }] = useMutation<VerifyMfaLoginData, VerifyMfaLoginVars>(VERIFY_MFA_LOGIN_MUTATION);
@@ -127,9 +189,50 @@ export const LoginPage = () => {
   const [verifyWebauthnMfa] = useMutation<VerifyWebAuthnMfaData>(VERIFY_WEBAUTHN_MFA_AUTH_MUTATION);
   const [startPasswordless] = useMutation<StartPasswordlessData>(START_PASSWORDLESS_LOGIN_MUTATION);
   const [verifyPasswordless] = useMutation<VerifyPasswordlessData>(VERIFY_PASSWORDLESS_LOGIN_MUTATION);
+  const [startOidcLogin, { loading: startingOidc }] = useMutation<StartOidcLoginData>(START_OIDC_LOGIN_MUTATION);
+  const [completeOidcLogin, { loading: completingOidc }] = useMutation<CompleteOidcLoginData>(COMPLETE_OIDC_LOGIN_MUTATION);
 
-  const loading = loginLoading || verifyLoading;
+  const loading = loginLoading || verifyLoading || startingOidc || completingOidc;
   const error = loginError || verifyError;
+  const authOptions = publicAuthData?.publicAuthOptions;
+  const canUseLocalLogin = authOptions?.showLocalLogin ?? true;
+  const canUseEntra = authOptions?.enableEntra ?? false;
+  const canUseGenericOidc = authOptions?.enableOidc ?? false;
+
+  const oidcCallbackPayload = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    return { code, state };
+  }, []);
+
+  useEffect(() => {
+    const { code, state } = oidcCallbackPayload;
+    if (!code || !state) return;
+    let canceled = false;
+
+    const run = async () => {
+      try {
+        const res = await completeOidcLogin({ variables: { code, state } });
+        const token = res.data?.completeOidcLogin?.token;
+        if (!canceled && token) {
+          login(token);
+        }
+      } catch (e: any) {
+        if (!canceled) {
+          setOidcError(e?.message || 'OIDC login failed.');
+        }
+      } finally {
+        const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    };
+
+    run();
+    return () => {
+      canceled = true;
+    };
+  }, [completeOidcLogin, login, oidcCallbackPayload]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -150,6 +253,21 @@ export const LoginPage = () => {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('Login failed:', e);
+    }
+  };
+
+  const handleOidcSignIn = async (provider: 'ENTRA' | 'OIDC') => {
+    setOidcError('');
+    try {
+      const res = await startOidcLogin({ variables: { provider } });
+      const url = res.data?.startOidcLogin?.authorizationUrl;
+      if (!url) {
+        setOidcError('OIDC authorization URL is missing.');
+        return;
+      }
+      window.location.assign(url);
+    } catch (e: any) {
+      setOidcError(e?.message || 'Failed to start OIDC login.');
     }
   };
 
@@ -232,7 +350,41 @@ export const LoginPage = () => {
         {error && (
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error.message} />
         )}
+        {oidcError && (
+          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={oidcError} />
+        )}
+        {(canUseEntra || canUseGenericOidc) && !mfaStep && (
+          <div style={{ marginBottom: 16 }}>
+            {canUseEntra && (
+              <Button
+                type="default"
+                htmlType="button"
+                block
+                size="large"
+                style={{ fontWeight: 600 }}
+                onClick={() => handleOidcSignIn('ENTRA')}
+                disabled={loading}
+              >
+                Sign In with Entra
+              </Button>
+            )}
+            {canUseGenericOidc && (
+              <Button
+                type="default"
+                htmlType="button"
+                block
+                size="large"
+                style={{ marginTop: 8, fontWeight: 600 }}
+                onClick={() => handleOidcSignIn('OIDC')}
+                disabled={loading}
+              >
+                Sign In with OIDC
+              </Button>
+            )}
+          </div>
+        )}
         {!mfaStep ? (
+          canUseLocalLogin ? (
           <Form layout="vertical" onSubmitCapture={handleSubmit}>
             <Form.Item label="Username" required>
               <Input
@@ -284,6 +436,13 @@ export const LoginPage = () => {
               </Link>
             </div>
           </Form>
+          ) : (
+            <Alert
+              type="info"
+              showIcon
+              message="Local username/password login is disabled. Please use your configured OIDC provider."
+            />
+          )
         ) : (
           <Form layout="vertical" onSubmitCapture={handleVerifyMfa}>
             <Alert

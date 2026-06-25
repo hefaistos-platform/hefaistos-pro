@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import json
 import html
+import re
 from graphene_django import DjangoObjectType
 from graphene_file_upload.scalars import Upload
 from .models import (
@@ -16,6 +17,7 @@ from .models import (
     MfaAuditEvent,
     WebAuthnCredential,
     WebAuthnChallenge,
+    AuthProviderSettings,
 )
 from organizations.models import Organization
 from .decorators import (
@@ -49,6 +51,11 @@ from ach.models import ACHAnalysis
 from advops.models import ADVOPSReport
 from core.mcs_logging import emit_security_event, extract_client_ip
 from core.email_templates import get_frontend_base_url
+from identity.oidc import (
+    OidcAuthError,
+    build_authorization_url,
+    complete_code_exchange,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +138,84 @@ class UserType(DjangoObjectType):
         """Convert UUID to string."""
         return str(obj.id) if obj.id else None
 
+
+class AuthSettingsType(graphene.ObjectType):
+    auth_mode = graphene.String()
+    default_login_provider = graphene.String()
+    enable_entra = graphene.Boolean()
+    enable_oidc = graphene.Boolean()
+    allow_local_breakglass = graphene.Boolean()
+    auto_provision_users = graphene.Boolean()
+    sync_claims_on_login = graphene.Boolean()
+    enforce_local_mfa = graphene.Boolean()
+    breakglass_usernames = graphene.String()
+    entra_tenant_id = graphene.String()
+    entra_client_id = graphene.String()
+    has_entra_client_secret = graphene.Boolean()
+    entra_redirect_uri = graphene.String()
+    entra_scopes = graphene.String()
+    entra_email_claim = graphene.String()
+    entra_username_claim = graphene.String()
+    entra_role_claim = graphene.String()
+    oidc_issuer_url = graphene.String()
+    oidc_client_id = graphene.String()
+    has_oidc_client_secret = graphene.Boolean()
+    oidc_redirect_uri = graphene.String()
+    oidc_scopes = graphene.String()
+    oidc_email_claim = graphene.String()
+    oidc_username_claim = graphene.String()
+    oidc_role_claim = graphene.String()
+    role_admin_values = graphene.String()
+    role_analyst_values = graphene.String()
+    role_reviewer_values = graphene.String()
+    default_provisioned_role = graphene.String()
+    updated_at = graphene.DateTime()
+
+
+class PublicAuthOptionsType(graphene.ObjectType):
+    auth_mode = graphene.String(required=True)
+    default_login_provider = graphene.String(required=True)
+    enable_entra = graphene.Boolean(required=True)
+    enable_oidc = graphene.Boolean(required=True)
+    show_local_login = graphene.Boolean(required=True)
+
+
+def _can_manage_auth_settings(user) -> bool:
+    if not user or user.is_anonymous:
+        return False
+    if is_bot_auditor_user(user):
+        return False
+    return bool(
+        getattr(user, 'is_superuser', False)
+        or getattr(user, 'is_staff', False)
+        or getattr(user, 'role', None) == Roles.ADMIN
+    )
+
+
+def _local_login_visible(settings_obj: AuthProviderSettings) -> bool:
+    if not settings_obj.enable_entra and not settings_obj.enable_oidc:
+        return True
+    return bool(settings_obj.allow_local_breakglass)
+
+
+def _public_auth_options(settings_obj: AuthProviderSettings) -> PublicAuthOptionsType:
+    return PublicAuthOptionsType(
+        auth_mode=settings_obj.auth_mode,
+        default_login_provider=settings_obj.default_login_provider,
+        enable_entra=bool(settings_obj.enable_entra),
+        enable_oidc=bool(settings_obj.enable_oidc),
+        show_local_login=_local_login_visible(settings_obj),
+    )
+
+
 class Query(graphene.ObjectType):
     me = graphene.Field(UserType)
     all_users_in_org = graphene.List(UserType)
     my_ai_credentials = graphene.List(graphene.String, description="Providers with configured AI keys for current user.")
     mfa_status = graphene.Field(lambda: MfaStatusType)
     my_webauthn_credentials = graphene.List(lambda: WebAuthnCredentialType)
+    auth_settings = graphene.Field(AuthSettingsType)
+    public_auth_options = graphene.Field(PublicAuthOptionsType)
 
     def resolve_all_users_in_org(self, info):
         user = info.context.user
@@ -212,6 +291,16 @@ class Query(graphene.ObjectType):
         except Exception as e:
             logger.error(f"Error in resolve_me: {str(e)}")
             raise
+
+    def resolve_auth_settings(self, info):
+        user = info.context.user
+        if not _can_manage_auth_settings(user):
+            raise Exception("Permission denied")
+        return AuthProviderSettings.get_solo()
+
+    def resolve_public_auth_options(self, info):
+        settings_obj = AuthProviderSettings.get_solo()
+        return _public_auth_options(settings_obj)
 
 def _frontend_url(path: str, request=None) -> str:
     base = get_frontend_base_url(request=request).rstrip('/')
@@ -869,6 +958,140 @@ def _user_identity(user):
     return (str(user_id) if user_id else "anonymous"), getattr(user, 'username', None)
 
 
+def _parse_claim_values(claim_value):
+    if claim_value is None:
+        return []
+    if isinstance(claim_value, list):
+        return [str(item).strip() for item in claim_value if str(item).strip()]
+    text = str(claim_value).strip()
+    if not text:
+        return []
+    if ',' in text:
+        return [part.strip() for part in text.split(',') if part.strip()]
+    return [text]
+
+
+def _map_role_from_claims(settings_obj: AuthProviderSettings, role_claim_value):
+    values = {item.lower() for item in _parse_claim_values(role_claim_value)}
+    admin_values = {item.lower() for item in settings_obj.role_admin_values_list()}
+    analyst_values = {item.lower() for item in settings_obj.role_analyst_values_list()}
+    reviewer_values = {item.lower() for item in settings_obj.role_reviewer_values_list()}
+
+    if values & admin_values:
+        return Roles.ADMIN
+    if values & analyst_values:
+        return Roles.ANALYST
+    if values & reviewer_values:
+        return Roles.REVIEWER
+    return settings_obj.default_provisioned_role or Roles.VIEWER
+
+
+def _sanitize_username(candidate: str) -> str:
+    raw = (candidate or "").strip()
+    if not raw:
+        raw = "user"
+    cleaned = re.sub(r"[^A-Za-z0-9@.+\-_]+", "_", raw)
+    cleaned = cleaned.strip("._-")
+    if not cleaned:
+        cleaned = "user"
+    return cleaned[:150]
+
+
+def _resolve_sso_identity(claims: dict, config, provider: str):
+    email_claim = str(getattr(config, 'email_claim', '') or '').strip()
+    username_claim = str(getattr(config, 'username_claim', '') or '').strip()
+    role_claim = str(getattr(config, 'role_claim', '') or '').strip()
+
+    email = str(claims.get(email_claim) or '').strip() if email_claim else ''
+    if not email:
+        email = str(claims.get('preferred_username') or claims.get('upn') or claims.get('email') or '').strip()
+
+    username_raw = str(claims.get(username_claim) or '').strip() if username_claim else ''
+    if not username_raw:
+        username_raw = email
+    if not username_raw:
+        username_raw = str(claims.get('name') or '').strip()
+    if not username_raw:
+        username_raw = f"{provider}_{str(claims.get('sub') or 'user')[:24]}"
+
+    username = _sanitize_username(username_raw)
+    role_value = claims.get(role_claim) if role_claim else claims.get('roles')
+    return {
+        'email': email,
+        'username': username,
+        'role_value': role_value,
+    }
+
+
+def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: AuthProviderSettings):
+    email = (identity_data.get('email') or '').strip()
+    username = _sanitize_username(identity_data.get('username') or '')
+    role_value = identity_data.get('role_value')
+
+    user = None
+    if email:
+        user = CustomUser.objects.filter(email__iexact=email).first()
+    if not user and username:
+        user = CustomUser.objects.filter(username__iexact=username).first()
+
+    desired_role = _map_role_from_claims(settings_obj, role_value)
+
+    if user is None:
+        if not settings_obj.auto_provision_users:
+            raise Exception("User is not provisioned in HEFAISTOS and auto-provision is disabled.")
+
+        target_org = Organization.objects.order_by('created_at').first()
+        if not target_org:
+            raise Exception("No organization is available for auto-provisioned users.")
+
+        base_username = username
+        suffix = 1
+        while CustomUser.objects.filter(username__iexact=username).exists():
+            suffix += 1
+            username = _sanitize_username(f"{base_username}_{suffix}")
+
+        user = CustomUser(
+            username=username,
+            email=email,
+            organization=target_org,
+            role=desired_role or settings_obj.default_provisioned_role or Roles.VIEWER,
+        )
+        user.set_unusable_password()
+        user.save()
+        return user
+
+    if settings_obj.sync_claims_on_login:
+        changed = []
+        if email and user.email != email:
+            user.email = email
+            changed.append('email')
+        if not user.is_superuser and not user.is_staff and desired_role and user.role != desired_role:
+            user.role = desired_role
+            changed.append('role')
+        if changed:
+            user.save(update_fields=changed)
+
+    return user
+
+
+def _is_local_login_allowed_for_user(user, settings_obj: AuthProviderSettings) -> bool:
+    if not settings_obj.enable_entra and not settings_obj.enable_oidc:
+        return True
+
+    if settings_obj.auth_mode == AuthProviderSettings.AuthMode.ENTRA_AND_LOCAL_BREAKGLASS:
+        if not settings_obj.allow_local_breakglass:
+            return False
+        allowed = settings_obj.breakglass_usernames_list()
+        username = (getattr(user, 'username', '') or '').strip().lower()
+        if getattr(user, 'is_superuser', False):
+            if not allowed:
+                return True
+            return username in allowed
+        return username in allowed
+
+    return False
+
+
 class StartMfaLogin(graphene.Mutation):
     class Arguments:
         username = graphene.String(required=True)
@@ -907,6 +1130,30 @@ class StartMfaLogin(graphene.Mutation):
                 http_status_code=401,
             )
             raise Exception("Invalid credentials")
+
+        auth_settings = AuthProviderSettings.get_solo()
+        if not _is_local_login_allowed_for_user(user, auth_settings):
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=(
+                    f"Local login attempt blocked for '{user_name}' from IP {source_ip}. "
+                    "Reason: Local username/password login disabled by authentication policy."
+                ),
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='Local login disabled by authentication policy.',
+                event_category=['authentication'],
+                event_type=['denied', 'failure'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=403,
+            )
+            raise Exception("Local username/password login is disabled. Use OIDC sign-in.")
 
         mfa_settings, _ = UserMfaSettings.objects.get_or_create(user=user)
         if _should_bypass_mfa_for_user(user):
@@ -2200,6 +2447,210 @@ class SubmitRegistrationRequest(graphene.Mutation):
         return SubmitRegistrationRequest(ok=True, message="Registration request sent successfully.")
 
 
+class StartOidcLogin(graphene.Mutation):
+    class Arguments:
+        provider = graphene.String(required=True)
+
+    authorization_url = graphene.String(required=True)
+    provider = graphene.String(required=True)
+
+    @staticmethod
+    def mutate(root, info, provider):
+        request = info.context
+        settings_obj = AuthProviderSettings.get_solo()
+        try:
+            authorization_url, resolved_provider = build_authorization_url(
+                request=request,
+                settings_obj=settings_obj,
+                provider=provider,
+            )
+        except OidcAuthError as exc:
+            raise Exception(str(exc))
+
+        return StartOidcLogin(
+            authorization_url=authorization_url,
+            provider=resolved_provider.upper(),
+        )
+
+
+class CompleteOidcLogin(graphene.Mutation):
+    class Arguments:
+        code = graphene.String(required=True)
+        state = graphene.String(required=True)
+
+    ok = graphene.Boolean(required=True)
+    token = graphene.String()
+    message = graphene.String()
+    provider = graphene.String()
+
+    @staticmethod
+    def mutate(root, info, code, state):
+        request = info.context
+        source_ip = extract_client_ip(request)
+        settings_obj = AuthProviderSettings.get_solo()
+        try:
+            provider, config, claims = complete_code_exchange(
+                request=request,
+                settings_obj=settings_obj,
+                code=code,
+                state=state,
+            )
+            identity_data = _resolve_sso_identity(claims=claims, config=config, provider=provider)
+            user = _find_or_create_sso_user(identity_data=identity_data, claims=claims, settings_obj=settings_obj)
+            token = get_token(user)
+            user_logged_in.send(sender=user.__class__, request=request, user=user)
+            user_id, user_name = _user_identity(user)
+            emit_security_event(
+                level='informational',
+                logger_name='AuthService',
+                message=(
+                    f"OIDC login successful for user '{user_name}' from IP {source_ip} "
+                    f"via provider '{provider}'."
+                ),
+                event_action='user_login_success',
+                event_outcome='success',
+                asvs_event_code='AUTHN-SUCCESS-PRIMARY-01',
+                event_reason='OIDC authentication flow completed successfully.',
+                event_category=['authentication'],
+                event_type=['end', 'success'],
+                user_id=user_id,
+                user_name=user_name,
+                source_ip=source_ip,
+                request=request,
+                http_status_code=200,
+            )
+            return CompleteOidcLogin(
+                ok=True,
+                token=token,
+                message='Login successful',
+                provider=provider.upper(),
+            )
+        except Exception as exc:
+            emit_security_event(
+                level='warning',
+                logger_name='AuthService',
+                message=f"OIDC login failed from IP {source_ip}: {exc}",
+                event_action='user_login_failed',
+                event_outcome='failure',
+                asvs_event_code='AUTHN-FAIL-PRIMARY-01',
+                event_reason='OIDC authentication failed.',
+                event_category=['authentication'],
+                event_type=['failure'],
+                source_ip=source_ip,
+                request=request,
+                http_status_code=401,
+            )
+            raise Exception(str(exc))
+
+
+class UpdateAuthSettings(graphene.Mutation):
+    class Arguments:
+        auth_mode = graphene.String(required=False)
+        default_login_provider = graphene.String(required=False)
+        enable_entra = graphene.Boolean(required=False)
+        enable_oidc = graphene.Boolean(required=False)
+        allow_local_breakglass = graphene.Boolean(required=False)
+        auto_provision_users = graphene.Boolean(required=False)
+        sync_claims_on_login = graphene.Boolean(required=False)
+        enforce_local_mfa = graphene.Boolean(required=False)
+        breakglass_usernames = graphene.String(required=False)
+        entra_tenant_id = graphene.String(required=False)
+        entra_client_id = graphene.String(required=False)
+        entra_client_secret = graphene.String(required=False)
+        entra_redirect_uri = graphene.String(required=False)
+        entra_scopes = graphene.String(required=False)
+        entra_email_claim = graphene.String(required=False)
+        entra_username_claim = graphene.String(required=False)
+        entra_role_claim = graphene.String(required=False)
+        oidc_issuer_url = graphene.String(required=False)
+        oidc_client_id = graphene.String(required=False)
+        oidc_client_secret = graphene.String(required=False)
+        oidc_redirect_uri = graphene.String(required=False)
+        oidc_scopes = graphene.String(required=False)
+        oidc_email_claim = graphene.String(required=False)
+        oidc_username_claim = graphene.String(required=False)
+        oidc_role_claim = graphene.String(required=False)
+        role_admin_values = graphene.String(required=False)
+        role_analyst_values = graphene.String(required=False)
+        role_reviewer_values = graphene.String(required=False)
+        default_provisioned_role = graphene.String(required=False)
+
+    ok = graphene.Boolean(required=True)
+    message = graphene.String(required=True)
+    settings = graphene.Field(AuthSettingsType)
+
+    @staticmethod
+    def mutate(root, info, **kwargs):
+        user = info.context.user
+        if not _can_manage_auth_settings(user):
+            raise Exception("Permission denied")
+
+        settings_obj = AuthProviderSettings.get_solo()
+
+        if kwargs.get('auth_mode') is not None:
+            candidate = str(kwargs.get('auth_mode') or '').strip().upper()
+            allowed = {choice for choice, _label in AuthProviderSettings.AuthMode.choices}
+            if candidate not in allowed:
+                raise Exception(f"Invalid auth_mode '{candidate}'")
+            settings_obj.auth_mode = candidate
+
+        if kwargs.get('default_login_provider') is not None:
+            candidate = str(kwargs.get('default_login_provider') or '').strip().upper()
+            allowed = {choice for choice, _label in AuthProviderSettings.DefaultLoginProvider.choices}
+            if candidate not in allowed:
+                raise Exception(f"Invalid default_login_provider '{candidate}'")
+            settings_obj.default_login_provider = candidate
+
+        simple_fields = [
+            'enable_entra',
+            'enable_oidc',
+            'allow_local_breakglass',
+            'auto_provision_users',
+            'sync_claims_on_login',
+            'enforce_local_mfa',
+            'breakglass_usernames',
+            'entra_tenant_id',
+            'entra_client_id',
+            'entra_redirect_uri',
+            'entra_scopes',
+            'entra_email_claim',
+            'entra_username_claim',
+            'entra_role_claim',
+            'oidc_issuer_url',
+            'oidc_client_id',
+            'oidc_redirect_uri',
+            'oidc_scopes',
+            'oidc_email_claim',
+            'oidc_username_claim',
+            'oidc_role_claim',
+            'role_admin_values',
+            'role_analyst_values',
+            'role_reviewer_values',
+        ]
+        for field in simple_fields:
+            if field in kwargs and kwargs[field] is not None:
+                setattr(settings_obj, field, kwargs[field])
+
+        if kwargs.get('default_provisioned_role') is not None:
+            candidate = str(kwargs.get('default_provisioned_role') or '').strip().upper()
+            allowed = {choice for choice, _label in CustomUser.Roles.choices}
+            if candidate not in allowed:
+                raise Exception(f"Invalid default_provisioned_role '{candidate}'")
+            settings_obj.default_provisioned_role = candidate
+
+        if kwargs.get('entra_client_secret') is not None and str(kwargs.get('entra_client_secret')).strip():
+            settings_obj.entra_client_secret = kwargs.get('entra_client_secret')
+        if kwargs.get('oidc_client_secret') is not None and str(kwargs.get('oidc_client_secret')).strip():
+            settings_obj.oidc_client_secret = kwargs.get('oidc_client_secret')
+
+        settings_obj.save()
+        return UpdateAuthSettings(
+            ok=True,
+            message='Authentication settings saved',
+            settings=settings_obj,
+        )
+
+
 class Mutation(graphene.ObjectType):
     prepare_account_activation = PrepareAccountActivation.Field()
     complete_account_activation = CompleteAccountActivation.Field()
@@ -2240,6 +2691,9 @@ class Mutation(graphene.ObjectType):
     request_password_reset = RequestPasswordReset.Field()
     reset_password = ResetPassword.Field()
     submit_registration_request = SubmitRegistrationRequest.Field()
+    start_oidc_login = StartOidcLogin.Field()
+    complete_oidc_login = CompleteOidcLogin.Field()
+    update_auth_settings = UpdateAuthSettings.Field()
 
     @role_required([Roles.ADMIN])
     def resolve_admin_update_user(self, info, user_id, email=None, role=None, bio=None, job_title=None, slack_handle=None, organization_id=None):

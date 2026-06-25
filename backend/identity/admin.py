@@ -7,6 +7,7 @@ from .models import (
     WebAuthnCredential,
     WebAuthnChallenge,
     AccountSetupToken,
+    AuthProviderSettings,
 )
 
 @admin.register(CustomUser)
@@ -59,3 +60,17 @@ class AccountSetupTokenAdmin(admin.ModelAdmin):
     list_display = ('user', 'created_by', 'used', 'expires_at', 'created_at', 'used_at')
     search_fields = ('user__username', 'user__email', 'created_by__username')
     readonly_fields = ('token_hash', 'created_at', 'used_at')
+
+
+@admin.register(AuthProviderSettings)
+class AuthProviderSettingsAdmin(admin.ModelAdmin):
+    list_display = (
+        'singleton_key',
+        'auth_mode',
+        'default_login_provider',
+        'enable_entra',
+        'enable_oidc',
+        'allow_local_breakglass',
+        'updated_at',
+    )
+    readonly_fields = ('updated_at',)

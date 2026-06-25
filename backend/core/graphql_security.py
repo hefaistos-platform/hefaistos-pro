@@ -34,6 +34,8 @@ _BOT_ALLOWED_MUTATIONS = {
     "verifyMfaLogin",
     "startPasswordlessLogin",
     "verifyPasswordlessLogin",
+    "startOidcLogin",
+    "completeOidcLogin",
 }
 
 

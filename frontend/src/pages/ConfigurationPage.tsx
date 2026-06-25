@@ -259,6 +259,144 @@ const ASSIGN_SHARED_AI_PROFILE = gql`
   }
 `;
 
+const GET_AUTH_SETTINGS = gql`
+  query GetAuthSettings {
+    authSettings {
+      authMode
+      defaultLoginProvider
+      enableEntra
+      enableOidc
+      allowLocalBreakglass
+      autoProvisionUsers
+      syncClaimsOnLogin
+      enforceLocalMfa
+      breakglassUsernames
+      entraTenantId
+      entraClientId
+      hasEntraClientSecret
+      entraRedirectUri
+      entraScopes
+      entraEmailClaim
+      entraUsernameClaim
+      entraRoleClaim
+      oidcIssuerUrl
+      oidcClientId
+      hasOidcClientSecret
+      oidcRedirectUri
+      oidcScopes
+      oidcEmailClaim
+      oidcUsernameClaim
+      oidcRoleClaim
+      roleAdminValues
+      roleAnalystValues
+      roleReviewerValues
+      defaultProvisionedRole
+      updatedAt
+    }
+  }
+`;
+
+const UPDATE_AUTH_SETTINGS = gql`
+  mutation UpdateAuthSettings(
+    $authMode: String
+    $defaultLoginProvider: String
+    $enableEntra: Boolean
+    $enableOidc: Boolean
+    $allowLocalBreakglass: Boolean
+    $autoProvisionUsers: Boolean
+    $syncClaimsOnLogin: Boolean
+    $enforceLocalMfa: Boolean
+    $breakglassUsernames: String
+    $entraTenantId: String
+    $entraClientId: String
+    $entraClientSecret: String
+    $entraRedirectUri: String
+    $entraScopes: String
+    $entraEmailClaim: String
+    $entraUsernameClaim: String
+    $entraRoleClaim: String
+    $oidcIssuerUrl: String
+    $oidcClientId: String
+    $oidcClientSecret: String
+    $oidcRedirectUri: String
+    $oidcScopes: String
+    $oidcEmailClaim: String
+    $oidcUsernameClaim: String
+    $oidcRoleClaim: String
+    $roleAdminValues: String
+    $roleAnalystValues: String
+    $roleReviewerValues: String
+    $defaultProvisionedRole: String
+  ) {
+    updateAuthSettings(
+      authMode: $authMode
+      defaultLoginProvider: $defaultLoginProvider
+      enableEntra: $enableEntra
+      enableOidc: $enableOidc
+      allowLocalBreakglass: $allowLocalBreakglass
+      autoProvisionUsers: $autoProvisionUsers
+      syncClaimsOnLogin: $syncClaimsOnLogin
+      enforceLocalMfa: $enforceLocalMfa
+      breakglassUsernames: $breakglassUsernames
+      entraTenantId: $entraTenantId
+      entraClientId: $entraClientId
+      entraClientSecret: $entraClientSecret
+      entraRedirectUri: $entraRedirectUri
+      entraScopes: $entraScopes
+      entraEmailClaim: $entraEmailClaim
+      entraUsernameClaim: $entraUsernameClaim
+      entraRoleClaim: $entraRoleClaim
+      oidcIssuerUrl: $oidcIssuerUrl
+      oidcClientId: $oidcClientId
+      oidcClientSecret: $oidcClientSecret
+      oidcRedirectUri: $oidcRedirectUri
+      oidcScopes: $oidcScopes
+      oidcEmailClaim: $oidcEmailClaim
+      oidcUsernameClaim: $oidcUsernameClaim
+      oidcRoleClaim: $oidcRoleClaim
+      roleAdminValues: $roleAdminValues
+      roleAnalystValues: $roleAnalystValues
+      roleReviewerValues: $roleReviewerValues
+      defaultProvisionedRole: $defaultProvisionedRole
+    ) {
+      ok
+      message
+      settings {
+        authMode
+        defaultLoginProvider
+        enableEntra
+        enableOidc
+        allowLocalBreakglass
+        autoProvisionUsers
+        syncClaimsOnLogin
+        enforceLocalMfa
+        breakglassUsernames
+        entraTenantId
+        entraClientId
+        hasEntraClientSecret
+        entraRedirectUri
+        entraScopes
+        entraEmailClaim
+        entraUsernameClaim
+        entraRoleClaim
+        oidcIssuerUrl
+        oidcClientId
+        hasOidcClientSecret
+        oidcRedirectUri
+        oidcScopes
+        oidcEmailClaim
+        oidcUsernameClaim
+        oidcRoleClaim
+        roleAdminValues
+        roleAnalystValues
+        roleReviewerValues
+        defaultProvisionedRole
+        updatedAt
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // GraphQL – Rule Repositories & MISP (from RepoListPage)
 // ---------------------------------------------------------------------------
@@ -619,6 +757,43 @@ interface OrgAISettingsData {
     sharedProfileLocked?: boolean;
     canEditCustomSettings?: boolean;
   } | null;
+}
+
+interface AuthSettingsShape {
+  authMode: string;
+  defaultLoginProvider: string;
+  enableEntra: boolean;
+  enableOidc: boolean;
+  allowLocalBreakglass: boolean;
+  autoProvisionUsers: boolean;
+  syncClaimsOnLogin: boolean;
+  enforceLocalMfa: boolean;
+  breakglassUsernames: string;
+  entraTenantId: string;
+  entraClientId: string;
+  hasEntraClientSecret: boolean;
+  entraRedirectUri: string;
+  entraScopes: string;
+  entraEmailClaim: string;
+  entraUsernameClaim: string;
+  entraRoleClaim: string;
+  oidcIssuerUrl: string;
+  oidcClientId: string;
+  hasOidcClientSecret: boolean;
+  oidcRedirectUri: string;
+  oidcScopes: string;
+  oidcEmailClaim: string;
+  oidcUsernameClaim: string;
+  oidcRoleClaim: string;
+  roleAdminValues: string;
+  roleAnalystValues: string;
+  roleReviewerValues: string;
+  defaultProvisionedRole: string;
+  updatedAt?: string | null;
+}
+
+interface AuthSettingsData {
+  authSettings: AuthSettingsShape | null;
 }
 
 interface SharedAiProfile {
@@ -1661,7 +1836,7 @@ const DacTab: React.FC<{ repositories: Repo[] }> = ({ repositories }) => {
 // Main ConfigurationPage
 // ---------------------------------------------------------------------------
 
-const VALID_TABS = ['users', 'hef', 'rules', 'misp', 'smtp', 'sharing', 'aitasks', 'orgai', 'platforms', 'dac'] as const;
+const VALID_TABS = ['users', 'auth', 'hef', 'rules', 'misp', 'smtp', 'sharing', 'aitasks', 'orgai', 'platforms', 'dac'] as const;
 type TabKey = typeof VALID_TABS[number];
 
 export const ConfigurationPage: React.FC = () => {
@@ -1755,11 +1930,48 @@ export const ConfigurationPage: React.FC = () => {
     skip: !isSuperuser || isAccessPending || !isConfigAccessAllowed,
   });
   const [orgAiForm, setOrgAiForm] = useState({ ollamaBaseUrl: '', ollamaModel: '', openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiEndpoint: '', azureOpenaiKey: '', azureOpenaiDeployment: '', orgPreferredModel: '', ollamaEnabled: true, openaiEnabled: true, geminiEnabled: true, claudeEnabled: true, azureOpenaiEnabled: true });
+  const [authForm, setAuthForm] = useState({
+    authMode: 'ENTRA_AND_LOCAL_BREAKGLASS',
+    defaultLoginProvider: 'ENTRA',
+    enableEntra: false,
+    enableOidc: false,
+    allowLocalBreakglass: true,
+    autoProvisionUsers: true,
+    syncClaimsOnLogin: true,
+    enforceLocalMfa: true,
+    breakglassUsernames: 'admin',
+    entraTenantId: '',
+    entraClientId: '',
+    entraClientSecret: '',
+    entraRedirectUri: '',
+    entraScopes: 'openid profile email',
+    entraEmailClaim: 'preferred_username',
+    entraUsernameClaim: 'preferred_username',
+    entraRoleClaim: 'roles',
+    oidcIssuerUrl: '',
+    oidcClientId: '',
+    oidcClientSecret: '',
+    oidcRedirectUri: '',
+    oidcScopes: 'openid profile email',
+    oidcEmailClaim: 'email',
+    oidcUsernameClaim: 'preferred_username',
+    oidcRoleClaim: 'roles',
+    roleAdminValues: 'HEF-Admins,Admin,ADMIN',
+    roleAnalystValues: 'HEF-Analysts,Analyst,ANALYST',
+    roleReviewerValues: 'HEF-Reviewers,Reviewer,REVIEWER',
+    defaultProvisionedRole: 'VIEWER',
+  });
 
   const [deleteUser, { loading: deleteLoading }] = useMutation(DELETE_USER_MUTATION, { refetchQueries: [{ query: GET_ALL_USERS_QUERY }] });
   const [adminUpdateUser, { loading: saving }] = useMutation(ADMIN_UPDATE_USER_MUTATION, { refetchQueries: [{ query: GET_ALL_USERS_QUERY }], awaitRefetchQueries: true });
   const [adminResetUserPassword, { loading: resettingPassword }] = useMutation(ADMIN_RESET_USER_PASSWORD_MUTATION);
   const [updateOrgAiSettings, { loading: savingOrgAi }] = useMutation(UPDATE_ORG_AI_SETTINGS);
+  const { data: authSettingsData, refetch: refetchAuthSettings } = useQuery<AuthSettingsData>(GET_AUTH_SETTINGS, {
+    skip: isAccessPending || !isConfigAccessAllowed,
+    errorPolicy: 'ignore',
+    fetchPolicy: 'cache-and-network',
+  });
+  const [updateAuthSettings, { loading: savingAuthSettings }] = useMutation(UPDATE_AUTH_SETTINGS);
   const [setSharedAiProfile, { loading: savingSharedAiProfile }] = useMutation(SET_SHARED_AI_PROFILE);
   const [assignSharedAiProfile, { loading: assigningSharedAiProfile }] = useMutation(ASSIGN_SHARED_AI_PROFILE);
 
@@ -1785,6 +1997,42 @@ export const ConfigurationPage: React.FC = () => {
       setLockSharedAi(Boolean(orgAiData.orgAiSettings.sharedProfileLocked));
     }
   }, [orgAiData?.orgAiSettings]);
+
+  useEffect(() => {
+    if (!authSettingsData?.authSettings) return;
+    const s = authSettingsData.authSettings;
+    setAuthForm({
+      authMode: s.authMode || 'ENTRA_AND_LOCAL_BREAKGLASS',
+      defaultLoginProvider: s.defaultLoginProvider || 'ENTRA',
+      enableEntra: !!s.enableEntra,
+      enableOidc: !!s.enableOidc,
+      allowLocalBreakglass: !!s.allowLocalBreakglass,
+      autoProvisionUsers: !!s.autoProvisionUsers,
+      syncClaimsOnLogin: !!s.syncClaimsOnLogin,
+      enforceLocalMfa: !!s.enforceLocalMfa,
+      breakglassUsernames: s.breakglassUsernames || 'admin',
+      entraTenantId: s.entraTenantId || '',
+      entraClientId: s.entraClientId || '',
+      entraClientSecret: '',
+      entraRedirectUri: s.entraRedirectUri || '',
+      entraScopes: s.entraScopes || 'openid profile email',
+      entraEmailClaim: s.entraEmailClaim || 'preferred_username',
+      entraUsernameClaim: s.entraUsernameClaim || 'preferred_username',
+      entraRoleClaim: s.entraRoleClaim || 'roles',
+      oidcIssuerUrl: s.oidcIssuerUrl || '',
+      oidcClientId: s.oidcClientId || '',
+      oidcClientSecret: '',
+      oidcRedirectUri: s.oidcRedirectUri || '',
+      oidcScopes: s.oidcScopes || 'openid profile email',
+      oidcEmailClaim: s.oidcEmailClaim || 'email',
+      oidcUsernameClaim: s.oidcUsernameClaim || 'preferred_username',
+      oidcRoleClaim: s.oidcRoleClaim || 'roles',
+      roleAdminValues: s.roleAdminValues || '',
+      roleAnalystValues: s.roleAnalystValues || '',
+      roleReviewerValues: s.roleReviewerValues || '',
+      defaultProvisionedRole: s.defaultProvisionedRole || 'VIEWER',
+    });
+  }, [authSettingsData?.authSettings]);
 
   const handleDelete = async (user: User) => {
     if (user.isStaff) { alert("Cannot delete a Staff/Superuser account from this panel."); return; }
@@ -1896,6 +2144,53 @@ export const ConfigurationPage: React.FC = () => {
     }
   };
 
+  const handleSaveAuthSettings = async () => {
+    try {
+      const variables: Record<string, any> = {
+        authMode: authForm.authMode,
+        defaultLoginProvider: authForm.defaultLoginProvider,
+        enableEntra: authForm.enableEntra,
+        enableOidc: authForm.enableOidc,
+        allowLocalBreakglass: authForm.allowLocalBreakglass,
+        autoProvisionUsers: authForm.autoProvisionUsers,
+        syncClaimsOnLogin: authForm.syncClaimsOnLogin,
+        enforceLocalMfa: authForm.enforceLocalMfa,
+        breakglassUsernames: authForm.breakglassUsernames,
+        entraTenantId: authForm.entraTenantId || null,
+        entraClientId: authForm.entraClientId || null,
+        entraRedirectUri: authForm.entraRedirectUri || null,
+        entraScopes: authForm.entraScopes || null,
+        entraEmailClaim: authForm.entraEmailClaim || null,
+        entraUsernameClaim: authForm.entraUsernameClaim || null,
+        entraRoleClaim: authForm.entraRoleClaim || null,
+        oidcIssuerUrl: authForm.oidcIssuerUrl || null,
+        oidcClientId: authForm.oidcClientId || null,
+        oidcRedirectUri: authForm.oidcRedirectUri || null,
+        oidcScopes: authForm.oidcScopes || null,
+        oidcEmailClaim: authForm.oidcEmailClaim || null,
+        oidcUsernameClaim: authForm.oidcUsernameClaim || null,
+        oidcRoleClaim: authForm.oidcRoleClaim || null,
+        roleAdminValues: authForm.roleAdminValues || null,
+        roleAnalystValues: authForm.roleAnalystValues || null,
+        roleReviewerValues: authForm.roleReviewerValues || null,
+        defaultProvisionedRole: authForm.defaultProvisionedRole,
+      };
+      if (authForm.entraClientSecret.trim()) variables.entraClientSecret = authForm.entraClientSecret.trim();
+      if (authForm.oidcClientSecret.trim()) variables.oidcClientSecret = authForm.oidcClientSecret.trim();
+
+      const result = await updateAuthSettings({ variables });
+      if (result.data?.updateAuthSettings?.ok) {
+        message.success(result.data.updateAuthSettings.message || 'Authentication settings saved.');
+        setAuthForm((prev) => ({ ...prev, entraClientSecret: '', oidcClientSecret: '' }));
+        refetchAuthSettings();
+      } else {
+        message.error(result.data?.updateAuthSettings?.message || 'Failed to save authentication settings.');
+      }
+    } catch (e: any) {
+      message.error(e.message || 'Failed to save authentication settings.');
+    }
+  };
+
   // Determine role for MISP tab (piggyback on repos query result via App.useApp context)
   const { data: repoData } = useQuery<{ me?: { role: string } | null; allRuleRepositories: Repo[] }>(
     GET_RULE_REPOSITORIES,
@@ -1973,6 +2268,194 @@ export const ConfigurationPage: React.FC = () => {
           {canAdminConfig && (
             <InviteUserModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} onUserInvited={() => refetchUsers()} />
           )}
+        </div>
+      ),
+    },
+    {
+      key: 'auth',
+      label: 'Authentication',
+      children: (
+        <div className="configuration-theme space-y-8">
+          <div className="config-theme-panel rounded-lg shadow-sm border-2 border-hefaistos-border p-6">
+            <h3 className="text-xl font-bold mb-1">Authentication Providers</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Configure Entra OIDC and Generic OIDC sign-in. Local username/password can be restricted to break-glass admins.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-semibold mb-1">Authentication Mode</label>
+                <select
+                  className="w-full p-2 border rounded text-sm"
+                  value={authForm.authMode}
+                  onChange={(e) => setAuthForm({ ...authForm, authMode: e.target.value })}
+                  disabled={!canAdminConfig}
+                >
+                  <option value="ENTRA_ONLY">ENTRA_ONLY</option>
+                  <option value="OIDC_ONLY">OIDC_ONLY</option>
+                  <option value="ENTRA_AND_OIDC">ENTRA_AND_OIDC</option>
+                  <option value="ENTRA_AND_LOCAL_BREAKGLASS">ENTRA_AND_LOCAL_BREAKGLASS</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Default Login Provider</label>
+                <select
+                  className="w-full p-2 border rounded text-sm"
+                  value={authForm.defaultLoginProvider}
+                  onChange={(e) => setAuthForm({ ...authForm, defaultLoginProvider: e.target.value })}
+                  disabled={!canAdminConfig}
+                >
+                  <option value="ENTRA">ENTRA</option>
+                  <option value="OIDC">OIDC</option>
+                  <option value="LOCAL">LOCAL</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.enableEntra} onChange={(e) => setAuthForm({ ...authForm, enableEntra: e.target.checked })} disabled={!canAdminConfig} />
+                Enable Entra OIDC
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.enableOidc} onChange={(e) => setAuthForm({ ...authForm, enableOidc: e.target.checked })} disabled={!canAdminConfig} />
+                Enable Generic OIDC
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.allowLocalBreakglass} onChange={(e) => setAuthForm({ ...authForm, allowLocalBreakglass: e.target.checked })} disabled={!canAdminConfig} />
+                Allow Local Break-glass Login
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.autoProvisionUsers} onChange={(e) => setAuthForm({ ...authForm, autoProvisionUsers: e.target.checked })} disabled={!canAdminConfig} />
+                Auto-Provision Users
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.syncClaimsOnLogin} onChange={(e) => setAuthForm({ ...authForm, syncClaimsOnLogin: e.target.checked })} disabled={!canAdminConfig} />
+                Sync Claims on Login
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={authForm.enforceLocalMfa} onChange={(e) => setAuthForm({ ...authForm, enforceLocalMfa: e.target.checked })} disabled={!canAdminConfig} />
+                Enforce MFA for Local Break-glass
+              </label>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 mb-4">
+              <h4 className="font-semibold text-base mb-3">Entra OIDC</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Tenant ID</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraTenantId} onChange={(e) => setAuthForm({ ...authForm, entraTenantId: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Client ID</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraClientId} onChange={(e) => setAuthForm({ ...authForm, entraClientId: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Client Secret</label>
+                  <input type="password" className="w-full p-2 border rounded text-sm" placeholder={authSettingsData?.authSettings?.hasEntraClientSecret ? '•••••••• (set — enter new to rotate)' : 'Enter client secret'} value={authForm.entraClientSecret} onChange={(e) => setAuthForm({ ...authForm, entraClientSecret: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Redirect URI</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraRedirectUri} onChange={(e) => setAuthForm({ ...authForm, entraRedirectUri: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Scopes</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraScopes} onChange={(e) => setAuthForm({ ...authForm, entraScopes: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Email Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraEmailClaim} onChange={(e) => setAuthForm({ ...authForm, entraEmailClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Username Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraUsernameClaim} onChange={(e) => setAuthForm({ ...authForm, entraUsernameClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Role Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.entraRoleClaim} onChange={(e) => setAuthForm({ ...authForm, entraRoleClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 mb-4">
+              <h4 className="font-semibold text-base mb-3">Generic OIDC</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Issuer URL</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcIssuerUrl} onChange={(e) => setAuthForm({ ...authForm, oidcIssuerUrl: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Client ID</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcClientId} onChange={(e) => setAuthForm({ ...authForm, oidcClientId: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Client Secret</label>
+                  <input type="password" className="w-full p-2 border rounded text-sm" placeholder={authSettingsData?.authSettings?.hasOidcClientSecret ? '•••••••• (set — enter new to rotate)' : 'Enter client secret'} value={authForm.oidcClientSecret} onChange={(e) => setAuthForm({ ...authForm, oidcClientSecret: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Redirect URI</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcRedirectUri} onChange={(e) => setAuthForm({ ...authForm, oidcRedirectUri: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Scopes</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcScopes} onChange={(e) => setAuthForm({ ...authForm, oidcScopes: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Email Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcEmailClaim} onChange={(e) => setAuthForm({ ...authForm, oidcEmailClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Username Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcUsernameClaim} onChange={(e) => setAuthForm({ ...authForm, oidcUsernameClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Role Claim</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.oidcRoleClaim} onChange={(e) => setAuthForm({ ...authForm, oidcRoleClaim: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 mb-4">
+              <h4 className="font-semibold text-base mb-3">Role Mapping</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Admin Claim Values (CSV)</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.roleAdminValues} onChange={(e) => setAuthForm({ ...authForm, roleAdminValues: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Analyst Claim Values (CSV)</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.roleAnalystValues} onChange={(e) => setAuthForm({ ...authForm, roleAnalystValues: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Reviewer Claim Values (CSV)</label>
+                  <input className="w-full p-2 border rounded text-sm" value={authForm.roleReviewerValues} onChange={(e) => setAuthForm({ ...authForm, roleReviewerValues: e.target.value })} disabled={!canAdminConfig} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Default Provisioned Role</label>
+                  <select className="w-full p-2 border rounded text-sm" value={authForm.defaultProvisionedRole} onChange={(e) => setAuthForm({ ...authForm, defaultProvisionedRole: e.target.value })} disabled={!canAdminConfig}>
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="ANALYST">ANALYST</option>
+                    <option value="REVIEWER">REVIEWER</option>
+                    <option value="VIEWER">VIEWER</option>
+                    <option value="ELONE">ELONE</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-4 mb-6">
+              <h4 className="font-semibold text-base mb-3">Local Break-glass</h4>
+              <label className="block text-xs font-semibold mb-1">Allowed Usernames (CSV)</label>
+              <input className="w-full p-2 border rounded text-sm" value={authForm.breakglassUsernames} onChange={(e) => setAuthForm({ ...authForm, breakglassUsernames: e.target.value })} disabled={!canAdminConfig} />
+              <p className="text-xs text-gray-500 mt-1">Only these usernames can use local login when break-glass is enabled.</p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button variant="primary" disabled={savingAuthSettings || !canAdminConfig} onClick={handleSaveAuthSettings}>
+                {savingAuthSettings ? 'Saving...' : 'Save Authentication Settings'}
+              </Button>
+            </div>
+          </div>
         </div>
       ),
     },

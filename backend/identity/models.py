@@ -216,6 +216,137 @@ class UserAiCredential(models.Model):
         return f"{self.user.username}:{self.provider}"
 
 
+class AuthProviderSettings(models.Model):
+    class AuthMode(models.TextChoices):
+        ENTRA_ONLY = 'ENTRA_ONLY', 'Entra only'
+        OIDC_ONLY = 'OIDC_ONLY', 'Generic OIDC only'
+        ENTRA_AND_OIDC = 'ENTRA_AND_OIDC', 'Entra + Generic OIDC'
+        ENTRA_AND_LOCAL_BREAKGLASS = 'ENTRA_AND_LOCAL_BREAKGLASS', 'Entra + Local Break-glass'
+
+    class DefaultLoginProvider(models.TextChoices):
+        ENTRA = 'ENTRA', 'Entra'
+        OIDC = 'OIDC', 'Generic OIDC'
+        LOCAL = 'LOCAL', 'Local'
+
+    singleton_key = models.CharField(max_length=32, unique=True, default='default')
+    auth_mode = models.CharField(
+        max_length=40,
+        choices=AuthMode.choices,
+        default=AuthMode.ENTRA_AND_LOCAL_BREAKGLASS,
+    )
+    default_login_provider = models.CharField(
+        max_length=16,
+        choices=DefaultLoginProvider.choices,
+        default=DefaultLoginProvider.ENTRA,
+    )
+    enable_entra = models.BooleanField(default=False)
+    enable_oidc = models.BooleanField(default=False)
+    allow_local_breakglass = models.BooleanField(default=True)
+    auto_provision_users = models.BooleanField(default=True)
+    sync_claims_on_login = models.BooleanField(default=True)
+    enforce_local_mfa = models.BooleanField(default=True)
+    breakglass_usernames = models.TextField(
+        blank=True,
+        default='admin',
+        help_text='Comma separated usernames allowed for local emergency login.',
+    )
+
+    # Entra provider
+    entra_tenant_id = models.CharField(max_length=255, blank=True, default='')
+    entra_client_id = models.CharField(max_length=255, blank=True, default='')
+    _entra_client_secret = models.TextField(
+        db_column='entra_client_secret',
+        blank=True,
+        default='',
+    )
+    entra_redirect_uri = models.CharField(max_length=512, blank=True, default='')
+    entra_scopes = models.CharField(max_length=512, blank=True, default='openid profile email')
+    entra_email_claim = models.CharField(max_length=128, blank=True, default='preferred_username')
+    entra_username_claim = models.CharField(max_length=128, blank=True, default='preferred_username')
+    entra_role_claim = models.CharField(max_length=128, blank=True, default='roles')
+
+    # Generic OIDC provider
+    oidc_issuer_url = models.CharField(max_length=512, blank=True, default='')
+    oidc_client_id = models.CharField(max_length=255, blank=True, default='')
+    _oidc_client_secret = models.TextField(
+        db_column='oidc_client_secret',
+        blank=True,
+        default='',
+    )
+    oidc_redirect_uri = models.CharField(max_length=512, blank=True, default='')
+    oidc_scopes = models.CharField(max_length=512, blank=True, default='openid profile email')
+    oidc_email_claim = models.CharField(max_length=128, blank=True, default='email')
+    oidc_username_claim = models.CharField(max_length=128, blank=True, default='preferred_username')
+    oidc_role_claim = models.CharField(max_length=128, blank=True, default='roles')
+
+    # Role claim mapping
+    role_admin_values = models.TextField(blank=True, default='HEF-Admins,Admin,ADMIN')
+    role_analyst_values = models.TextField(blank=True, default='HEF-Analysts,Analyst,ANALYST')
+    role_reviewer_values = models.TextField(blank=True, default='HEF-Reviewers,Reviewer,REVIEWER')
+    default_provisioned_role = models.CharField(
+        max_length=24,
+        choices=CustomUser.Roles.choices,
+        default=CustomUser.Roles.VIEWER,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Authentication Provider Settings'
+        verbose_name_plural = 'Authentication Provider Settings'
+
+    def __str__(self):
+        return f"AuthSettings(mode={self.auth_mode}, entra={self.enable_entra}, oidc={self.enable_oidc})"
+
+    @property
+    def entra_client_secret(self) -> str:
+        return _decrypt(self._entra_client_secret)
+
+    @entra_client_secret.setter
+    def entra_client_secret(self, value: str):
+        self._entra_client_secret = _encrypt(value or '')
+
+    @property
+    def oidc_client_secret(self) -> str:
+        return _decrypt(self._oidc_client_secret)
+
+    @oidc_client_secret.setter
+    def oidc_client_secret(self, value: str):
+        self._oidc_client_secret = _encrypt(value or '')
+
+    @property
+    def has_entra_client_secret(self) -> bool:
+        return bool(self._entra_client_secret)
+
+    @property
+    def has_oidc_client_secret(self) -> bool:
+        return bool(self._oidc_client_secret)
+
+    @staticmethod
+    def _split_csv(text: str | None) -> list[str]:
+        raw = (text or '').strip()
+        if not raw:
+            return []
+        return [part.strip() for part in raw.split(',') if part.strip()]
+
+    def breakglass_usernames_list(self) -> list[str]:
+        return [value.lower() for value in self._split_csv(self.breakglass_usernames)]
+
+    def role_admin_values_list(self) -> list[str]:
+        return self._split_csv(self.role_admin_values)
+
+    def role_analyst_values_list(self) -> list[str]:
+        return self._split_csv(self.role_analyst_values)
+
+    def role_reviewer_values_list(self) -> list[str]:
+        return self._split_csv(self.role_reviewer_values)
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(singleton_key='default')
+        return obj
+
+
 class UserMfaSettings(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='mfa_settings')
     totp_enabled = models.BooleanField(default=False)
