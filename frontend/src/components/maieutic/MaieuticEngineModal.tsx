@@ -348,15 +348,15 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
   // Render AI Chat Assistant Widget
   const renderAIChat = () => (
-    <div className="mt-4 border border-blue-200 rounded-lg bg-blue-50 p-3">
-      <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
+    <div className="maieutic-chat-shell mt-4 border rounded-lg p-3">
+      <h4 className="font-medium mb-2 flex items-center gap-2">
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
           <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z"/>
           <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z"/>
         </svg>
         AI Socratic Assistant
       </h4>
-      <div className="mb-2 text-xs text-blue-700 bg-blue-100 p-2 rounded">
+      <div className="maieutic-chat-info mb-2 text-xs p-2 rounded">
         ℹ️ <strong>AI can see:</strong> All text you've entered in form fields. It will reference your inputs when asking questions.
       </div>
       {chatMessages.length > 0 && (
@@ -366,8 +366,8 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               key={idx}
               className={`p-2 rounded text-sm ${
                 msg.role === 'user'
-                  ? 'bg-blue-100 text-blue-900 ml-4'
-                  : 'bg-white text-gray-800 mr-4'
+                  ? 'maieutic-chat-msg-user ml-4'
+                  : 'maieutic-chat-msg-ai mr-4'
               }`}
             >
               <span className="font-semibold">{msg.role === 'user' ? 'You' : 'AI'}:</span> {msg.content}
@@ -378,7 +378,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
       <div className="flex gap-2">
         <input
           type="text"
-          className="flex-1 border border-blue-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="maieutic-chat-input flex-1 border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="Ask AI about your detection, request field help, or get challenged..."
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
@@ -394,7 +394,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
           {aiLoading ? 'Thinking...' : 'Ask AI'}
         </Button>
       </div>
-      <p className="text-xs text-blue-700 mt-1">
+      <p className="text-xs mt-1" style={{ color: 'var(--hef-text-secondary)' }}>
         💡 Tip: Ask "Is my [field name] specific enough?" or "What am I missing in [step]?"
       </p>
     </div>
@@ -856,7 +856,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Maieutic Engine" size="4xl">
-      <div className="space-y-4">
+      <div className="maieutic-modal space-y-4">
         {/* Step Navigation */}
         <div className="flex items-center justify-between border-b border-gray-200 pb-3">
           <div className="flex items-center gap-2">

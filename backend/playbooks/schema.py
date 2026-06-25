@@ -88,6 +88,34 @@ def _can_clear_workbench_notes(user, graph: PlaybookGraph) -> bool:
     return is_author or _is_admin_user(user)
 
 
+def _resolve_user_organization_for_create(user):
+    """Resolve organization for create mutations that require non-null organization FK.
+
+    Normal users must belong to an organization.
+    Superusers/staff without org assignment can fall back to the only organization
+    in the instance; when multiple orgs exist we force explicit assignment.
+    """
+    org = getattr(user, 'organization', None)
+    if org is not None:
+        return org
+
+    if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
+        raise Exception("User must belong to an organization.")
+
+    from organizations.models import Organization
+
+    org_qs = Organization.objects.order_by('created_at', 'id')
+    org_count = org_qs.count()
+    if org_count == 1:
+        return org_qs.first()
+    if org_count == 0:
+        raise Exception("No organization exists. Create an organization first.")
+    raise Exception(
+        "Your account is not assigned to an organization and multiple organizations exist. "
+        "Assign this user to a target organization in Users settings, then retry."
+    )
+
+
 def _coerce_int_pk(value, label: str) -> int | None:
     if value in (None, ''):
         return None
@@ -2472,9 +2500,10 @@ class CreatePlaybookGraph(graphene.Mutation):
         if not title:
             raise Exception("Title cannot be empty")
         user = info.context.user
+        organization = _resolve_user_organization_for_create(user)
         graph = PlaybookGraph.objects.create(
             title=title,
-            organization=user.organization,
+            organization=organization,
             author=user,
             status='IDEA'
         )

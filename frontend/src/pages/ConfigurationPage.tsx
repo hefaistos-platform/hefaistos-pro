@@ -1926,7 +1926,7 @@ export const ConfigurationPage: React.FC = () => {
           {usersLoading && <p>Loading users...</p>}
           {usersError && <p className="text-hefaistos-accent-red">Error: {usersError.message}</p>}
           {!usersLoading && !usersError && (
-            <div className="bg-white shadow-md rounded-lg overflow-hidden border-2 border-hefaistos-border">
+            <div className="config-theme-panel shadow-md rounded-lg overflow-hidden border-2 border-hefaistos-border">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr>
@@ -2010,8 +2010,8 @@ export const ConfigurationPage: React.FC = () => {
       key: 'orgai',
       label: 'Org AI',
       children: (
-        <div className={`space-y-8 ${disableOrgAiEditing ? 'pointer-events-none opacity-80' : ''}`}>
-          <div className="bg-white rounded-lg shadow-sm border-2 border-hefaistos-border p-6">
+        <div className={`configuration-theme space-y-8 ${disableOrgAiEditing ? 'pointer-events-none opacity-80' : ''}`}>
+          <div className="config-theme-panel rounded-lg shadow-sm border-2 border-hefaistos-border p-6">
             <h3 className="text-xl font-bold mb-1">Organization AI Settings</h3>
             <p className="text-sm text-gray-500 mb-6">
               Configure organization-wide AI models and API keys. Users can opt in to use these instead of their personal API keys.
@@ -2252,7 +2252,7 @@ export const ConfigurationPage: React.FC = () => {
   if (isAccessDenied) return null;
 
   return (
-    <div>
+    <div className="configuration-theme">
       <Tabs
         activeKey={effectiveTab}
         onChange={handleTabChange}
@@ -2265,7 +2265,7 @@ export const ConfigurationPage: React.FC = () => {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setEditingUser(null); }}
         >
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-6 border-2 border-hefaistos-border">
+          <div className="config-theme-panel rounded-lg shadow-lg w-full max-w-lg p-6 border-2 border-hefaistos-border">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold">Edit User: {editingUser.username}</h3>
               <button className="text-gray-500 hover:text-gray-700" onClick={() => setEditingUser(null)}>✕</button>
@@ -2342,7 +2342,7 @@ export const ConfigurationPage: React.FC = () => {
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setResetPasswordUser(null); }}
         >
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6 border-2 border-hefaistos-border">
+          <div className="config-theme-panel rounded-lg shadow-lg w-full max-w-md p-6 border-2 border-hefaistos-border">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold">Reset Password: {resetPasswordUser.username}</h3>
               <button className="text-gray-500 hover:text-gray-700" onClick={() => setResetPasswordUser(null)}>✕</button>

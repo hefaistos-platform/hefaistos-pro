@@ -154,6 +154,37 @@ class WorkbenchIdGraphQLTests(GraphQLTestCase):
             f"{expected_prefix}[esel][app] This is test rule",
         )
 
+    def test_superuser_without_org_can_create_when_single_org_exists(self):
+        User = get_user_model()
+        superuser = User.objects.create_user(
+            username="wbid-superuser-no-org",
+            password="password",
+            organization=None,
+            role="VIEWER",
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.client.force_login(superuser)
+
+        mutation = """
+            mutation CreateWorkbench($title: String!) {
+                createPlaybookGraph(title: $title) {
+                    graph {
+                        id
+                        title
+                    }
+                }
+            }
+        """
+        response = self.query(
+            mutation,
+            variables={"title": "Superuser fallback workbench"},
+        )
+        self.assertResponseNoErrors(response)
+        graph_id = json.loads(response.content)["data"]["createPlaybookGraph"]["graph"]["id"]
+        created_graph = PlaybookGraph.objects.get(pk=graph_id)
+        self.assertEqual(created_graph.organization_id, self.organization.id)
+
     def test_rename_keeps_custom_id_prefix_non_editable(self):
         mutation = """
             mutation RenameWorkbench($id: UUID!, $title: String!) {

@@ -87,12 +87,24 @@ export const LogicDeconstructorPage: React.FC = () => {
     await runDeconstruct({ variables: { ruleText: ruleText || null, ruleUrl: ruleUrl || null } });
   };
 
+  const themedFieldStyle: React.CSSProperties = {
+    background: 'var(--hef-bg-subtle)',
+    borderColor: 'var(--hef-border)',
+    color: 'var(--hef-text-primary)',
+  };
+
+  const themedPanelStyle: React.CSSProperties = {
+    background: 'var(--hef-bg-surface)',
+    borderColor: 'var(--hef-border)',
+    color: 'var(--hef-text-primary)',
+  };
+
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-6 space-y-4" style={{ color: 'var(--hef-text-primary)' }}>
       <h1 className="text-2xl font-semibold">Detection Logic Deconstructor</h1>
-      <p className="text-sm text-gray-600">
+      <p className="text-sm" style={{ color: 'var(--hef-text-secondary)' }}>
         Paste a detection rule or provide a URL. Uses your preferred AI provider.
-        <span className="ml-1 text-xs text-gray-500">(AI prompts may be subject to charge)</span>
+        <span className="ml-1 text-xs" style={{ color: 'var(--hef-text-muted)' }}>(AI prompts may be subject to charge)</span>
       </p>
 
       {/* URL + Model selector row */}
@@ -105,6 +117,7 @@ export const LogicDeconstructorPage: React.FC = () => {
             onChange={(e) => setRuleUrl(e.target.value)}
             placeholder="https://..."
             className="w-full border rounded p-2"
+            style={themedFieldStyle}
           />
         </div>
         <div className="w-full md:w-1/3 space-y-2">
@@ -118,6 +131,7 @@ export const LogicDeconstructorPage: React.FC = () => {
               className="border rounded p-2 text-sm w-full"
               value={modelSel}
               placeholder="e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6, llama3.1"
+              style={themedFieldStyle}
               onChange={(e) => {
                 setUpdateError('');
                 setModelSel(e.target.value);
@@ -152,11 +166,11 @@ export const LogicDeconstructorPage: React.FC = () => {
             >
               Save
             </button>
-            {updatingModel && <span className="text-xs text-gray-500">Updating...</span>}
+            {updatingModel && <span className="text-xs" style={{ color: 'var(--hef-text-muted)' }}>Updating...</span>}
           </div>
           {updateError && <div className="text-xs text-red-600 mt-1">{updateError}</div>}
           {aiData?.myAiSettings && (
-            <div className="mt-1 text-[11px] text-gray-500">
+            <div className="mt-1 text-[11px]" style={{ color: 'var(--hef-text-muted)' }}>
               Available: [
               {aiData.myAiSettings.decrypted_openai ? 'OpenAI ' : ''}
               {aiData.myAiSettings.decrypted_gemini ? 'Gemini ' : ''}
@@ -180,7 +194,7 @@ export const LogicDeconstructorPage: React.FC = () => {
                   return <span className="ml-1 text-yellow-700">(Selected provider has no key)</span>;
                 }
                 if (provider === 'unknown' && m) {
-                  return <span className="ml-1 text-gray-500">(Provider could not be inferred from model name)</span>;
+                  return <span className="ml-1" style={{ color: 'var(--hef-text-muted)' }}>(Provider could not be inferred from model name)</span>;
                 }
                 return null;
               })()}
@@ -199,6 +213,7 @@ export const LogicDeconstructorPage: React.FC = () => {
           rows={12}
           className="w-full border rounded p-2 font-mono"
           placeholder="# Paste detection rule content here (KQL, SPL, WAZUH...)"
+          style={themedFieldStyle}
         />
       </div>
 
@@ -217,11 +232,11 @@ export const LogicDeconstructorPage: React.FC = () => {
       )}
 
       {data?.deconstructRule?.providerUsed && (
-        <div className="text-sm text-gray-700">Provider used: {data.deconstructRule.providerUsed}</div>
+        <div className="text-sm" style={{ color: 'var(--hef-text-secondary)' }}>Provider used: {data.deconstructRule.providerUsed}</div>
       )}
 
       {data?.deconstructRule?.report && (
-        <pre className="whitespace-pre-wrap border rounded p-3 bg-gray-50">{data.deconstructRule.report}</pre>
+        <pre className="whitespace-pre-wrap border rounded p-3" style={themedPanelStyle}>{data.deconstructRule.report}</pre>
       )}
     </div>
   );

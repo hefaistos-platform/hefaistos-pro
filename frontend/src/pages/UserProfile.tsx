@@ -433,9 +433,9 @@ export const UserProfile: React.FC = () => {
     }
   }, [aiData?.myAiSettings?.useOrgAi]);
 
-  if (loading) return <div className="p-8">Loading Profile...</div>;
+  if (loading) return <div className="profile-theme p-8">Loading Profile...</div>;
   const user = data?.me;
-  if (!user) return <div className="p-8">No profile.</div>;
+  if (!user) return <div className="profile-theme p-8">No profile.</div>;
 
   const handleSaveProfile = async () => {
     try {
@@ -465,7 +465,7 @@ export const UserProfile: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-8 space-y-10">
+    <div className="profile-theme max-w-7xl mx-auto p-8 space-y-10">
       {/* Header Card */}
       <div className="bg-white rounded-lg shadow-sm border p-8 flex gap-8 items-start">
         <div className="w-32 h-32 rounded-full bg-gray-200 border-4 border-white shadow overflow-hidden flex-shrink-0 relative group">
