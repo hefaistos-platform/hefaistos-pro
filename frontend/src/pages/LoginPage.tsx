@@ -69,8 +69,8 @@ const VERIFY_PASSWORDLESS_LOGIN_MUTATION = gql`
 `;
 
 const PUBLIC_AUTH_OPTIONS_QUERY = gql`
-  query PublicAuthOptions {
-    publicAuthOptions {
+  query PublicAuthOptions($organizationId: UUID) {
+    publicAuthOptions(organizationId: $organizationId) {
       authMode
       defaultLoginProvider
       enableEntra
@@ -80,9 +80,21 @@ const PUBLIC_AUTH_OPTIONS_QUERY = gql`
   }
 `;
 
+const PUBLIC_AUTH_ORGANIZATIONS_QUERY = gql`
+  query PublicAuthOrganizations {
+    publicAuthOrganizations {
+      id
+      name
+      enableEntra
+      enableOidc
+      defaultLoginProvider
+    }
+  }
+`;
+
 const START_OIDC_LOGIN_MUTATION = gql`
-  mutation StartOidcLogin($provider: String!) {
-    startOidcLogin(provider: $provider) {
+  mutation StartOidcLogin($provider: String!, $organizationId: UUID) {
+    startOidcLogin(provider: $provider, organizationId: $organizationId) {
       authorizationUrl
       provider
     }
@@ -152,6 +164,16 @@ interface PublicAuthOptionsData {
   };
 }
 
+interface PublicAuthOrganizationsData {
+  publicAuthOrganizations: Array<{
+    id: string;
+    name: string;
+    enableEntra: boolean;
+    enableOidc: boolean;
+    defaultLoginProvider: string;
+  }>;
+}
+
 interface StartOidcLoginData {
   startOidcLogin: {
     authorizationUrl: string;
@@ -178,8 +200,13 @@ export const LoginPage = () => {
   const [mfaStep, setMfaStep] = useState(false);
   const [hasWebauthn, setHasWebauthn] = useState(false);
   const [oidcError, setOidcError] = useState('');
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const { login } = useAuth();
+  const { data: publicAuthOrgsData } = useQuery<PublicAuthOrganizationsData>(PUBLIC_AUTH_ORGANIZATIONS_QUERY, {
+    fetchPolicy: 'cache-and-network',
+  });
   const { data: publicAuthData } = useQuery<PublicAuthOptionsData>(PUBLIC_AUTH_OPTIONS_QUERY, {
+    variables: { organizationId: selectedOrgId || null },
     fetchPolicy: 'cache-and-network',
   });
 
@@ -198,6 +225,14 @@ export const LoginPage = () => {
   const canUseLocalLogin = authOptions?.showLocalLogin ?? true;
   const canUseEntra = authOptions?.enableEntra ?? false;
   const canUseGenericOidc = authOptions?.enableOidc ?? false;
+  const authOrgs = publicAuthOrgsData?.publicAuthOrganizations || [];
+
+  useEffect(() => {
+    if (selectedOrgId) return;
+    if (authOrgs.length === 1) {
+      setSelectedOrgId(authOrgs[0].id);
+    }
+  }, [authOrgs, selectedOrgId]);
 
   const oidcCallbackPayload = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -258,8 +293,12 @@ export const LoginPage = () => {
 
   const handleOidcSignIn = async (provider: 'ENTRA' | 'OIDC') => {
     setOidcError('');
+    if (!selectedOrgId) {
+      setOidcError('Select organization before OIDC sign-in.');
+      return;
+    }
     try {
-      const res = await startOidcLogin({ variables: { provider } });
+      const res = await startOidcLogin({ variables: { provider, organizationId: selectedOrgId } });
       const url = res.data?.startOidcLogin?.authorizationUrl;
       if (!url) {
         setOidcError('OIDC authorization URL is missing.');
@@ -353,6 +392,23 @@ export const LoginPage = () => {
         {oidcError && (
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={oidcError} />
         )}
+        {authOrgs.length > 0 && !mfaStep && (
+          <Form layout="vertical" style={{ marginBottom: 12 }}>
+            <Form.Item label="Organization" required>
+              <select
+                className="w-full p-2 border rounded text-sm"
+                value={selectedOrgId}
+                onChange={(e) => setSelectedOrgId(e.target.value)}
+                disabled={loading}
+              >
+                <option value="">Select organization</option>
+                {authOrgs.map((org) => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+            </Form.Item>
+          </Form>
+        )}
         {(canUseEntra || canUseGenericOidc) && !mfaStep && (
           <div style={{ marginBottom: 16 }}>
             {canUseEntra && (
@@ -363,7 +419,7 @@ export const LoginPage = () => {
                 size="large"
                 style={{ fontWeight: 600 }}
                 onClick={() => handleOidcSignIn('ENTRA')}
-                disabled={loading}
+                disabled={loading || !selectedOrgId}
               >
                 Sign In with Entra
               </Button>
@@ -376,7 +432,7 @@ export const LoginPage = () => {
                 size="large"
                 style={{ marginTop: 8, fontWeight: 600 }}
                 onClick={() => handleOidcSignIn('OIDC')}
-                disabled={loading}
+                disabled={loading || !selectedOrgId}
               >
                 Sign In with OIDC
               </Button>

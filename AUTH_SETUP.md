@@ -221,3 +221,31 @@ This means:
 
 - day-to-day user authentication should happen via Entra (or configured OIDC provider),
 - HEFAISTOS keeps one protected local superuser account only for emergency recovery.
+
+---
+
+## 11. Multi-Organization OIDC Behavior (How Org Choice Works)
+
+Authentication settings are organization-scoped.
+
+- Each organization has its own:
+  - Entra tenant/client configuration
+  - Generic OIDC issuer/client configuration
+  - claim mapping + role mapping rules
+  - break-glass policy
+
+### Login-time organization choice
+
+For OIDC login:
+
+1. User selects organization on the login page.
+2. User clicks `Sign In with Entra` or `Sign In with OIDC`.
+3. HEFAISTOS starts OIDC using that organization's auth settings.
+4. Organization context is bound into OIDC `state`.
+5. Callback validates `state` and completes login against the same organization config.
+6. User provisioning/sync occurs inside that target organization.
+
+### Why this is required
+
+In multi-tenant environments, different organizations may use different Entra tenants or different OIDC providers.  
+Explicit org selection avoids ambiguous routing and prevents accidental cross-tenant authentication context.

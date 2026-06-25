@@ -229,6 +229,13 @@ class AuthProviderSettings(models.Model):
         LOCAL = 'LOCAL', 'Local'
 
     singleton_key = models.CharField(max_length=32, unique=True, default='default')
+    organization = models.OneToOneField(
+        Organization,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='auth_settings',
+    )
     auth_mode = models.CharField(
         max_length=40,
         choices=AuthMode.choices,
@@ -296,7 +303,8 @@ class AuthProviderSettings(models.Model):
         verbose_name_plural = 'Authentication Provider Settings'
 
     def __str__(self):
-        return f"AuthSettings(mode={self.auth_mode}, entra={self.enable_entra}, oidc={self.enable_oidc})"
+        scope = f"org={self.organization_id}" if self.organization_id else "global"
+        return f"AuthSettings({scope}, mode={self.auth_mode}, entra={self.enable_entra}, oidc={self.enable_oidc})"
 
     @property
     def entra_client_secret(self) -> str:
@@ -343,8 +351,37 @@ class AuthProviderSettings(models.Model):
 
     @classmethod
     def get_solo(cls):
-        obj, _ = cls.objects.get_or_create(singleton_key='default')
+        obj, _ = cls.objects.get_or_create(singleton_key='default', organization=None)
         return obj
+
+    @classmethod
+    def get_for_organization(cls, organization):
+        if organization is None:
+            return cls.get_solo()
+        obj, _ = cls.objects.get_or_create(
+            organization=organization,
+            defaults={'singleton_key': f'org:{organization.id}'},
+        )
+        if not obj.singleton_key:
+            obj.singleton_key = f'org:{organization.id}'
+            obj.save(update_fields=['singleton_key'])
+        return obj
+
+    @classmethod
+    def resolve_for_user(cls, user):
+        org = getattr(user, 'organization', None)
+        if org:
+            return cls.get_for_organization(org)
+        return cls.get_solo()
+
+    @classmethod
+    def resolve_for_org_id(cls, organization_id):
+        if not organization_id:
+            return cls.get_solo()
+        org = Organization.objects.filter(pk=organization_id).first()
+        if org is None:
+            return None
+        return cls.get_for_organization(org)
 
 
 class UserMfaSettings(models.Model):

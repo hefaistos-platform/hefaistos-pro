@@ -124,7 +124,7 @@ def _get_discovery_document(discovery_url: str) -> dict[str, Any]:
     return payload
 
 
-def _make_signed_state(request, provider: str, nonce: str, redirect_uri: str) -> str:
+def _make_signed_state(request, provider: str, nonce: str, redirect_uri: str, organization_id: str | None = None) -> str:
     user_agent = ""
     try:
         user_agent = request.META.get("HTTP_USER_AGENT", "")
@@ -137,6 +137,7 @@ def _make_signed_state(request, provider: str, nonce: str, redirect_uri: str) ->
         "ua": _hash_optional(user_agent),
         "ip": _hash_optional(source_ip),
         "redirect_uri": redirect_uri,
+        "organization_id": str(organization_id) if organization_id else "",
         "iat": int(time()),
     }
     return signing.dumps(payload, salt="identity.oidc.state")
@@ -166,7 +167,7 @@ def _verify_signed_state(request, state: str, max_age_seconds: int = 600) -> dic
     return payload
 
 
-def build_authorization_url(request, settings_obj, provider: str) -> tuple[str, str]:
+def build_authorization_url(request, settings_obj, provider: str, organization_id: str | None = None) -> tuple[str, str]:
     if not _is_provider_enabled(settings_obj, provider):
         raise OidcAuthError("Requested OIDC provider is disabled")
 
@@ -182,6 +183,7 @@ def build_authorization_url(request, settings_obj, provider: str) -> tuple[str, 
         provider=config.provider,
         nonce=nonce,
         redirect_uri=config.redirect_uri,
+        organization_id=organization_id,
     )
     params = {
         "client_id": config.client_id,
@@ -197,7 +199,7 @@ def build_authorization_url(request, settings_obj, provider: str) -> tuple[str, 
     return f"{authorization_endpoint}?{urlencode(params)}", config.provider
 
 
-def complete_code_exchange(request, settings_obj, code: str, state: str) -> tuple[str, OidcProviderConfig, dict[str, Any]]:
+def complete_code_exchange(request, code: str, state: str) -> tuple[str, OidcProviderConfig, dict[str, Any], str | None]:
     if not code:
         raise OidcAuthError("Missing OIDC authorization code")
     if not state:
@@ -205,6 +207,12 @@ def complete_code_exchange(request, settings_obj, code: str, state: str) -> tupl
 
     state_payload = _verify_signed_state(request=request, state=state)
     provider = _provider_slug(state_payload.get("provider"))
+    organization_id = (state_payload.get("organization_id") or "").strip() or None
+
+    from identity.models import AuthProviderSettings
+    settings_obj = AuthProviderSettings.resolve_for_org_id(organization_id) if organization_id else AuthProviderSettings.get_solo()
+    if settings_obj is None:
+        raise OidcAuthError("Organization authentication settings not found")
     if not _is_provider_enabled(settings_obj, provider):
         raise OidcAuthError("Requested OIDC provider is disabled")
 
@@ -253,4 +261,4 @@ def complete_code_exchange(request, settings_obj, code: str, state: str) -> tupl
     if int(claims.get("exp") or 0) and int(claims["exp"]) < now_ts:
         raise OidcAuthError("OIDC ID token is expired")
 
-    return provider, config, claims
+    return provider, config, claims, organization_id

@@ -180,6 +180,14 @@ class PublicAuthOptionsType(graphene.ObjectType):
     show_local_login = graphene.Boolean(required=True)
 
 
+class PublicAuthOrganizationType(graphene.ObjectType):
+    id = graphene.UUID(required=True)
+    name = graphene.String(required=True)
+    enable_entra = graphene.Boolean(required=True)
+    enable_oidc = graphene.Boolean(required=True)
+    default_login_provider = graphene.String(required=True)
+
+
 def _can_manage_auth_settings(user) -> bool:
     if not user or user.is_anonymous:
         return False
@@ -215,7 +223,11 @@ class Query(graphene.ObjectType):
     mfa_status = graphene.Field(lambda: MfaStatusType)
     my_webauthn_credentials = graphene.List(lambda: WebAuthnCredentialType)
     auth_settings = graphene.Field(AuthSettingsType)
-    public_auth_options = graphene.Field(PublicAuthOptionsType)
+    public_auth_options = graphene.Field(
+        PublicAuthOptionsType,
+        organization_id=graphene.UUID(required=False),
+    )
+    public_auth_organizations = graphene.List(PublicAuthOrganizationType)
 
     def resolve_all_users_in_org(self, info):
         user = info.context.user
@@ -296,11 +308,36 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if not _can_manage_auth_settings(user):
             raise Exception("Permission denied")
-        return AuthProviderSettings.get_solo()
+        return AuthProviderSettings.resolve_for_user(user)
 
-    def resolve_public_auth_options(self, info):
-        settings_obj = AuthProviderSettings.get_solo()
+    def resolve_public_auth_options(self, info, organization_id=None):
+        settings_obj = AuthProviderSettings.resolve_for_org_id(organization_id) if organization_id else AuthProviderSettings.get_solo()
+        if settings_obj is None:
+            settings_obj = AuthProviderSettings.get_solo()
         return _public_auth_options(settings_obj)
+
+    def resolve_public_auth_organizations(self, info):
+        rows = (
+            AuthProviderSettings.objects.select_related('organization')
+            .filter(organization__isnull=False)
+            .order_by('organization__name')
+        )
+        result = []
+        for row in rows:
+            if not (row.enable_entra or row.enable_oidc or row.allow_local_breakglass):
+                continue
+            if not row.organization:
+                continue
+            result.append(
+                PublicAuthOrganizationType(
+                    id=row.organization.id,
+                    name=row.organization.name,
+                    enable_entra=bool(row.enable_entra),
+                    enable_oidc=bool(row.enable_oidc),
+                    default_login_provider=row.default_login_provider,
+                )
+            )
+        return result
 
 def _frontend_url(path: str, request=None) -> str:
     base = get_frontend_base_url(request=request).rstrip('/')
@@ -1023,16 +1060,21 @@ def _resolve_sso_identity(claims: dict, config, provider: str):
     }
 
 
-def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: AuthProviderSettings):
+def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: AuthProviderSettings, target_org: Organization | None):
     email = (identity_data.get('email') or '').strip()
     username = _sanitize_username(identity_data.get('username') or '')
     role_value = identity_data.get('role_value')
 
+    if target_org is None:
+        target_org = settings_obj.organization
+    if target_org is None:
+        target_org = Organization.objects.order_by('created_at').first()
+
     user = None
     if email:
-        user = CustomUser.objects.filter(email__iexact=email).first()
+        user = CustomUser.objects.filter(email__iexact=email, organization=target_org).first()
     if not user and username:
-        user = CustomUser.objects.filter(username__iexact=username).first()
+        user = CustomUser.objects.filter(username__iexact=username, organization=target_org).first()
 
     desired_role = _map_role_from_claims(settings_obj, role_value)
 
@@ -1040,13 +1082,12 @@ def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: Au
         if not settings_obj.auto_provision_users:
             raise Exception("User is not provisioned in HEFAISTOS and auto-provision is disabled.")
 
-        target_org = Organization.objects.order_by('created_at').first()
         if not target_org:
             raise Exception("No organization is available for auto-provisioned users.")
 
         base_username = username
         suffix = 1
-        while CustomUser.objects.filter(username__iexact=username).exists():
+        while CustomUser.objects.filter(username__iexact=username, organization=target_org).exists():
             suffix += 1
             username = _sanitize_username(f"{base_username}_{suffix}")
 
@@ -1131,7 +1172,7 @@ class StartMfaLogin(graphene.Mutation):
             )
             raise Exception("Invalid credentials")
 
-        auth_settings = AuthProviderSettings.get_solo()
+        auth_settings = AuthProviderSettings.resolve_for_user(user)
         if not _is_local_login_allowed_for_user(user, auth_settings):
             user_id, user_name = _user_identity(user)
             emit_security_event(
@@ -2450,19 +2491,39 @@ class SubmitRegistrationRequest(graphene.Mutation):
 class StartOidcLogin(graphene.Mutation):
     class Arguments:
         provider = graphene.String(required=True)
+        organization_id = graphene.UUID(required=False)
 
     authorization_url = graphene.String(required=True)
     provider = graphene.String(required=True)
 
     @staticmethod
-    def mutate(root, info, provider):
+    def mutate(root, info, provider, organization_id=None):
         request = info.context
-        settings_obj = AuthProviderSettings.get_solo()
+        settings_obj = None
+        target_org = None
+        if organization_id:
+            target_org = Organization.objects.filter(pk=organization_id).first()
+            if target_org is None:
+                raise Exception("Organization not found")
+            settings_obj = AuthProviderSettings.get_for_organization(target_org)
+        else:
+            enabled_rows = list(
+                AuthProviderSettings.objects.select_related('organization')
+                .filter(organization__isnull=False)
+                .filter(Q(enable_entra=True) | Q(enable_oidc=True))
+            )
+            if len(enabled_rows) == 1:
+                settings_obj = enabled_rows[0]
+                target_org = settings_obj.organization
+            else:
+                raise Exception("Select organization before OIDC sign-in.")
+
         try:
             authorization_url, resolved_provider = build_authorization_url(
                 request=request,
                 settings_obj=settings_obj,
                 provider=provider,
+                organization_id=str(target_org.id) if target_org else None,
             )
         except OidcAuthError as exc:
             raise Exception(str(exc))
@@ -2487,16 +2548,23 @@ class CompleteOidcLogin(graphene.Mutation):
     def mutate(root, info, code, state):
         request = info.context
         source_ip = extract_client_ip(request)
-        settings_obj = AuthProviderSettings.get_solo()
         try:
-            provider, config, claims = complete_code_exchange(
+            provider, config, claims, organization_id = complete_code_exchange(
                 request=request,
-                settings_obj=settings_obj,
                 code=code,
                 state=state,
             )
+            settings_obj = AuthProviderSettings.resolve_for_org_id(organization_id) if organization_id else AuthProviderSettings.get_solo()
+            if settings_obj is None:
+                raise Exception("Organization authentication settings not found.")
+            target_org = settings_obj.organization if settings_obj.organization_id else None
             identity_data = _resolve_sso_identity(claims=claims, config=config, provider=provider)
-            user = _find_or_create_sso_user(identity_data=identity_data, claims=claims, settings_obj=settings_obj)
+            user = _find_or_create_sso_user(
+                identity_data=identity_data,
+                claims=claims,
+                settings_obj=settings_obj,
+                target_org=target_org,
+            )
             token = get_token(user)
             user_logged_in.send(sender=user.__class__, request=request, user=user)
             user_id, user_name = _user_identity(user)
@@ -2585,7 +2653,7 @@ class UpdateAuthSettings(graphene.Mutation):
         if not _can_manage_auth_settings(user):
             raise Exception("Permission denied")
 
-        settings_obj = AuthProviderSettings.get_solo()
+        settings_obj = AuthProviderSettings.resolve_for_user(user)
 
         if kwargs.get('auth_mode') is not None:
             candidate = str(kwargs.get('auth_mode') or '').strip().upper()
