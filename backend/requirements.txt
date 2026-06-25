@@ -22,7 +22,6 @@ djangorestframework_simplejwt==5.5.1
 docstring_parser==0.17.0
 elastic-transport==9.2.1
 elasticsearch==9.3.0
-elasticsearch-dsl==8.18.0
 et_xmlfile==2.0.0
 flake8==7.1.0
 gitdb==4.0.12
