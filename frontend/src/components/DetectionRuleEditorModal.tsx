@@ -1342,6 +1342,8 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
     <Modal
       open={visible}
       onCancel={onClose}
+      centered
+      destroyOnClose
       title={
         <div className="flex items-center justify-between pr-8">
           <span className="text-lg font-semibold">Detection Rule Editor</span>
@@ -1349,12 +1351,12 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
         </div>
       }
       width="95vw"
-      style={{ top: '2.5vh', paddingBottom: 0, maxWidth: '95vw' }}
+      style={{ paddingBottom: 0, maxWidth: '95vw' }}
       className="fullscreen-modal detection-editor-modal"
       styles={{
         content: {
-          height: '95vh',
-          maxHeight: '95vh',
+          height: 'calc(100dvh - 24px)',
+          maxHeight: 'calc(100dvh - 24px)',
           display: 'flex',
           flexDirection: 'column',
           padding: 0,
