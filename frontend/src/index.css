@@ -396,9 +396,12 @@ code {
 
 /* Maieutic modal dark-mode friendliness */
 .maieutic-modal label,
-.maieutic-modal h4,
-.maieutic-modal p {
+.maieutic-modal h4 {
   color: var(--hef-text-secondary);
+}
+
+.maieutic-modal p {
+  color: var(--hef-text-primary);
 }
 
 .maieutic-modal input,
@@ -418,7 +421,15 @@ code {
   border-color: var(--hef-border) !important;
 }
 
+.maieutic-modal .border-gray-300 {
+  border-color: var(--hef-border-strong) !important;
+}
+
 .maieutic-modal .text-gray-400 {
+  color: var(--hef-text-muted) !important;
+}
+
+.maieutic-modal .text-gray-500 {
   color: var(--hef-text-muted) !important;
 }
 
@@ -426,16 +437,93 @@ code {
   background: var(--hef-bg-subtle) !important;
 }
 
+.maieutic-modal .bg-gray-50 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.maieutic-modal .bg-gray-200 {
+  background: var(--hef-border) !important;
+}
+
 .maieutic-modal .text-gray-600 {
   color: var(--hef-text-secondary) !important;
+}
+
+.maieutic-modal .text-gray-700,
+.maieutic-modal .text-gray-800 {
+  color: var(--hef-text-primary) !important;
+}
+
+.maieutic-modal .bg-blue-50,
+.maieutic-modal .bg-indigo-50,
+.maieutic-modal .bg-sky-50 {
+  background: var(--hef-info-bg) !important;
+}
+
+.maieutic-modal .bg-blue-100 {
+  background: color-mix(in srgb, var(--hef-info-bg) 75%, var(--hef-bg-surface)) !important;
+}
+
+.maieutic-modal .hover\:bg-blue-200:hover {
+  background: color-mix(in srgb, var(--hef-info-bg) 85%, var(--hef-bg-surface)) !important;
+}
+
+.maieutic-modal .border-blue-200,
+.maieutic-modal .border-indigo-200,
+.maieutic-modal .border-sky-200 {
+  border-color: var(--hef-info-border) !important;
+}
+
+.maieutic-modal .text-blue-600 {
+  color: var(--hef-text-link) !important;
+}
+
+.maieutic-modal .text-blue-800,
+.maieutic-modal .text-blue-900,
+.maieutic-modal .text-indigo-800,
+.maieutic-modal .text-indigo-900,
+.maieutic-modal .text-sky-900 {
+  color: var(--hef-info-text) !important;
+}
+
+.maieutic-modal .hover\:text-blue-800:hover {
+  color: var(--hef-info-text) !important;
 }
 
 .maieutic-modal .bg-green-100 {
   background: var(--hef-success-bg) !important;
 }
 
+.maieutic-modal .bg-green-50 {
+  background: var(--hef-success-bg) !important;
+}
+
+.maieutic-modal .border-green-200 {
+  border-color: var(--hef-success-border) !important;
+}
+
 .maieutic-modal .text-green-700 {
   color: var(--hef-success-text) !important;
+}
+
+.maieutic-modal .text-green-800 {
+  color: var(--hef-success-text) !important;
+}
+
+.maieutic-modal .text-amber-700 {
+  color: var(--hef-warning-text) !important;
+}
+
+.maieutic-modal .text-red-500 {
+  color: var(--hef-danger-text) !important;
+}
+
+.maieutic-modal .hover\:text-gray-600:hover {
+  color: var(--hef-text-secondary) !important;
+}
+
+.maieutic-modal .hover\:text-red-700:hover {
+  color: var(--hef-danger-text) !important;
 }
 
 .maieutic-chat-shell {
