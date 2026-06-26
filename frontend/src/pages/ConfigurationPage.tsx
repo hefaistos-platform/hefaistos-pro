@@ -2285,56 +2285,58 @@ export const ConfigurationPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-semibold mb-1">Authentication Mode</label>
-                <select
-                  className="w-full p-2 border rounded text-sm"
+                <Select
+                  className="w-full"
                   value={authForm.authMode}
-                  onChange={(e) => setAuthForm({ ...authForm, authMode: e.target.value })}
+                  onChange={(value) => setAuthForm({ ...authForm, authMode: value })}
                   disabled={!canAdminConfig}
-                >
-                  <option value="ENTRA_ONLY">ENTRA_ONLY</option>
-                  <option value="OIDC_ONLY">OIDC_ONLY</option>
-                  <option value="ENTRA_AND_OIDC">ENTRA_AND_OIDC</option>
-                  <option value="ENTRA_AND_LOCAL_BREAKGLASS">ENTRA_AND_LOCAL_BREAKGLASS</option>
-                </select>
+                  options={[
+                    { value: 'ENTRA_ONLY', label: 'ENTRA_ONLY' },
+                    { value: 'OIDC_ONLY', label: 'OIDC_ONLY' },
+                    { value: 'ENTRA_AND_OIDC', label: 'ENTRA_AND_OIDC' },
+                    { value: 'ENTRA_AND_LOCAL_BREAKGLASS', label: 'ENTRA_AND_LOCAL_BREAKGLASS' },
+                  ]}
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold mb-1">Default Login Provider</label>
-                <select
-                  className="w-full p-2 border rounded text-sm"
+                <Select
+                  className="w-full"
                   value={authForm.defaultLoginProvider}
-                  onChange={(e) => setAuthForm({ ...authForm, defaultLoginProvider: e.target.value })}
+                  onChange={(value) => setAuthForm({ ...authForm, defaultLoginProvider: value })}
                   disabled={!canAdminConfig}
-                >
-                  <option value="ENTRA">ENTRA</option>
-                  <option value="OIDC">OIDC</option>
-                  <option value="LOCAL">LOCAL</option>
-                </select>
+                  options={[
+                    { value: 'ENTRA', label: 'ENTRA' },
+                    { value: 'OIDC', label: 'OIDC' },
+                    { value: 'LOCAL', label: 'LOCAL' },
+                  ]}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.enableEntra} onChange={(e) => setAuthForm({ ...authForm, enableEntra: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.enableEntra} onChange={(e) => setAuthForm({ ...authForm, enableEntra: e.target.checked })} disabled={!canAdminConfig} />
                 Enable Entra OIDC
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.enableOidc} onChange={(e) => setAuthForm({ ...authForm, enableOidc: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.enableOidc} onChange={(e) => setAuthForm({ ...authForm, enableOidc: e.target.checked })} disabled={!canAdminConfig} />
                 Enable Generic OIDC
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.allowLocalBreakglass} onChange={(e) => setAuthForm({ ...authForm, allowLocalBreakglass: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.allowLocalBreakglass} onChange={(e) => setAuthForm({ ...authForm, allowLocalBreakglass: e.target.checked })} disabled={!canAdminConfig} />
                 Allow Local Break-glass Login
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.autoProvisionUsers} onChange={(e) => setAuthForm({ ...authForm, autoProvisionUsers: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.autoProvisionUsers} onChange={(e) => setAuthForm({ ...authForm, autoProvisionUsers: e.target.checked })} disabled={!canAdminConfig} />
                 Auto-Provision Users
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.syncClaimsOnLogin} onChange={(e) => setAuthForm({ ...authForm, syncClaimsOnLogin: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.syncClaimsOnLogin} onChange={(e) => setAuthForm({ ...authForm, syncClaimsOnLogin: e.target.checked })} disabled={!canAdminConfig} />
                 Sync Claims on Login
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={authForm.enforceLocalMfa} onChange={(e) => setAuthForm({ ...authForm, enforceLocalMfa: e.target.checked })} disabled={!canAdminConfig} />
+                <input className="auth-checkbox" type="checkbox" checked={authForm.enforceLocalMfa} onChange={(e) => setAuthForm({ ...authForm, enforceLocalMfa: e.target.checked })} disabled={!canAdminConfig} />
                 Enforce MFA for Local Break-glass
               </label>
             </div>

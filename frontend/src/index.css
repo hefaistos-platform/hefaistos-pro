@@ -279,12 +279,20 @@ code {
   border-color: var(--hef-border) !important;
 }
 
-.configuration-theme input,
+.configuration-theme input:not([type='checkbox']):not([type='radio']),
 .configuration-theme textarea,
 .configuration-theme select {
   background: var(--hef-bg-subtle);
   color: var(--hef-text-primary);
   border-color: var(--hef-border);
+}
+
+.configuration-theme input[type='checkbox'].auth-checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--hef-info-border);
+  border: 1px solid var(--hef-border);
+  background: var(--hef-bg-surface);
 }
 
 .configuration-theme input::placeholder,
