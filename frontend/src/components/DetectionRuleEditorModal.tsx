@@ -1348,12 +1348,13 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
           <ModeBadge />
         </div>
       }
-      width="100vw"
-      style={{ top: 0, paddingBottom: 0 }}
+      width="95vw"
+      style={{ top: '2.5vh', paddingBottom: 0, maxWidth: '95vw' }}
       className="fullscreen-modal detection-editor-modal"
       styles={{
         content: {
-          height: '100vh',
+          height: '95vh',
+          maxHeight: '95vh',
           display: 'flex',
           flexDirection: 'column',
           padding: 0,
