@@ -34,10 +34,18 @@ These are the pinned SHARP infrastructure/runtime targets:
 ## 4. Clone and Prepare
 
 ```bash
-git clone https://github.com/hefaistos-platform/hefaistos-pro.git
+git clone -b sharp https://github.com/hefaistos-platform/hefaistos-pro.git
 cd hefaistos-pro
+git pull origin sharp
 cp .env.template .env
 cp docker-compose.override.yml.template docker-compose.override.yml
+```
+
+If you already cloned the repository earlier, switch to SHARP before continuing:
+
+```bash
+git checkout sharp
+git pull origin sharp
 ```
 
 ## 5. Create Secrets
