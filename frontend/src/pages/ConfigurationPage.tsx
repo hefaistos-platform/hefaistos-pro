@@ -2291,6 +2291,12 @@ export const ConfigurationPage: React.FC = () => {
                   onChange={(value) => setAuthForm({ ...authForm, authMode: value })}
                   disabled={!canAdminConfig}
                   popupClassName="config-auth-select-dropdown"
+                  style={{ color: 'var(--hef-text-primary)' }}
+                  dropdownStyle={{
+                    background: 'var(--hef-bg-surface)',
+                    color: 'var(--hef-text-primary)',
+                    border: '1px solid var(--hef-border)',
+                  }}
                   options={[
                     { value: 'ENTRA_ONLY', label: 'ENTRA_ONLY' },
                     { value: 'OIDC_ONLY', label: 'OIDC_ONLY' },
@@ -2307,6 +2313,12 @@ export const ConfigurationPage: React.FC = () => {
                   onChange={(value) => setAuthForm({ ...authForm, defaultLoginProvider: value })}
                   disabled={!canAdminConfig}
                   popupClassName="config-auth-select-dropdown"
+                  style={{ color: 'var(--hef-text-primary)' }}
+                  dropdownStyle={{
+                    background: 'var(--hef-bg-surface)',
+                    color: 'var(--hef-text-primary)',
+                    border: '1px solid var(--hef-border)',
+                  }}
                   options={[
                     { value: 'ENTRA', label: 'ENTRA' },
                     { value: 'OIDC', label: 'OIDC' },
@@ -2317,29 +2329,29 @@ export const ConfigurationPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.enableEntra} onChange={(e) => setAuthForm({ ...authForm, enableEntra: e.target.checked })} disabled={!canAdminConfig} />
-                Enable Entra OIDC
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Enable Entra OIDC</span>
+                <Switch checked={authForm.enableEntra} onChange={(checked) => setAuthForm({ ...authForm, enableEntra: checked })} disabled={!canAdminConfig} />
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.enableOidc} onChange={(e) => setAuthForm({ ...authForm, enableOidc: e.target.checked })} disabled={!canAdminConfig} />
-                Enable Generic OIDC
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Enable Generic OIDC</span>
+                <Switch checked={authForm.enableOidc} onChange={(checked) => setAuthForm({ ...authForm, enableOidc: checked })} disabled={!canAdminConfig} />
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.allowLocalBreakglass} onChange={(e) => setAuthForm({ ...authForm, allowLocalBreakglass: e.target.checked })} disabled={!canAdminConfig} />
-                Allow Local Break-glass Login
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Allow Local Break-glass Login</span>
+                <Switch checked={authForm.allowLocalBreakglass} onChange={(checked) => setAuthForm({ ...authForm, allowLocalBreakglass: checked })} disabled={!canAdminConfig} />
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.autoProvisionUsers} onChange={(e) => setAuthForm({ ...authForm, autoProvisionUsers: e.target.checked })} disabled={!canAdminConfig} />
-                Auto-Provision Users
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Auto-Provision Users</span>
+                <Switch checked={authForm.autoProvisionUsers} onChange={(checked) => setAuthForm({ ...authForm, autoProvisionUsers: checked })} disabled={!canAdminConfig} />
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.syncClaimsOnLogin} onChange={(e) => setAuthForm({ ...authForm, syncClaimsOnLogin: e.target.checked })} disabled={!canAdminConfig} />
-                Sync Claims on Login
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Sync Claims on Login</span>
+                <Switch checked={authForm.syncClaimsOnLogin} onChange={(checked) => setAuthForm({ ...authForm, syncClaimsOnLogin: checked })} disabled={!canAdminConfig} />
               </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input className="auth-checkbox" type="checkbox" checked={authForm.enforceLocalMfa} onChange={(e) => setAuthForm({ ...authForm, enforceLocalMfa: e.target.checked })} disabled={!canAdminConfig} />
-                Enforce MFA for Local Break-glass
+              <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                <span>Enforce MFA for Local Break-glass</span>
+                <Switch checked={authForm.enforceLocalMfa} onChange={(checked) => setAuthForm({ ...authForm, enforceLocalMfa: checked })} disabled={!canAdminConfig} />
               </label>
             </div>
 

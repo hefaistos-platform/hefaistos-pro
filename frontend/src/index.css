@@ -333,11 +333,16 @@ code {
 .configuration-theme .config-auth-select .ant-select-selection-search-input,
 .configuration-theme .config-auth-select .ant-select-arrow {
   color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
 }
 
 .config-auth-select-dropdown {
   background: var(--hef-bg-surface) !important;
   border: 1px solid var(--hef-border) !important;
+}
+
+.config-auth-select-dropdown .ant-select-item {
+  color: var(--hef-text-primary) !important;
 }
 
 .config-auth-select-dropdown .ant-select-item-option-content {
