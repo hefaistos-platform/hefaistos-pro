@@ -48,9 +48,18 @@ const UPDATE_PLAYBOOK_DETAILS_MUTATION = gql`
     $goal: String,
     $technicalContext: String,
     $blindSpots: String,
+    $triageGuidance: String,
     $falsePositives: String,
     $responsePlaybook: String,
     $detectionRule: String,
+    $testScenario: String,
+    $testExpectedOutput: String,
+    $alertTrigger: String,
+    $defaultSeverity: String,
+    $enrichmentSteps: JSONString,
+    $containmentSteps: JSONString,
+    $notificationSteps: JSONString,
+    $downstreamCorrelationRequirements: JSONString,
     $robustnessLevel: Int,
     $dataSourceMaturity: String,
     $conversationHistory: JSONString
@@ -60,9 +69,18 @@ const UPDATE_PLAYBOOK_DETAILS_MUTATION = gql`
       goal: $goal,
       technicalContext: $technicalContext,
       blindSpots: $blindSpots,
+      triageGuidance: $triageGuidance,
       falsePositives: $falsePositives,
       responsePlaybook: $responsePlaybook,
       detectionRule: $detectionRule,
+      testScenario: $testScenario,
+      testExpectedOutput: $testExpectedOutput,
+      alertTrigger: $alertTrigger,
+      defaultSeverity: $defaultSeverity,
+      enrichmentSteps: $enrichmentSteps,
+      containmentSteps: $containmentSteps,
+      notificationSteps: $notificationSteps,
+      downstreamCorrelationRequirements: $downstreamCorrelationRequirements,
       robustnessLevel: $robustnessLevel,
       dataSourceMaturity: $dataSourceMaturity,
       conversationHistory: $conversationHistory
@@ -359,9 +377,26 @@ export const PlaybooksHubPage: React.FC = () => {
           goal: updatedFormState.goal,
           technicalContext: updatedFormState.technicalContext,
           blindSpots: updatedFormState.blindSpots,
+          triageGuidance: updatedFormState.triageGuidance,
           falsePositives: updatedFormState.falsePositives,
           responsePlaybook: updatedFormState.responsePlaybook,
           detectionRule: updatedFormState.detectionRule,
+          testScenario: updatedFormState.testScenario,
+          testExpectedOutput: updatedFormState.testExpectedOutput,
+          alertTrigger: updatedFormState.alertTrigger,
+          defaultSeverity: updatedFormState.defaultSeverity,
+          enrichmentSteps: updatedFormState.enrichmentSteps
+            ? JSON.stringify(updatedFormState.enrichmentSteps)
+            : undefined,
+          containmentSteps: updatedFormState.containmentSteps
+            ? JSON.stringify(updatedFormState.containmentSteps)
+            : undefined,
+          notificationSteps: updatedFormState.notificationSteps
+            ? JSON.stringify(updatedFormState.notificationSteps)
+            : undefined,
+          downstreamCorrelationRequirements: updatedFormState.downstreamCorrelationRequirements
+            ? JSON.stringify(updatedFormState.downstreamCorrelationRequirements)
+            : undefined,
           robustnessLevel: updatedFormState.robustnessLevel,
           dataSourceMaturity: updatedFormState.dataSourceMaturity,
           conversationHistory: JSON.stringify(output.conversationHistory || []),

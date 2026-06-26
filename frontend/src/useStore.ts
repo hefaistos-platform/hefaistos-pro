@@ -75,6 +75,7 @@ const defaultMaieuticSelections: MaieuticImportSelections = {
   importRobustness: true,
   importPlaybook: true,
   importDetectionRule: true,
+  importSynthesis: true,
 };
 
 // --- 4. Create the store ---

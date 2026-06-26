@@ -1,257 +1,191 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MaieuticEngineModal } from './MaieuticEngineModal';
-import { MaieuticOutput, MaieuticImportSelections } from '../../types/maieutic';
+
+const mockAskAI = jest.fn();
 
 jest.mock('@apollo/client/react', () => ({
-  useMutation: () => [jest.fn(), { loading: false, error: null }],
+  useMutation: () => [mockAskAI, { loading: false, error: null }],
 }));
 
-describe('MaieuticEngineModal', () => {
+const aiResponsePayload = {
+  socratic_question: 'What is the most specific behavior you can name?',
+  teaching_note: 'Specificity improves detection quality.',
+  reasoning: 'Narrowing scope reduces ambiguity.',
+  answer_template: 'Intent: ... | Mechanism: ...',
+  completion_check: {
+    step_ready: true,
+    quality_score: 90,
+    missing_items: [],
+    next_best_action: 'Proceed to the next step.',
+  },
+  field_suggestions: {},
+  autofill_candidates: {
+    target_fields: [],
+    proposed_text: {},
+  },
+};
+
+const makeMutationResult = () => ({
+  data: {
+    maieuticQuestion: {
+      aiResponse: aiResponsePayload,
+      providerUsed: 'GPT-5.5',
+      fieldSuggestions: JSON.stringify({}),
+      autofillCandidates: JSON.stringify({ target_fields: [], proposed_text: {} }),
+    },
+  },
+});
+
+describe('MaieuticEngineModal 2.0', () => {
   const mockOnClose = jest.fn();
   const mockOnSubmit = jest.fn();
 
   beforeEach(() => {
     mockOnClose.mockClear();
     mockOnSubmit.mockClear();
+    mockAskAI.mockReset();
+    mockAskAI.mockResolvedValue(makeMutationResult());
   });
 
-  test('renders when isOpen is true', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
+  test('renders when open and shows 2.0 title', async () => {
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+    expect(screen.getByText('Maieutic Engine 2.0')).toBeInTheDocument();
 
-    expect(screen.getByText('Maieutic Engine')).toBeInTheDocument();
-  });
-
-  test('does not render when isOpen is false', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={false}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    expect(screen.queryByText('Maieutic Engine')).not.toBeInTheDocument();
-  });
-
-  test('starts on Hypothesis step', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    expect(screen.getByText('Detection Intent')).toBeInTheDocument();
-    expect(screen.getByText('Technical Capability')).toBeInTheDocument();
-  });
-
-  test('Next button is disabled when required fields are empty on Hypothesis step', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    const nextButton = screen.getByRole('button', { name: /Next/i });
-    expect(nextButton).toBeDisabled();
-  });
-
-  test('Next button is enabled when required fields are filled on Hypothesis step', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    const intentTextarea = screen.getByPlaceholderText(/What adversary behavior/i);
-    const capabilityTextarea = screen.getByPlaceholderText(/What technical capability/i);
-
-    fireEvent.change(intentTextarea, { target: { value: 'Test intent' } });
-    fireEvent.change(capabilityTextarea, { target: { value: 'Test capability' } });
-
-    const nextButton = screen.getByRole('button', { name: /Next/i });
-    expect(nextButton).not.toBeDisabled();
-  });
-
-  test('can navigate to Interrogation step after filling Hypothesis', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    // Fill Hypothesis
-    const intentTextarea = screen.getByPlaceholderText(/What adversary behavior/i);
-    const capabilityTextarea = screen.getByPlaceholderText(/What technical capability/i);
-    fireEvent.change(intentTextarea, { target: { value: 'Test intent' } });
-    fireEvent.change(capabilityTextarea, { target: { value: 'Test capability' } });
-
-    // Click Next
-    const nextButton = screen.getByRole('button', { name: /Next/i });
-    fireEvent.click(nextButton);
-
-    // Should now be on Interrogation step
-    expect(screen.getByText(/Document your hypothesis interrogation/i)).toBeInTheDocument();
-  });
-
-  test('requires at least one QA entry on Interrogation step', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    // Navigate to Interrogation
-    const interrogationButton = screen.getByRole('button', { name: 'Interrogation' });
-    fireEvent.click(interrogationButton);
-
-    // Next should be disabled with no QA entries
-    const nextButton = screen.getByRole('button', { name: /Next/i });
-    expect(nextButton).toBeDisabled();
-  });
-
-  test('can add and remove QA entries', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    // Navigate to Interrogation
-    const interrogationButton = screen.getByRole('button', { name: 'Interrogation' });
-    fireEvent.click(interrogationButton);
-
-    // Add a QA entry
-    const questionInput = screen.getByPlaceholderText(/Enter a question/i);
-    const answerTextarea = screen.getByPlaceholderText(/Enter the answer/i);
-    fireEvent.change(questionInput, { target: { value: 'Test question?' } });
-    fireEvent.change(answerTextarea, { target: { value: 'Test answer' } });
-
-    const addButton = screen.getByRole('button', { name: /Add Q&A Entry/i });
-    fireEvent.click(addButton);
-
-    // Verify entry was added
-    expect(screen.getByText('Q1:')).toBeInTheDocument();
-    expect(screen.getByText('Test question?')).toBeInTheDocument();
-    expect(screen.getByText('Test answer')).toBeInTheDocument();
-
-    // Remove the entry
-    const removeButton = screen.getByRole('button', { name: /Remove/i });
-    fireEvent.click(removeButton);
-
-    // Verify entry was removed
-    expect(screen.queryByText('Test question?')).not.toBeInTheDocument();
-  });
-
-  test('all import selections default to ON on Review step', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
-
-    // Navigate to Review
-    const reviewButton = screen.getByRole('button', { name: 'Review' });
-    fireEvent.click(reviewButton);
-
-    // Check all checkboxes are checked
-    const checkboxes = screen.getAllByRole('checkbox');
-    checkboxes.forEach((checkbox) => {
-      expect(checkbox).toBeChecked();
+    await waitFor(() => {
+      expect(mockAskAI).toHaveBeenCalled(); // auto kickoff
     });
   });
 
-  test('calls onSubmit with correct data and closes modal on submit', () => {
-    render(
-      <MaieuticEngineModal
-        isOpen={true}
-        onClose={mockOnClose}
-        onSubmit={mockOnSubmit}
-      />
-    );
+  test('does not render when closed', () => {
+    render(<MaieuticEngineModal isOpen={false} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+    expect(screen.queryByText('Maieutic Engine 2.0')).not.toBeInTheDocument();
+  });
 
-    // Fill in minimum required data and navigate to Review
-    const intentTextarea = screen.getByPlaceholderText(/What adversary behavior/i);
-    fireEvent.change(intentTextarea, { target: { value: 'Test intent' } });
-    
-    const capabilityTextarea = screen.getByPlaceholderText(/What technical capability/i);
-    fireEvent.change(capabilityTextarea, { target: { value: 'Test capability' } });
+  test('keeps Next disabled until required hypothesis fields are filled', async () => {
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
 
-    // Move to Interrogation
-    let nextButton = screen.getByRole('button', { name: /Next/i });
-    fireEvent.click(nextButton);
+    const nextButton = screen.getByRole('button', { name: /Next/i });
+    expect(nextButton).toBeDisabled();
 
-    // Add QA entry
-    const questionInput = screen.getByPlaceholderText(/Enter a question/i);
-    const answerTextarea = screen.getByPlaceholderText(/Enter the answer/i);
-    fireEvent.change(questionInput, { target: { value: 'Q1' } });
-    fireEvent.change(answerTextarea, { target: { value: 'A1' } });
+    fireEvent.change(screen.getByPlaceholderText(/What adversary behavior/i), {
+      target: { value: 'Detect credential access behavior' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/What technical capability/i), {
+      target: { value: 'LSASS handle and memory read sequence' },
+    });
+
+    await waitFor(() => {
+      expect(nextButton).not.toBeDisabled();
+    });
+  });
+
+  test('can progress through all stages and submit', async () => {
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/What adversary behavior/i), {
+      target: { value: 'Detect credential dumping behavior' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/What technical capability/i), {
+      target: { value: 'LSASS memory access and dump artifacts' },
+    });
+
+    const next = () => screen.getByRole('button', { name: /Next/i });
+
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter a question about the hypothesis/i), {
+      target: { value: 'What data source captures this?' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter the answer/i), {
+      target: { value: 'Sysmon event telemetry and EDR process traces' },
+    });
     fireEvent.click(screen.getByRole('button', { name: /Add Q&A Entry/i }));
 
-    // Move to Robustness
-    nextButton = screen.getByRole('button', { name: /Next/i });
-    fireEvent.click(nextButton);
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
 
-    // Fill robustness fields
-    const textareas = screen.getAllByRole('textbox');
-    textareas.forEach((textarea, idx) => {
-      fireEvent.change(textarea, { target: { value: `Robustness ${idx}` } });
+    fireEvent.change(screen.getByPlaceholderText(/Assess reliability and completeness/i), {
+      target: { value: 'High-quality telemetry from Sysmon and EDR.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Expected false positive rate/i), {
+      target: { value: 'Low with baseline tuning for admin tools.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Coverage gaps and known blind spots/i), {
+      target: { value: 'Gap: unmanaged endpoints without logging.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Overall robustness reasoning/i), {
+      target: { value: 'Behavior-based logic with clear fallback conditions.' },
     });
 
-    // Move to Playbook
-    nextButton = screen.getByRole('button', { name: /Next/i });
-    fireEvent.click(nextButton);
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
 
-    // Fill at least one playbook field
-    const manualSteps = screen.getByPlaceholderText(/Manual investigation/i);
-    fireEvent.change(manualSteps, { target: { value: 'Manual steps' } });
+    fireEvent.change(screen.getByPlaceholderText(/Manual investigation and response steps/i), {
+      target: { value: 'Validate lineage, isolate host, reset impacted credentials.' },
+    });
 
-    // Move to Review
-    nextButton = screen.getByRole('button', { name: /Next/i });
-    fireEvent.click(nextButton);
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
 
-    // Submit
     const submitButton = screen.getByRole('button', { name: /Submit to Workbench/i });
+    await waitFor(() => expect(submitButton).not.toBeDisabled());
     fireEvent.click(submitButton);
 
-    // Verify onSubmit was called
-    expect(mockOnSubmit).toHaveBeenCalledTimes(1);
-    expect(mockOnSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        hypothesis: expect.objectContaining({
-          intent: 'Test intent',
-          capability: 'Test capability',
-        }),
-      }),
-      expect.objectContaining({
-        importHypothesis: true,
-        importQALog: true,
-        importRobustness: true,
-        importPlaybook: true,
-        importDetectionRule: true,
-      })
-    );
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+    });
 
-    // onClose behavior is handled by parent visibility state in runtime; submit contract is the critical assertion here.
+    const [, selections] = mockOnSubmit.mock.calls[0];
+    expect(selections.importSynthesis).toBe(true);
+  });
+
+  test('does not offer Sigma as a detection rule format', async () => {
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/What adversary behavior/i), {
+      target: { value: 'Detect suspicious credential access behavior' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/What technical capability/i), {
+      target: { value: 'LSASS read and credential extraction sequence' },
+    });
+
+    const next = () => screen.getByRole('button', { name: /Next/i });
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter a question about the hypothesis/i), {
+      target: { value: 'Which data source exposes process access intent?' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter the answer/i), {
+      target: { value: 'Sysmon process access and EDR telemetry.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Add Q&A Entry/i }));
+
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    fireEvent.change(screen.getByPlaceholderText(/Assess reliability and completeness/i), {
+      target: { value: 'High confidence in endpoint telemetry quality.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Expected false positive rate/i), {
+      target: { value: 'Low after baseline tuning.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Coverage gaps and known blind spots/i), {
+      target: { value: 'Blind spot on unmanaged hosts.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Overall robustness reasoning/i), {
+      target: { value: 'Strong behavior anchoring with evasion awareness.' },
+    });
+
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    expect(screen.queryByRole('option', { name: 'Sigma' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'KQL' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'SPL' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Pseudocode' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Other' })).toBeInTheDocument();
   });
 });

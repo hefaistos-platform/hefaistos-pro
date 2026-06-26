@@ -1792,6 +1792,25 @@ export const PlaybookWorkbench = () => {
       falsePositives: data?.playbookGraph?.falsePositives || '',
       responsePlaybook: data?.playbookGraph?.responsePlaybook || '',
       detectionRule: data?.playbookGraph?.detectionRule || '',
+      triageGuidance: data?.playbookGraph?.triageGuidance || '',
+      testScenario: data?.playbookGraph?.testScenario || '',
+      testExpectedOutput: data?.playbookGraph?.testExpectedOutput || '',
+      alertTrigger: data?.playbookGraph?.alertTrigger || '',
+      defaultSeverity: data?.playbookGraph?.defaultSeverity || '',
+      enrichmentSteps: data?.playbookGraph?.enrichmentSteps
+        ? JSON.parse(data.playbookGraph.enrichmentSteps)
+        : [],
+      containmentSteps: data?.playbookGraph?.containmentSteps
+        ? JSON.parse(data.playbookGraph.containmentSteps)
+        : [],
+      notificationSteps: data?.playbookGraph?.notificationSteps
+        ? JSON.parse(data.playbookGraph.notificationSteps)
+        : [],
+      downstreamCorrelationRequirements: data?.playbookGraph?.downstreamCorrelationRequirements
+        ? (typeof data.playbookGraph.downstreamCorrelationRequirements === 'string'
+            ? JSON.parse(data.playbookGraph.downstreamCorrelationRequirements)
+            : data.playbookGraph.downstreamCorrelationRequirements)
+        : {},
     };
 
     const updatedFormState = applyMaieuticToWorkbench(
@@ -1811,6 +1830,23 @@ export const PlaybookWorkbench = () => {
           falsePositives: updatedFormState.falsePositives,
           responsePlaybook: updatedFormState.responsePlaybook,
           detectionRule: updatedFormState.detectionRule,
+          triageGuidance: updatedFormState.triageGuidance,
+          testScenario: updatedFormState.testScenario,
+          testExpectedOutput: updatedFormState.testExpectedOutput,
+          alertTrigger: updatedFormState.alertTrigger,
+          defaultSeverity: updatedFormState.defaultSeverity,
+          enrichmentSteps: updatedFormState.enrichmentSteps
+            ? JSON.stringify(updatedFormState.enrichmentSteps)
+            : undefined,
+          containmentSteps: updatedFormState.containmentSteps
+            ? JSON.stringify(updatedFormState.containmentSteps)
+            : undefined,
+          notificationSteps: updatedFormState.notificationSteps
+            ? JSON.stringify(updatedFormState.notificationSteps)
+            : undefined,
+          downstreamCorrelationRequirements: updatedFormState.downstreamCorrelationRequirements
+            ? JSON.stringify(updatedFormState.downstreamCorrelationRequirements)
+            : undefined,
           robustnessLevel: updatedFormState.robustnessLevel,
           dataSourceMaturity: updatedFormState.dataSourceMaturity,
           conversationHistory: JSON.stringify(pendingMaieuticData.output.conversationHistory || []),

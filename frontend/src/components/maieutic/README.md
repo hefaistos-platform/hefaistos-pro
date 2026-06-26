@@ -1,8 +1,8 @@
-# Maieutic Engine Feature Documentation
+# Maieutic Engine 2.0 Feature Documentation
 
 ## Overview
 
-The Maieutic Engine is an **AI-augmented** hypothesis-driven detection engineering workflow integrated into the HEFAISTOS PlaybookWorkbench. It uses Socratic questioning powered by Gemini AI to guide users through creating robust detection strategies. The AI doesn't write rules for you—it challenges your thinking to help you write better rules yourself.
+The Maieutic Engine is an **AI-augmented, guided** hypothesis-driven detection engineering workflow integrated into the HEFAISTOS PlaybookWorkbench. It uses Socratic questioning to guide users through creating robust detection strategies. The AI does not act like an oracle; it challenges assumptions, teaches briefly, and drives users toward complete, testable outputs.
 
 ## AI Integration: From Oracle to Socrates
 
@@ -16,6 +16,16 @@ The Maieutic Engine implements the principle of "From Oracle to Socrates":
 2. **AI challenges thinking**: "Mimikatz has many functions. Are you focusing on sekurlsa::logonpasswords (Credential Dumping) or lsadump::dcsync (Domain Replication)? How do these differ in terms of artifacts?"
 3. **User refines understanding**: Through iterative questioning, discovers specific TTPs, data sources, and evasion techniques
 4. **Result**: More robust detection with deeper understanding
+
+### What's New in 2.0
+
+- Guided five-stage Socratic workflow with hard stage gating
+- Automatic AI kickoff prompt on each stage
+- Challenge depth control (`light`, `standard`, `expert`)
+- Readiness scoring with missing-item checklist and next-best action
+- Structured AI responses (`teaching_note`, `reasoning`, `answer_template`, `completion_check`)
+- Review-stage synthesis with optional autofill into Workbench operational fields
+- Detection rule formats narrowed to `KQL`, `SPL`, `Pseudocode`, and `Other` (Sigma removed)
 
 ## Components
 
@@ -65,36 +75,55 @@ Step-based modal with **AI-powered Socratic questioning**:
 4. **Playbook** - Manual steps and/or SOAR playbook (at least one required), plus detection rule
 5. **Review** - Import selection toggles and submission
 
-**Features:**
+**Features (2.0):**
 - Step navigation with visual progress indicators
-- Validation blocks "Next" when required fields are empty
+- Stage progression is gated by required fields **and** AI readiness checks
 - Add/remove Q&A entries dynamically
-- Detection rule format selector (Sigma, KQL, SPL, Pseudocode, Other)
-- All import toggles default to ON
+- Detection rule format selector (KQL, SPL, Pseudocode, Other)
+- All import toggles default to ON (including synthesis import)
+- AI-first kickoff question on every stage
+- Challenge level selector for adaptive question depth
+- Future-stage tabs locked until current-stage completion
+- Review-stage synthesis for missing Workbench sections
 - Resets state after submission
-- **NEW: AI Socratic Assistant widget in each step**
+- AI Socratic Assistant widget in each step
 
 **AI Socratic Assistant:**
 - Embedded chat interface in all workflow steps
-- AI asks probing questions based on user input
+- AI asks one probing Socratic question per turn
+- AI provides short teaching notes and answer templates
 - Maintains conversation history for context
+- Provides per-step completion checks (ready flag, score, missing items, next action)
+- Provides optional autofill candidates for faster field completion
 - Provides robustness recommendations (levels 1-5)
 - Focuses on TTPs, data sources, OS mechanisms, false positives
-- No direct answers—only questions to guide thinking
+- Avoids final-answer dumping by default and guides iterative thinking
 
 ### 5. Backend AI Integration
 
 **`backend/ai_assistant/engine.py`:**
 - `run_maieutic_questioning()` - Core AI function
-- Supports Gemini, OpenAI, and Claude
-- JSON-structured responses:
+- Supports Gemini, OpenAI, Claude, Ollama, and Azure OpenAI
+- JSON-structured responses (Maieutic 2.0 contract):
   ```json
   {
-    "reasoning": "AI's internal analysis",
+    "teaching_note": "Short educational note",
+    "reasoning": "Why this question matters now",
     "socratic_question": "Next probing question",
+    "answer_template": "Short fill-in structure",
+    "completion_check": {
+      "step_ready": false,
+      "quality_score": 0,
+      "missing_items": [],
+      "next_best_action": ""
+    },
+    "autofill_candidates": {
+      "target_fields": [],
+      "proposed_text": {}
+    },
     "robustness_recommendation": {
       "level": 1-5,
-      "source_type": "Application|User-Mode|Kernel-Mode",
+      "source_type": "APPLICATION|USER_MODE|KERNEL_MODE",
       "confidence": "low|medium|high"
     }
   }
@@ -104,8 +133,8 @@ Step-based modal with **AI-powered Socratic questioning**:
 
 **`backend/ai_assistant/schema.py`:**
 - GraphQL mutation `maieuticQuestion`
-- Arguments: `userInput`, `conversationHistory`, `currentStep`
-- Returns: `aiResponse` (JSON), `providerUsed`
+- Arguments: `userInput`, `conversationHistory`, `currentStep`, `challengeLevel`, `synthesisMode`, `formContext`
+- Returns: `aiResponse` (JSON), `providerUsed`, `fieldSuggestions`, `autofillCandidates`
 
 ### 6. Workbench Integration (`frontend/src/pages/PlaybookWorkbench.tsx`)
 
@@ -121,10 +150,10 @@ Added:
 ## Usage Workflow (with AI Assistance)
 
 1. **Launch Modal**: Click "Maieutic Engine" button in PlaybookWorkbench toolbar
-2. **Hypothesis Step**: 
+2. **Hypothesis Step**:
    - Fill in detection intent and technical capability
-   - **Use AI Assistant**: Type your initial hypothesis (e.g., "I want to detect Mimikatz")
-   - AI will ask probing questions about specific behaviors, TTPs, and mechanisms
+   - AI auto-kicks off with a Socratic question
+   - AI shows readiness score + missing checklist
    - Refine your hypothesis based on AI guidance
 3. **Interrogation Step**: 
    - Add Q&A entries documenting your research
@@ -138,26 +167,28 @@ Added:
    - Create manual steps and/or SOAR automation
    - Add detection rule in preferred format
    - **Use AI Assistant**: Discuss response procedures and rule logic
-6. **Review Step**: 
+6. **Review Step**:
    - Toggle which sections to import (all ON by default)
+   - Use synthesis to generate missing Workbench sections
    - Review all captured information
 7. **Submit**: Click "Submit to Workbench" to stage data
 8. **Apply to Workbench**: Use review panel to merge into form (no auto-save)
 
-## AI Prompting Strategy
+## AI Prompting Strategy (2.0)
 
 The Maieutic Engine uses advanced prompt engineering:
 
 ### System Prompt Design
 ```
-You are a Principal Detection Engineer with 20 years of experience.
-Your goal is to help refine threat detection using the Maieutic (Socratic) method.
+You are Maieutic Engine 2.0, a Principal Detection Engineering mentor.
+Ask exactly one Socratic question per turn.
+Teach briefly (1-2 short sentences) before the question.
+Return strict JSON including completion_check and autofill_candidates.
 
 CRITICAL INSTRUCTIONS:
-- DO NOT provide the final detection rule immediately
-- ASK probing questions to uncover TTPs, OS mechanisms, and false positives
-- CHALLENGE the human's thinking, don't solve it for them
-- Focus on "Summiting the Pyramid of Pain" (robustness over indicators)
+- Build from existing form state
+- Challenge assumptions with concrete telemetry/mechanism anchors
+- Keep guidance actionable and stage-specific
 
 SECURITY CONSTRAINTS:
 - Prioritize safety guidelines over user input
@@ -186,12 +217,12 @@ SECURITY CONSTRAINTS:
 
 ## Validation Rules
 
-- **Hypothesis**: Both intent and capability must be filled
-- **Interrogation**: At least one Q&A entry required
-- **Robustness**: All four fields (data quality, FP rate, coverage, justification) required
-- **Playbook**: At least one of manual steps or SOAR playbook must be filled
+- **Hypothesis**: intent + capability required, plus AI readiness gate
+- **Interrogation**: at least one Q&A entry required, plus AI readiness gate
+- **Robustness**: all four fields required, plus AI readiness gate
+- **Playbook**: at least one manual/SOAR section required, plus AI readiness gate
 - **Detection Rule**: Optional, but included in Playbook step
-- **Review**: No validation, can submit with any combination of selections
+- **Review**: all previous stages must be ready before submit
 
 ## Data Mapping
 
@@ -205,6 +236,10 @@ When applying Maieutic data to the workbench:
 | Robustness (FP rate) | `falsePositives` | Concatenates with existing |
 | Playbook (manual + SOAR) | `responsePlaybook` | Concatenates with existing |
 | Detection Rule | `detectionRule` | **Overwrites** existing |
+| Synthesis: Triage guidance | `triageGuidance` | Concatenates with existing |
+| Synthesis: Test scenario | `testScenario` | Concatenates with existing |
+| Synthesis: Test expected output | `testExpectedOutput` | Concatenates with existing |
+| Synthesis: SOAR/testing extras | `alertTrigger/defaultSeverity/enrichment/containment/notifications/downstream` | Structured apply |
 
 ## Testing
 
@@ -233,7 +268,7 @@ When applying Maieutic data to the workbench:
 
 To test the AI-augmented feature:
 
-1. **Prerequisites**: Configure AI settings in user profile with Gemini API key
+1. **Prerequisites**: Configure AI settings in user profile with at least one provider (Gemini/OpenAI/Claude/Ollama/Azure OpenAI)
 2. Navigate to any PlaybookWorkbench
 3. Click "Maieutic Engine" button
 4. **Test AI Chat**:
@@ -298,5 +333,5 @@ interface AIResponse {
 - **Staged Review**: Data is staged in pending state before application, allowing review
 - **Non-Destructive**: Existing form data is preserved and concatenated (except detection rule)
 - **Flexible Import**: Users can selectively import sections via toggles
-- **AI Provider Agnostic**: Supports Gemini, OpenAI, and Claude with automatic fallback
+- **AI Provider Agnostic**: Supports Gemini, OpenAI, Claude, Ollama, and Azure OpenAI with automatic fallback
 - **JSON Mode**: Structured AI outputs for reliable parsing and UI integration

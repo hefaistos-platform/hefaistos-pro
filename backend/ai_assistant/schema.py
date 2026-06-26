@@ -1129,6 +1129,14 @@ class MaieuticQuestion(graphene.Mutation):
         user_input = graphene.String(required=True, description="User's current input/hypothesis")
         conversation_history = graphene.JSONString(required=False, description="Previous conversation turns")
         current_step = graphene.String(required=False, description="Current step in workflow: hypothesis, interrogation, robustness, playbook")
+        challenge_level = graphene.String(
+            required=False,
+            description="Question depth: light, standard, expert",
+        )
+        synthesis_mode = graphene.Boolean(
+            required=False,
+            description="When true (typically in review), AI should propose autofill content for missing workbench sections.",
+        )
         form_context = graphene.JSONString(
             required=False,
             description="Complete form state across all steps so the AI can reference what the user has already entered"
@@ -1137,8 +1145,18 @@ class MaieuticQuestion(graphene.Mutation):
     ai_response = graphene.JSONString(description="AI's Socratic response with reasoning and question")
     provider_used = graphene.String(description="Which AI provider was used")
     field_suggestions = graphene.JSONString(description="Field-specific hints based on form context")
+    autofill_candidates = graphene.JSONString(description="AI-proposed field/value drafts for optional autofill")
 
-    def mutate(self, info, user_input, conversation_history=None, current_step='hypothesis', form_context=None):
+    def mutate(
+        self,
+        info,
+        user_input,
+        conversation_history=None,
+        current_step='hypothesis',
+        challenge_level='standard',
+        synthesis_mode=False,
+        form_context=None,
+    ):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
@@ -1150,10 +1168,18 @@ class MaieuticQuestion(graphene.Mutation):
             return MaieuticQuestion(
                 ai_response=json.dumps({"error": "Please configure AI Settings in your profile first.", "socratic_question": "What detection hypothesis would you like to explore?"}),
                 provider_used="NONE",
-                field_suggestions=json.dumps({})
+                field_suggestions=json.dumps({}),
+                autofill_candidates=json.dumps({"target_fields": [], "proposed_text": {}}),
             )
         
         import json
+
+        parsed_history = conversation_history
+        if conversation_history and isinstance(conversation_history, str):
+            try:
+                parsed_history = json.loads(conversation_history)
+            except (json.JSONDecodeError, TypeError):
+                parsed_history = None
 
         # Parse form_context if provided as a JSON string
         parsed_form_context = None
@@ -1167,9 +1193,11 @@ class MaieuticQuestion(graphene.Mutation):
         response_text, provider, field_suggestions = run_maieutic_questioning(
             effective,
             user_input,
-            conversation_history,
+            parsed_history,
             current_step or 'hypothesis',
-            parsed_form_context
+            parsed_form_context,
+            challenge_level or 'standard',
+            bool(synthesis_mode),
         )
         
         # Parse JSON response
@@ -1177,11 +1205,13 @@ class MaieuticQuestion(graphene.Mutation):
             response_json = json.loads(response_text)
         except json.JSONDecodeError:
             response_json = {"error": "Invalid AI response", "socratic_question": response_text[:200]}
+        autofill_candidates = response_json.get("autofill_candidates", {"target_fields": [], "proposed_text": {}})
         
         return MaieuticQuestion(
             ai_response=response_json,
             provider_used=provider,
-            field_suggestions=json.dumps(field_suggestions) if field_suggestions else json.dumps({})
+            field_suggestions=json.dumps(field_suggestions) if field_suggestions else json.dumps({}),
+            autofill_candidates=json.dumps(autofill_candidates),
         )
 
 

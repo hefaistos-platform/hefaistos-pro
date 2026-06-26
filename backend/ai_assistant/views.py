@@ -82,7 +82,7 @@ def maieutic_ai(request):
 			status=status.HTTP_200_OK,
 		)
 
-	response_text, provider = run_maieutic_questioning(settings, text, None, step)
+	response_text, provider, _field_suggestions = run_maieutic_questioning(settings, text, None, step)
 	message = response_text
 
 	try:

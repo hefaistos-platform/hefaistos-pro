@@ -33,6 +33,7 @@ describe('applyMaieuticToWorkbench', () => {
     importRobustness: true,
     importPlaybook: true,
     importDetectionRule: true,
+    importSynthesis: true,
   };
 
   const allSelectionsOff: MaieuticImportSelections = {
@@ -41,6 +42,7 @@ describe('applyMaieuticToWorkbench', () => {
     importRobustness: false,
     importPlaybook: false,
     importDetectionRule: false,
+    importSynthesis: false,
   };
 
   test('should merge hypothesis into goal field when importHypothesis is true', () => {
@@ -150,6 +152,7 @@ describe('applyMaieuticToWorkbench', () => {
       importRobustness: true,
       importPlaybook: false,
       importDetectionRule: true,
+      importSynthesis: false,
     };
 
     const result = applyMaieuticToWorkbench(mockMaieuticOutput, selections, currentState);
@@ -191,5 +194,44 @@ describe('applyMaieuticToWorkbench', () => {
 
     expect(result.robustnessLevel).toBeUndefined();
     expect(result.dataSourceMaturity).toBeUndefined();
+  });
+
+  test('should map synthesis output into extended workbench fields when importSynthesis is true', () => {
+    const withSynthesis: MaieuticOutput = {
+      ...mockMaieuticOutput,
+      synthesis: {
+        triage_guidance: 'Validate parent process and isolate if confirmed.',
+        test_scenario: 'Replay suspicious process tree from Atomic test.',
+        test_expected_output: 'Alert with process lineage and account context.',
+        alert_trigger: 'PROCESS_ANOMALY_DETECTED',
+        default_severity: 'HIGH',
+        enrichment_steps: ['Fetch process tree', 'Lookup host risk score'],
+        containment_steps: ['Isolate endpoint'],
+        notification_steps: ['Create P1 incident'],
+        downstream_correlation_requirements: {
+          window_minutes: 15,
+          require_related_auth_alert: true,
+        },
+      },
+    };
+
+    const selections = {
+      ...allSelectionsOff,
+      importSynthesis: true,
+    };
+
+    const result = applyMaieuticToWorkbench(withSynthesis, selections, {});
+    expect(result.triageGuidance).toContain('Maieutic Triage Guidance');
+    expect(result.testScenario).toContain('Maieutic Test Scenario');
+    expect(result.testExpectedOutput).toContain('Maieutic Test Expectations');
+    expect(result.alertTrigger).toBe('PROCESS_ANOMALY_DETECTED');
+    expect(result.defaultSeverity).toBe('HIGH');
+    expect(result.enrichmentSteps).toEqual(['Fetch process tree', 'Lookup host risk score']);
+    expect(result.containmentSteps).toEqual(['Isolate endpoint']);
+    expect(result.notificationSteps).toEqual(['Create P1 incident']);
+    expect(result.downstreamCorrelationRequirements).toEqual({
+      window_minutes: 15,
+      require_related_auth_alert: true,
+    });
   });
 });
