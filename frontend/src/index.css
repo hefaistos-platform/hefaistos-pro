@@ -114,6 +114,17 @@ code {
   background: var(--hef-bg-surface);
 }
 
+.auth-card .auth-org-select {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.auth-card .auth-org-select option {
+  background: var(--hef-bg-surface);
+  color: var(--hef-text-primary);
+}
+
 .auth-subtitle {
   text-align: center;
   margin-bottom: 24px;

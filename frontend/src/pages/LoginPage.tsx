@@ -3,7 +3,10 @@ import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Card, Form, Input, Button, Typography, Alert } from 'antd';
+import { useTheme } from '../context/ThemeContext';
+import { Card, Form, Input, Button, Typography, Alert, Dropdown } from 'antd';
+import type { MenuProps } from 'antd';
+import { SunOutlined, MoonOutlined, MonitorOutlined } from '@ant-design/icons';
 import { credentialToJSON, parseAuthenticationOptions } from '../utils/webauthn';
 
 const START_MFA_LOGIN_MUTATION = gql`
@@ -202,6 +205,7 @@ export const LoginPage = () => {
   const [oidcError, setOidcError] = useState('');
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const { login } = useAuth();
+  const { mode, setMode, resolvedTheme } = useTheme();
   const { data: publicAuthOrgsData } = useQuery<PublicAuthOrganizationsData>(PUBLIC_AUTH_ORGANIZATIONS_QUERY, {
     fetchPolicy: 'cache-and-network',
   });
@@ -226,6 +230,28 @@ export const LoginPage = () => {
   const canUseEntra = authOptions?.enableEntra ?? false;
   const canUseGenericOidc = authOptions?.enableOidc ?? false;
   const authOrgs = publicAuthOrgsData?.publicAuthOrganizations || [];
+  const themeMenuItems: MenuProps['items'] = [
+    {
+      key: 'light',
+      icon: <SunOutlined />,
+      label: 'Light',
+      onClick: () => setMode('light'),
+    },
+    {
+      key: 'dark',
+      icon: <MoonOutlined />,
+      label: 'Dark',
+      onClick: () => setMode('dark'),
+    },
+    {
+      key: 'system',
+      icon: <MonitorOutlined />,
+      label: 'System',
+      onClick: () => setMode('system'),
+    },
+  ];
+  const activeThemeIcon = mode === 'light' ? <SunOutlined /> : mode === 'dark' ? <MoonOutlined /> : <MonitorOutlined />;
+  const activeThemeLabel = mode === 'system' ? `System (${resolvedTheme})` : mode;
 
   useEffect(() => {
     if (selectedOrgId) return;
@@ -386,6 +412,13 @@ export const LoginPage = () => {
         <Typography.Paragraph className="auth-subtitle">
           Detection Engineering Portal
         </Typography.Paragraph>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <Dropdown menu={{ items: themeMenuItems, selectable: true, selectedKeys: [mode] }} trigger={['click']}>
+            <Button icon={activeThemeIcon} size="small">
+              Theme: {activeThemeLabel}
+            </Button>
+          </Dropdown>
+        </div>
         {error && (
           <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error.message} />
         )}
@@ -396,7 +429,7 @@ export const LoginPage = () => {
           <Form layout="vertical" style={{ marginBottom: 12 }}>
             <Form.Item label="Organization" required>
               <select
-                className="w-full p-2 border rounded text-sm"
+                className="w-full p-2 border rounded text-sm auth-org-select"
                 value={selectedOrgId}
                 onChange={(e) => setSelectedOrgId(e.target.value)}
                 disabled={loading}
