@@ -1206,6 +1206,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
       footer={null}
       width={700}
       destroyOnClose
+      className="export-import-modal"
     >
       <Tabs 
         activeKey={activeTab} 

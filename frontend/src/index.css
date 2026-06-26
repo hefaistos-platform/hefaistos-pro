@@ -414,6 +414,30 @@ code {
   color: var(--hef-text-muted);
 }
 
+.maieutic-modal .border-gray-200 {
+  border-color: var(--hef-border) !important;
+}
+
+.maieutic-modal .text-gray-400 {
+  color: var(--hef-text-muted) !important;
+}
+
+.maieutic-modal .bg-gray-100 {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.maieutic-modal .text-gray-600 {
+  color: var(--hef-text-secondary) !important;
+}
+
+.maieutic-modal .bg-green-100 {
+  background: var(--hef-success-bg) !important;
+}
+
+.maieutic-modal .text-green-700 {
+  color: var(--hef-success-text) !important;
+}
+
 .maieutic-chat-shell {
   background: var(--hef-bg-accent);
   border-color: var(--hef-border);
@@ -1082,6 +1106,59 @@ code {
   background: var(--hef-bg-subtle) !important;
   color: var(--hef-text-primary) !important;
   border-color: var(--hef-border) !important;
+}
+
+/* Export / Import playbook modal (portal-rendered) */
+.export-import-modal .ant-modal-content,
+.export-import-modal .ant-modal-header,
+.export-import-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.export-import-modal .ant-modal-title,
+.export-import-modal .ant-typography,
+.export-import-modal .ant-tabs-tab-btn,
+.export-import-modal .ant-upload-text {
+  color: var(--hef-text-primary) !important;
+}
+
+.export-import-modal .ant-tabs-content-holder,
+.export-import-modal .ant-tabs-nav::before {
+  border-color: var(--hef-border) !important;
+}
+
+.export-import-modal .ant-input,
+.export-import-modal .ant-input-textarea textarea,
+.export-import-modal .ant-select-selector,
+.export-import-modal .ant-upload.ant-upload-drag {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.export-import-modal .border {
+  border-color: var(--hef-border) !important;
+}
+
+.export-import-modal .border.rounded-lg {
+  background: var(--hef-bg-subtle) !important;
+}
+
+.export-import-modal .bg-blue-50 {
+  background: var(--hef-info-bg) !important;
+}
+
+.export-import-modal .border-blue-200 {
+  border-color: var(--hef-info-border) !important;
+}
+
+.export-import-modal .bg-green-50 {
+  background: var(--hef-success-bg) !important;
+}
+
+.export-import-modal .border-green-200 {
+  border-color: var(--hef-success-border) !important;
 }
 
 .capability-library-modal .ant-modal-content,
