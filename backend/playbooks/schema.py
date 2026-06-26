@@ -10,6 +10,7 @@ import yaml
 import requests
 from graphene.types.generic import GenericScalar
 from graphene_file_upload.scalars import Upload
+from django.db import transaction
 from django.db.models import Count, Q, Prefetch
 from django.core.exceptions import ObjectDoesNotExist
 from playbooks.models import DetectionPlaybook
@@ -123,6 +124,33 @@ def _coerce_int_pk(value, label: str) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise Exception(f"Invalid {label} identifier") from exc
+
+
+def _normalize_tag_names(raw_tags) -> list[str]:
+    normalized = []
+    seen = set()
+    for tag in raw_tags or []:
+        if not isinstance(tag, str):
+            continue
+        name = tag.strip().lower()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        normalized.append(name)
+    return normalized
+
+
+def _resolve_tenant_tags_for_organization(raw_tags, organization) -> tuple[list[TenantTag], list[str]]:
+    tag_names = _normalize_tag_names(raw_tags)
+    tenant_tags = []
+    for name in tag_names:
+        tag, _ = TenantTag.objects.get_or_create(
+            name=name,
+            organization=organization,
+            defaults={"slug": name.replace(" ", "-")},
+        )
+        tenant_tags.append(tag)
+    return tenant_tags, tag_names
 
 
 def _normalize_mve_node_type(raw_node_type: str | None) -> str:
@@ -3306,32 +3334,10 @@ class UpdatePlaybookDetails(graphene.Mutation):
         
         # Tags: replace existing tags with provided list (Tenant-scoped)
         if 'tags' in kwargs:
-            from tags.models import TenantTag
-            raw_tags = kwargs.get('tags') or []
-            # Normalize: lowercase and unique while preserving order
-            seen = set()
-            norm = []
-            for t in raw_tags:
-                if not isinstance(t, str):
-                    continue
-                name = t.strip().lower()
-                if name and name not in seen:
-                    seen.add(name)
-                    norm.append(name)
-            tenant_tags = []
-            for name in norm:
-                tag, _ = TenantTag.objects.get_or_create(
-                    name=name,
-                    defaults={
-                        'slug': name.replace(' ', '-'),
-                        'organization': user.organization,
-                    },
-                    organization=user.organization
-                )
-                # If tag exists but belongs to another org (shouldn't with unique_together), skip
-                if tag.organization_id != user.organization_id:
-                    continue
-                tenant_tags.append(tag)
+            tenant_tags, norm = _resolve_tenant_tags_for_organization(
+                kwargs.get('tags'),
+                user.organization,
+            )
             graph.tags.set(tenant_tags)
             # Inject tags as comments into the detection rule
             current_rule = graph.detection_rule or ""
@@ -3825,10 +3831,11 @@ def deserialize_playbook_graph(data: dict, organization, author) -> PlaybookGrap
     graph.title = _normalize_workbench_title(playbook_data.get("title", "Imported Playbook"), graph)
     graph.save(update_fields=["title", "updated_at"])
     
-    # Add tags
-    tags = playbook_data.get("tags", [])
-    if tags:
-        graph.tags.add(*tags)
+    tenant_tags, _ = _resolve_tenant_tags_for_organization(
+        playbook_data.get("tags"),
+        organization,
+    )
+    graph.tags.set(tenant_tags)
     
     # Create node ID mapping (old ID -> new node)
     node_id_map = {}
@@ -3961,7 +3968,11 @@ def update_playbook_graph_from_v1(data: dict, graph: PlaybookGraph, author, new_
     graph.notes = playbook_data.get("notes", "")
     graph.save()
 
-    graph.tags.set(playbook_data.get("tags", []))
+    tenant_tags, _ = _resolve_tenant_tags_for_organization(
+        playbook_data.get("tags"),
+        graph.organization,
+    )
+    graph.tags.set(tenant_tags)
 
     _clear_graph_nodes_and_edges(graph)
     _apply_nodes_edges_from_v1(graph, playbook_data)
@@ -4205,10 +4216,11 @@ def deserialize_playbook_graph_hex_v2(data: dict, organization, author) -> Playb
     graph.title = _normalize_workbench_title(metadata.get("name", "Imported Playbook"), graph)
     graph.save(update_fields=["title", "updated_at"])
     
-    # Add tags
-    tags = metadata.get("tags", [])
-    if tags:
-        graph.tags.add(*tags)
+    tenant_tags, _ = _resolve_tenant_tags_for_organization(
+        metadata.get("tags"),
+        organization,
+    )
+    graph.tags.set(tenant_tags)
 
     if (graph.status or '').upper() == str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
         _upsert_l1_portal_snapshot(graph)
@@ -4375,7 +4387,11 @@ def update_playbook_graph_from_hex_v2(data: dict, graph: PlaybookGraph, author, 
     if (graph.status or '').upper() == str(DetectionPlaybook.PlaybookStatus.DEPLOYED):
         _upsert_l1_portal_snapshot(graph)
 
-    graph.tags.set(metadata.get("tags", []))
+    tenant_tags, _ = _resolve_tenant_tags_for_organization(
+        metadata.get("tags"),
+        graph.organization,
+    )
+    graph.tags.set(tenant_tags)
 
     _clear_graph_nodes_and_edges(graph)
     _apply_nodes_edges_from_hex_v2(graph, graph_structure)
@@ -4721,10 +4737,11 @@ class ImportPlaybookGraph(graphene.Mutation):
                 if new_title:
                     data["metadata"]["name"] = new_title
                 
-                if target_graph:
-                    graph = update_playbook_graph_from_hex_v2(data, target_graph, user, new_title)
-                else:
-                    graph = deserialize_playbook_graph_hex_v2(data, user.organization, user)
+                with transaction.atomic():
+                    if target_graph:
+                        graph = update_playbook_graph_from_hex_v2(data, target_graph, user, new_title)
+                    else:
+                        graph = deserialize_playbook_graph_hex_v2(data, user.organization, user)
                 return ImportPlaybookGraph(
                     success=True,
                     graph=graph,
@@ -4743,10 +4760,11 @@ class ImportPlaybookGraph(graphene.Mutation):
                 data.setdefault("playbook", {})["title"] = new_title
             
             try:
-                if target_graph:
-                    graph = update_playbook_graph_from_v1(data, target_graph, user, new_title)
-                else:
-                    graph = deserialize_playbook_graph(data, user.organization, user)
+                with transaction.atomic():
+                    if target_graph:
+                        graph = update_playbook_graph_from_v1(data, target_graph, user, new_title)
+                    else:
+                        graph = deserialize_playbook_graph(data, user.organization, user)
                 return ImportPlaybookGraph(
                     success=True,
                     graph=graph,
@@ -5431,18 +5449,20 @@ class PullPlaybookFromGitHub(graphene.Mutation):
                 if new_title:
                     data.setdefault("metadata", {})["name"] = new_title
 
-                if target_graph:
-                    graph = update_playbook_graph_from_hex_v2(data, target_graph, user, new_title)
-                else:
-                    graph = deserialize_playbook_graph_hex_v2(data, user.organization, user)
+                with transaction.atomic():
+                    if target_graph:
+                        graph = update_playbook_graph_from_hex_v2(data, target_graph, user, new_title)
+                    else:
+                        graph = deserialize_playbook_graph_hex_v2(data, user.organization, user)
             elif export_type == "playbook_graph":
                 if new_title:
                     data.setdefault("playbook", {})["title"] = new_title
 
-                if target_graph:
-                    graph = update_playbook_graph_from_v1(data, target_graph, user, new_title)
-                else:
-                    graph = deserialize_playbook_graph(data, user.organization, user)
+                with transaction.atomic():
+                    if target_graph:
+                        graph = update_playbook_graph_from_v1(data, target_graph, user, new_title)
+                    else:
+                        graph = deserialize_playbook_graph(data, user.organization, user)
             else:
                 return PullPlaybookFromGitHub(
                     success=False,
