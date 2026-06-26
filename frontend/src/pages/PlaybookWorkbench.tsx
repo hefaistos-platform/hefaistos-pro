@@ -37,6 +37,7 @@ import { compileMetadataFromWorkbench, getConfiguredPlatforms } from '../utils/o
 import { isDirty, normalize } from '../utils/ruleDiff';
 import OpenTideMetadataPreview from '../components/OpenTideMetadataPreview';
 import { OpenTidePreviewModal } from '../components/OpenTidePreviewModal';
+import { useTheme } from '../context/ThemeContext';
 import {
   LAYER_ORDER,
   LAYER_Y,
@@ -680,6 +681,8 @@ export const PlaybookWorkbench = () => {
   const SIDEBAR_DEFAULT_WIDTH = 320;
   const SIDEBAR_COLLAPSED_WIDTH = 40;
   const SIDEBAR_MIN_WIDTH = 280;
+  const { resolvedTheme } = useTheme();
+  const isDarkTheme = resolvedTheme === 'dark';
 
   const { playbookId } = useParams<{ playbookId: string }>();
   const navigate = useNavigate();
@@ -2274,7 +2277,11 @@ export const PlaybookWorkbench = () => {
                           )}
 
                           {/* Editor */}
-                          <div className="h-[32rem] rounded-lg overflow-hidden border border-gray-700 shadow-inner bg-[#071108]">
+                          <div
+                            className={`h-[32rem] rounded-lg overflow-hidden shadow-inner ${
+                              isDarkTheme ? 'border border-gray-700 bg-[#071108]' : 'border border-gray-300 bg-white'
+                            }`}
+                          >
                             <DetectionRuleEditor
                               value={localRule}
                               onChange={(value) => {
@@ -2285,7 +2292,7 @@ export const PlaybookWorkbench = () => {
                               format={aiFormat}
                               height="100%"
                               enableLSP={false}
-                              visualStyle="terminal"
+                              visualStyle={isDarkTheme ? 'terminal' : 'default'}
                             />
                           </div>
                        </div>
