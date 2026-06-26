@@ -90,7 +90,7 @@ export const L1PortalDetailPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '0 24px', maxWidth: 1100 }}>
+    <div className="l1-portal-theme" style={{ padding: '0 24px', maxWidth: 1100 }}>
       <Card
         title={<Typography.Title level={3} style={{ margin: 0 }}>{entry.title}</Typography.Title>}
         extra={

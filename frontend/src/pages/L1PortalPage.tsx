@@ -123,7 +123,7 @@ export const L1PortalPage: React.FC = () => {
   );
 
   return (
-    <div style={{ padding: '0 24px' }}>
+    <div className="l1-portal-theme" style={{ padding: '0 24px' }}>
       <Card
         title={<Typography.Title level={3} style={{ margin: 0 }}>L1 Portal</Typography.Title>}
         extra={
@@ -157,6 +157,7 @@ export const L1PortalPage: React.FC = () => {
         open={!!selectedEntry}
         onCancel={() => setSelectedEntry(null)}
         width={1050}
+        className="l1-portal-modal"
         footer={
           <Space>
             <Button onClick={() => setSelectedEntry(null)}>Close</Button>

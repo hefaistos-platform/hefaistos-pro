@@ -1321,6 +1321,61 @@ code {
   border-color: var(--hef-border) !important;
 }
 
+/* L1 portal playbook readability */
+.l1-portal-theme .ant-card,
+.l1-portal-theme .ant-card-head,
+.l1-portal-theme .ant-card-body,
+.l1-portal-modal .ant-modal-content,
+.l1-portal-modal .ant-modal-header,
+.l1-portal-modal .ant-modal-footer,
+.l1-portal-modal .ant-card,
+.l1-portal-modal .ant-card-head,
+.l1-portal-modal .ant-card-body {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.l1-portal-theme .ant-typography,
+.l1-portal-modal .ant-typography,
+.l1-portal-modal .ant-modal-title,
+.l1-portal-theme .prose,
+.l1-portal-theme .prose p,
+.l1-portal-theme .prose li,
+.l1-portal-theme .prose h1,
+.l1-portal-theme .prose h2,
+.l1-portal-theme .prose h3,
+.l1-portal-theme .prose h4,
+.l1-portal-modal .prose,
+.l1-portal-modal .prose p,
+.l1-portal-modal .prose li,
+.l1-portal-modal .prose h1,
+.l1-portal-modal .prose h2,
+.l1-portal-modal .prose h3,
+.l1-portal-modal .prose h4 {
+  color: var(--hef-text-primary) !important;
+}
+
+.l1-portal-theme .prose strong,
+.l1-portal-modal .prose strong {
+  color: var(--hef-text-primary) !important;
+}
+
+.l1-portal-theme .ant-typography-secondary,
+.l1-portal-modal .ant-typography-secondary,
+.l1-portal-theme .prose code,
+.l1-portal-modal .prose code {
+  color: var(--hef-text-secondary) !important;
+}
+
+.l1-portal-theme a,
+.l1-portal-theme .ant-typography a,
+.l1-portal-modal a,
+.l1-portal-modal .ant-typography a,
+.l1-portal-theme .prose a,
+.l1-portal-modal .prose a {
+  color: var(--hef-text-link) !important;
+}
+
 .news-admin-theme .ant-modal-content,
 .news-admin-theme .ant-modal-header,
 .news-admin-theme .ant-modal-footer {
