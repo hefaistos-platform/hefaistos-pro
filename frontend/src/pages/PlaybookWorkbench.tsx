@@ -37,6 +37,7 @@ import { compileMetadataFromWorkbench, getConfiguredPlatforms } from '../utils/o
 import { isDirty, normalize } from '../utils/ruleDiff';
 import OpenTideMetadataPreview from '../components/OpenTideMetadataPreview';
 import { OpenTidePreviewModal } from '../components/OpenTidePreviewModal';
+import { DETECTION_FORMAT_REGISTRY } from '../components/detectionFormatRegistry';
 import { useTheme } from '../context/ThemeContext';
 import {
   LAYER_ORDER,
@@ -444,6 +445,20 @@ const SAVE_RULE_MUTATION = gql`
   }
 `;
 
+const SAVE_ALL_RULES_MUTATION = gql`
+  mutation SaveAllRules($playbookId: UUID!, $rules: [SaveRuleInput!]!) {
+    saveAllDetectionRules(playbookId: $playbookId, rules: $rules) {
+      success
+      results {
+        format
+        status
+        filename
+        message
+      }
+    }
+  }
+`;
+
 interface SaveRuleResponse {
   saveDetectionRule: {
     success: boolean;
@@ -459,6 +474,28 @@ interface SaveRuleVars {
   format?: string;
   autoCommit?: boolean;
   commitMessage?: string;
+}
+
+interface SaveAllRuleResult {
+  format: string;
+  status: string;
+  filename?: string | null;
+  message?: string | null;
+}
+
+interface SaveAllRulesResponse {
+  saveAllDetectionRules: {
+    success: boolean;
+    results: SaveAllRuleResult[];
+  };
+}
+
+interface SaveAllRulesVars {
+  playbookId: string;
+  rules: Array<{
+    format: string;
+    content: string;
+  }>;
 }
 
 const UPDATE_OPENTIDE_YAML_MUTATION = gql`
@@ -730,6 +767,7 @@ export const PlaybookWorkbench = () => {
     refetchQueries: [{ query: GET_PLAYBOOK_GRAPH_QUERY, variables: { id: playbookId } }],
   });
   const [saveRule, { loading: saving }] = useMutation<SaveRuleResponse, SaveRuleVars>(SAVE_RULE_MUTATION);
+  const [saveAllRules, { loading: savingAll }] = useMutation<SaveAllRulesResponse, SaveAllRulesVars>(SAVE_ALL_RULES_MUTATION);
   const [updateOpenTideYaml] = useMutation(UPDATE_OPENTIDE_YAML_MUTATION);
   const [createEdge] = useMutation<CreateEdgeData>(CREATE_EDGE_MUTATION);
   const [deleteNode] = useMutation(DELETE_NODE_MUTATION);
@@ -1030,10 +1068,6 @@ export const PlaybookWorkbench = () => {
           if (isWorkbenchRuleFormat(detectedFormat)) {
             setAiFormat(detectedFormat);
           }
-          setSavedLibrarySnapshot((prev) => ({
-            format: detectedFormat || prev.format || 'KQL',
-            content: normalize(data.playbookGraph.detectionRule),
-          }));
       }
       // Always compile fresh metadata from current workbench field values
       if (data?.playbookGraph) {
@@ -1503,6 +1537,7 @@ export const PlaybookWorkbench = () => {
     format: '',
     content: '',
   });
+  const [savedPlatformLibrarySnapshots, setSavedPlatformLibrarySnapshots] = useState<Record<string, string>>({});
 
   const handleAIGenerate = useCallback(async () => {
     if (!playbookId) return;
@@ -1526,7 +1561,71 @@ export const PlaybookWorkbench = () => {
 
   const handleSaveToLibrary = useCallback(async () => {
     if (!playbookId) return;
+    const extractedPlatformRules = openTideRule
+      ? DETECTION_FORMAT_REGISTRY
+        .map((entry) => ({
+          format: entry.format,
+          content: entry.getContent(openTideRule).trim(),
+        }))
+        .filter((item) => item.content.length > 0)
+      : [];
+
+    if (extractedPlatformRules.length > 0) {
+      const changedPlatformRules = extractedPlatformRules.filter((item) => {
+        const previous = savedPlatformLibrarySnapshots[item.format] ?? '';
+        return previous.length === 0 || isDirty(item.content, previous);
+      });
+
+      if (changedPlatformRules.length === 0) {
+        message.info('No changes, nothing to save');
+        return;
+      }
+
+      try {
+        const res = await saveAllRules({
+          variables: {
+            playbookId,
+            rules: changedPlatformRules.map((item) => ({
+              format: item.format,
+              content: item.content,
+            })),
+          },
+        });
+        const results = res.data?.saveAllDetectionRules?.results || [];
+        const saved = results.filter((r) => (r.status || '').toLowerCase() === 'saved');
+        const failed = results.filter((r) => (r.status || '').toLowerCase() !== 'saved');
+
+        if (saved.length > 0) {
+          const byFormat = new Map(changedPlatformRules.map((item) => [item.format, item.content]));
+          setSavedPlatformLibrarySnapshots((prev) => {
+            const next = { ...prev };
+            for (const result of saved) {
+              const content = byFormat.get(result.format);
+              if (content !== undefined) {
+                next[result.format] = normalize(content);
+              }
+            }
+            return next;
+          });
+        }
+
+        if (failed.length === 0) {
+          message.success(`Saved to Rule Hub: ${saved.map((r) => r.format).join(', ')}`);
+        } else {
+          const reasons = failed
+            .map((r) => `${r.format}: ${r.message || 'Unknown reason'}`)
+            .join(' | ');
+          message.error(`Rule Hub save failed for some formats. ${reasons}`);
+        }
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || 'Failed to save platform rules to Rule Hub.');
+      }
+      return;
+    }
+
     if (
+      savedLibrarySnapshot.content &&
       savedLibrarySnapshot.format === aiFormat &&
       !isDirty(localRule, savedLibrarySnapshot.content)
     ) {
@@ -1542,18 +1641,27 @@ export const PlaybookWorkbench = () => {
       if (ok) {
         setSavedLibrarySnapshot({ format: aiFormat, content: normalize(localRule) });
         const successMsg = commitSha
-          ? `✅ Saved to Detection Rules Library! Committed to Git: ${commitSha}`
-          : '✅ Saved to Detection Rules Library!';
-        alert(successMsg);
+          ? `Saved to Rule Hub. Commit: ${commitSha}`
+          : 'Saved to Rule Hub.';
+        message.success(successMsg);
       } else {
         const errorDetail = errors && errors.length > 0 ? errors.join('\n') : (msg || 'Unable to save');
-        alert('❌ Error: ' + errorDetail);
+        message.error(`Rule Hub save failed: ${errorDetail}`);
       }
     } catch (e: any) {
       console.error(e);
-      alert('Failed to save.');
+      message.error(e?.message || 'Failed to save.');
     }
-  }, [playbookId, localRule, aiFormat, saveRule, savedLibrarySnapshot]);
+  }, [
+    playbookId,
+    openTideRule,
+    savedPlatformLibrarySnapshots,
+    saveAllRules,
+    savedLibrarySnapshot,
+    aiFormat,
+    localRule,
+    saveRule,
+  ]);
 
   const sanitizeRule = useCallback((raw: string) => {
     // Remove common code fences/backticks and leading/trailing whitespace
@@ -2207,11 +2315,11 @@ export const PlaybookWorkbench = () => {
                                variant="primary"
                                className="flex-1 bg-green-600 hover:bg-green-700 border-green-700 text-white justify-center"
                                onClick={handleSaveToLibrary}
-                               disabled={saving}
+                               disabled={saving || savingAll}
                              >
                                <span className="flex items-center justify-center">
                                  <PixelIcon name="save" className="w-4 h-4 mr-2" />
-                                 {saving ? 'Saving...' : 'Save'}
+                                 {saving || savingAll ? 'Saving...' : 'Save'}
                                </span>
                              </Button>
                            </div>
