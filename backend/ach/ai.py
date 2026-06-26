@@ -50,6 +50,8 @@ class ACHGenerator:
         "logging assumptions, analytic coverage gaps, or detection opportunities. "
         "Detection evidence must describe observable telemetry, logs, fields, queries, alerts, data sources, enrichment signals, "
         "or validation artifacts that a detection engineer can use to confirm, reject, or tune those hypotheses. "
+        "Select only the strongest, most discriminating items for the described scenario. "
+        "Return at most 5 hypotheses and at most 6 evidence items. "
         "Do NOT generate generic incident-response, investigative, business, medical, legal, or non-security hypotheses. "
         "Do NOT recommend containment/remediation steps unless they are framed as detection evidence or detection validation context. "
         "Given a scenario description, output ONLY valid JSON with these exact keys: "
@@ -142,15 +144,15 @@ class ACHGenerator:
 
         try:
             if 'GPT' in provider:
-                return self._call_openai(settings.get_openai_key(), provider, prompt, self._GENERATE_SYSTEM)
+                raw = self._call_openai(settings.get_openai_key(), provider, prompt, self._GENERATE_SYSTEM)
             elif 'GEMINI' in provider:
-                return self._call_gemini(settings.get_gemini_key(), provider, prompt, self._GENERATE_SYSTEM)
+                raw = self._call_gemini(settings.get_gemini_key(), provider, prompt, self._GENERATE_SYSTEM)
             elif 'CLAUDE' in provider:
-                return self._call_claude(settings.get_claude_key(), provider, prompt, self._GENERATE_SYSTEM)
+                raw = self._call_claude(settings.get_claude_key(), provider, prompt, self._GENERATE_SYSTEM)
             elif provider == 'OLLAMA':
-                return self._call_ollama(settings.get_ollama_url(), settings.get_ollama_model(), prompt, self._GENERATE_SYSTEM)
+                raw = self._call_ollama(settings.get_ollama_url(), settings.get_ollama_model(), prompt, self._GENERATE_SYSTEM)
             elif provider == 'AZURE-OPENAI':
-                return self._call_azure_openai(
+                raw = self._call_azure_openai(
                     settings.get_azure_openai_endpoint(),
                     settings.get_azure_openai_key(),
                     settings.get_azure_openai_deployment(),
@@ -159,9 +161,49 @@ class ACHGenerator:
                 )
             else:
                 raise Exception(f"Unsupported provider: {provider}")
+            return self._normalize_generate_payload(raw)
         except Exception as e:
             logger.error(f"AI Generation failed: {str(e)}")
             raise Exception(f"AI Generation failed: {str(e)}")
+
+    def _normalize_generate_payload(self, data):
+        hypotheses_raw = data.get('hypotheses') if isinstance(data, dict) else []
+        evidence_raw = data.get('evidence') if isinstance(data, dict) else []
+
+        hypotheses = []
+        seen_hypotheses = set()
+        for item in (hypotheses_raw or []):
+            text = str(item or '').strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen_hypotheses:
+                continue
+            seen_hypotheses.add(key)
+            hypotheses.append(text)
+            if len(hypotheses) >= 5:
+                break
+
+        evidence = []
+        seen_evidence = set()
+        for item in (evidence_raw or []):
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get('content') or '').strip()
+            credibility = str(item.get('credibility') or 'MEDIUM').strip().upper()
+            if not content:
+                continue
+            if credibility not in {'HIGH', 'MEDIUM', 'LOW'}:
+                credibility = 'MEDIUM'
+            key = content.lower()
+            if key in seen_evidence:
+                continue
+            seen_evidence.add(key)
+            evidence.append({'content': content, 'credibility': credibility})
+            if len(evidence) >= 6:
+                break
+
+        return {'hypotheses': hypotheses, 'evidence': evidence}
 
     def check_bias(self, user, hypothesis, evidence, score, other_hypotheses):
         settings, provider, available = self._get_provider_settings(user)

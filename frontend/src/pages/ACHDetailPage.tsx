@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
@@ -330,18 +330,6 @@ const SET_ACH_REMOTE_PULL = gql`
   }
 `;
 
-const UPDATE_AI_PREFERRED_MODEL = gql`
-  mutation UpdateAIPreferredModel($preferredModel: String) {
-    updateAiSettings(preferredModel: $preferredModel) {
-      settings {
-        preferredModel
-        effectivePreferredModel
-      }
-      warning
-    }
-  }
-`;
-
 const SCORE_OPTIONS = [
   { value: 'CC', label: 'Very Consistent (CC)', color: 'bg-green-900 text-green-100' },
   { value: 'C', label: 'Consistent (C)', color: 'bg-green-800 text-green-100' },
@@ -370,7 +358,6 @@ export const ACHDetailPage: React.FC = () => {
   const [updateStatus] = useMutation(UPDATE_ACH_STATUS);
   const [cloneAnalysis, { loading: cloningAnalysis }] = useMutation<CloneAchAnalysisResponse>(CLONE_ACH_ANALYSIS);
   const [setAchRemotePull, { loading: togglingRemotePull }] = useMutation(SET_ACH_REMOTE_PULL);
-  const [updateAiPreferredModel, { loading: updatingModel }] = useMutation(UPDATE_AI_PREFERRED_MODEL);
 
   const [newHypothesis, setNewHypothesis] = useState('');
   const [newHypothesisTTP, setNewHypothesisTTP] = useState<string | undefined>(undefined);
@@ -393,12 +380,8 @@ export const ACHDetailPage: React.FC = () => {
   const [devilsAdvocateResult, setDevilsAdvocateResult] = useState<{msg: string, reasoning: string} | null>(null);
   const [loadingDevilsAdvocate, setLoadingDevilsAdvocate] = useState(false);
   const [devilsAdvocateProgress, setDevilsAdvocateProgress] = useState<string>('');
-  const [aiModelInput, setAiModelInput] = useState('');
+  const [cellOverrides, setCellOverrides] = useState<Record<string, string>>({});
   const navigate = useNavigate();
-
-  React.useEffect(() => {
-    setAiModelInput(aiSettingsData?.myAiSettings?.preferredModel || '');
-  }, [aiSettingsData?.myAiSettings?.preferredModel]);
 
   if (loading) return <div style={{ padding: 24 }}>Loading...</div>;
   if (error) return <div style={{ padding: 24 }}><Text type="danger">Error: {error.message}</Text></div>;
@@ -416,6 +399,15 @@ export const ACHDetailPage: React.FC = () => {
   const hasConfiguredAi = myAiSettings?.useOrgAi
     ? Boolean(myAiSettings.effectivePreferredModel)
     : hasPersonalAiProvider;
+  const effectiveModelName = myAiSettings?.effectivePreferredModel || myAiSettings?.preferredModel || '';
+  const modelTagColor = useMemo(() => {
+    if (!myAiSettings) return 'default';
+    if (myAiSettings.hasOllama) return 'orange';
+    if (myAiSettings.hasGemini) return 'green';
+    if (myAiSettings.hasOpenai) return 'blue';
+    if (myAiSettings.hasClaude) return 'purple';
+    return 'default';
+  }, [myAiSettings]);
   const scores = JSON.parse(analysis.scores || '{}');
 
   const handleAddHypothesis = async (values?: any) => {
@@ -528,9 +520,24 @@ export const ACHDetailPage: React.FC = () => {
     }
   };
 
+  const getCellKey = (hId: string, eId: string) => `${hId}::${eId}`;
+
   const handleCellChange = async (hId: string, eId: string, score: string) => {
-    await updateCell({ variables: { hypothesisId: hId, evidenceId: eId, score } });
-    refetch();
+    const key = getCellKey(hId, eId);
+    const previous = cellOverrides[key];
+    setCellOverrides((prev) => ({ ...prev, [key]: score }));
+    try {
+      await updateCell({ variables: { hypothesisId: hId, evidenceId: eId, score } });
+      await refetch();
+    } catch (err: any) {
+      setCellOverrides((prev) => {
+        const next = { ...prev };
+        if (previous) next[key] = previous;
+        else delete next[key];
+        return next;
+      });
+      message.error(err?.message || 'Failed to update matrix cell score');
+    }
   };
 
   const handleAskDevilsAdvocate = async () => {
@@ -722,77 +729,31 @@ export const ACHDetailPage: React.FC = () => {
   };
 
   const getCellScore = (hId: string, eId: string) => {
+    const override = cellOverrides[getCellKey(hId, eId)];
+    if (override) return override;
     const cell = analysis.matrixCells.find((c) => c.hypothesis.id === hId && c.evidence.id === eId);
     return cell?.score || 'N';
   };
 
   return (
-    <div style={{ padding: 24 }}>
+    <div className="ach-theme" style={{ padding: 24, background: 'var(--hef-bg-page)', color: 'var(--hef-text-primary)' }}>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
         <Space>
           <Link to="/tools/ach">
             <Button icon={<ArrowLeftOutlined />}>Back</Button>
           </Link>
-          <Title level={3} style={{ margin: 0 }}>{analysis.title}</Title>
+          <Title level={3} style={{ margin: 0, color: 'var(--hef-text-primary)' }}>{analysis.title}</Title>
           {analysis.savedAsTemplate && (
             <Tag color="purple" icon={<span>⭐</span>}>Template</Tag>
           )}
         </Space>
         <Space wrap>
-          {myAiSettings && (
-            myAiSettings.useOrgAi ? (
-              <Tooltip title="AI model is managed by your organization">
-                <Tag color={myAiSettings.hasOllama ? 'orange' : myAiSettings.hasGemini ? 'green' : myAiSettings.hasOpenai ? 'blue' : myAiSettings.hasClaude ? 'purple' : 'default'} style={{ margin: 0, lineHeight: '30px' }}>
-                  Model: {myAiSettings.effectivePreferredModel || myAiSettings.preferredModel}
-                </Tag>
-              </Tooltip>
-            ) : (
-              <Space.Compact>
-                <Input
-                  size="small"
-                  style={{ minWidth: 280 }}
-                  placeholder="Enter AI model (e.g. GPT-5.5, GEMINI-3.5-FLASH, CLAUDE-SONNET-4.6)"
-                  value={aiModelInput}
-                  onChange={(e) => setAiModelInput(e.target.value)}
-                  onPressEnter={async () => {
-                    try {
-                      const preferredModel = aiModelInput.trim();
-                      const res = await updateAiPreferredModel({
-                        variables: { preferredModel: preferredModel || undefined },
-                        refetchQueries: ['GetMyAISettings'],
-                      });
-                      const warn = res.data?.updateAiSettings?.warning;
-                      if (warn) message.warning(warn);
-                      else message.success('AI model updated');
-                      setAiModelInput(preferredModel);
-                    } catch (err: any) {
-                      message.error(err?.message || 'Failed to update AI model');
-                    }
-                  }}
-                />
-                <Button
-                  size="small"
-                  loading={updatingModel}
-                  onClick={async () => {
-                    try {
-                      const preferredModel = aiModelInput.trim();
-                      const res = await updateAiPreferredModel({
-                        variables: { preferredModel: preferredModel || undefined },
-                        refetchQueries: ['GetMyAISettings'],
-                      });
-                      const warn = res.data?.updateAiSettings?.warning;
-                      if (warn) message.warning(warn);
-                      else message.success('AI model updated');
-                      setAiModelInput(preferredModel);
-                    } catch (err: any) {
-                      message.error(err?.message || 'Failed to update AI model');
-                    }
-                  }}
-                >
-                  Save
-                </Button>
-              </Space.Compact>
-            )
+          {myAiSettings && effectiveModelName && (
+            <Tooltip title={myAiSettings.useOrgAi ? 'AI model is managed by your organization settings' : 'AI model is managed by your profile settings'}>
+              <Tag color={modelTagColor} style={{ margin: 0, lineHeight: '30px' }}>
+                Model: {effectiveModelName}
+              </Tag>
+            </Tooltip>
           )}
           {!analysis.savedAsTemplate && (
             <Button 
@@ -919,11 +880,11 @@ export const ACHDetailPage: React.FC = () => {
       )}
 
       {/* Matrix */}
-      <Card style={{ marginBottom: 16, overflow: 'auto' }}>
+      <Card style={{ marginBottom: 16, overflow: 'auto', background: 'var(--hef-bg-surface)', borderColor: 'var(--hef-border)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ padding: 16, borderBottom: '1px solid #f0f0f0', borderRight: '1px solid #f0f0f0', textAlign: 'left', minWidth: 300, background: '#fafafa', position: 'sticky', left: 0, zIndex: 10 }}>
+              <th style={{ padding: 16, borderBottom: '1px solid var(--hef-border)', borderRight: '1px solid var(--hef-border)', textAlign: 'left', minWidth: 300, background: 'var(--hef-bg-subtle)', position: 'sticky', left: 0, zIndex: 10, color: 'var(--hef-text-primary)' }}>
                 Evidence / Hypotheses
               </th>
               {analysis.hypotheses.map((h: any) => {
@@ -948,7 +909,7 @@ export const ACHDetailPage: React.FC = () => {
                 const visualBar = '█'.repeat(barLength);
                 
                 return (
-                  <th key={h.id} style={{ padding: 16, borderBottom: '1px solid #f0f0f0', textAlign: 'left', minWidth: 200, background: categoryColor, verticalAlign: 'top' }}>
+                  <th key={h.id} style={{ padding: 16, borderBottom: '1px solid var(--hef-border)', textAlign: 'left', minWidth: 200, background: categoryColor, verticalAlign: 'top', color: 'var(--hef-text-primary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{h.content}</div>
                       <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
@@ -1025,8 +986,8 @@ export const ACHDetailPage: React.FC = () => {
           </thead>
           <tbody>
             {analysis.evidenceItems.map((e: any) => (
-              <tr key={e.id} style={{ background: '#fff' }}>
-                <td style={{ padding: 16, borderBottom: '1px solid #f0f0f0', borderRight: '1px solid #f0f0f0', background: '#fafafa', position: 'sticky', left: 0, zIndex: 10 }}>
+              <tr key={e.id} style={{ background: 'var(--hef-bg-surface)' }}>
+                <td style={{ padding: 16, borderBottom: '1px solid var(--hef-border)', borderRight: '1px solid var(--hef-border)', background: 'var(--hef-bg-subtle)', position: 'sticky', left: 0, zIndex: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div style={{ fontSize: 14, flex: 1 }}>{e.content}</div>
                     <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
@@ -1082,7 +1043,7 @@ export const ACHDetailPage: React.FC = () => {
                   </div>
                 </td>
                 {analysis.hypotheses.map((h: any) => (
-                  <td key={`${h.id}-${e.id}`} style={{ padding: 8, borderBottom: '1px solid #f0f0f0', textAlign: 'center' }}>
+                  <td key={`${h.id}-${e.id}`} style={{ padding: 8, borderBottom: '1px solid var(--hef-border)', textAlign: 'center' }}>
                     <select
                       value={getCellScore(h.id, e.id)}
                       onChange={(ev) => handleCellChange(h.id, e.id, ev.target.value)}
@@ -1091,10 +1052,10 @@ export const ACHDetailPage: React.FC = () => {
                         padding: 8,
                         borderRadius: 4,
                         fontSize: 14,
-                        border: '1px solid #d9d9d9',
+                        border: '1px solid var(--hef-border)',
                         outline: 'none',
-                        background: '#fff',
-                        color: '#000'
+                        background: 'var(--hef-bg-surface)',
+                        color: 'var(--hef-text-primary)'
                       }}
                     >
                       {SCORE_OPTIONS.map(opt => (
@@ -1276,7 +1237,7 @@ export const ACHDetailPage: React.FC = () => {
             style={{ marginBottom: 12 }}
           />
         )}
-        <Paragraph style={{ marginBottom: 16, color: '#595959' }}>
+        <Paragraph style={{ marginBottom: 16, color: 'var(--hef-text-muted)' }}>
           Describe the scenario, incident, or observations. The AI will always generate detection engineering-focused hypotheses and evidence items, such as ATT&CK-aligned behaviors, telemetry patterns, data sources, log fields, queries, alerts, and validation artifacts.
         </Paragraph>
         <TextArea
