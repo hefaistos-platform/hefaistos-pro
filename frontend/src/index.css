@@ -336,6 +336,23 @@ code {
   -webkit-text-fill-color: var(--hef-text-primary) !important;
 }
 
+/* Force visible selected values in dark mode (including disabled selects). */
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-selector .ant-select-selection-item,
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-selector .ant-select-selection-placeholder,
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-selector .ant-select-selection-search-input,
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-item,
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-placeholder,
+:root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+  opacity: 1 !important;
+}
+
 .config-auth-select-dropdown {
   background: var(--hef-bg-surface) !important;
   border: 1px solid var(--hef-border) !important;
