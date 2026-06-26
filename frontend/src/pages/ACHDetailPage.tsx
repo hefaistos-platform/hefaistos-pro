@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
@@ -400,14 +400,17 @@ export const ACHDetailPage: React.FC = () => {
     ? Boolean(myAiSettings.effectivePreferredModel)
     : hasPersonalAiProvider;
   const effectiveModelName = myAiSettings?.effectivePreferredModel || myAiSettings?.preferredModel || '';
-  const modelTagColor = useMemo(() => {
-    if (!myAiSettings) return 'default';
-    if (myAiSettings.hasOllama) return 'orange';
-    if (myAiSettings.hasGemini) return 'green';
-    if (myAiSettings.hasOpenai) return 'blue';
-    if (myAiSettings.hasClaude) return 'purple';
-    return 'default';
-  }, [myAiSettings]);
+  const modelTagColor = !myAiSettings
+    ? 'default'
+    : myAiSettings.hasOllama
+      ? 'orange'
+      : myAiSettings.hasGemini
+        ? 'green'
+        : myAiSettings.hasOpenai
+          ? 'blue'
+          : myAiSettings.hasClaude
+            ? 'purple'
+            : 'default';
   const scores = JSON.parse(analysis.scores || '{}');
 
   const handleAddHypothesis = async (values?: any) => {
