@@ -2285,46 +2285,30 @@ export const ConfigurationPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-semibold mb-1">Authentication Mode</label>
-                <Select
-                  className="w-full config-auth-select"
+                <select
+                  className="w-full p-2 border rounded text-sm config-auth-native-select"
                   value={authForm.authMode}
-                  onChange={(value) => setAuthForm({ ...authForm, authMode: value })}
+                  onChange={(e) => setAuthForm({ ...authForm, authMode: e.target.value })}
                   disabled={!canAdminConfig}
-                  popupClassName="config-auth-select-dropdown"
-                  style={{ color: 'var(--hef-text-primary)' }}
-                  dropdownStyle={{
-                    background: 'var(--hef-bg-surface)',
-                    color: 'var(--hef-text-primary)',
-                    border: '1px solid var(--hef-border)',
-                  }}
-                  options={[
-                    { value: 'ENTRA_ONLY', label: 'ENTRA_ONLY' },
-                    { value: 'OIDC_ONLY', label: 'OIDC_ONLY' },
-                    { value: 'ENTRA_AND_OIDC', label: 'ENTRA_AND_OIDC' },
-                    { value: 'ENTRA_AND_LOCAL_BREAKGLASS', label: 'ENTRA_AND_LOCAL_BREAKGLASS' },
-                  ]}
-                />
+                >
+                  <option value="ENTRA_ONLY">ENTRA_ONLY</option>
+                  <option value="OIDC_ONLY">OIDC_ONLY</option>
+                  <option value="ENTRA_AND_OIDC">ENTRA_AND_OIDC</option>
+                  <option value="ENTRA_AND_LOCAL_BREAKGLASS">ENTRA_AND_LOCAL_BREAKGLASS</option>
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-semibold mb-1">Default Login Provider</label>
-                <Select
-                  className="w-full config-auth-select"
+                <select
+                  className="w-full p-2 border rounded text-sm config-auth-native-select"
                   value={authForm.defaultLoginProvider}
-                  onChange={(value) => setAuthForm({ ...authForm, defaultLoginProvider: value })}
+                  onChange={(e) => setAuthForm({ ...authForm, defaultLoginProvider: e.target.value })}
                   disabled={!canAdminConfig}
-                  popupClassName="config-auth-select-dropdown"
-                  style={{ color: 'var(--hef-text-primary)' }}
-                  dropdownStyle={{
-                    background: 'var(--hef-bg-surface)',
-                    color: 'var(--hef-text-primary)',
-                    border: '1px solid var(--hef-border)',
-                  }}
-                  options={[
-                    { value: 'ENTRA', label: 'ENTRA' },
-                    { value: 'OIDC', label: 'OIDC' },
-                    { value: 'LOCAL', label: 'LOCAL' },
-                  ]}
-                />
+                >
+                  <option value="ENTRA">ENTRA</option>
+                  <option value="OIDC">OIDC</option>
+                  <option value="LOCAL">LOCAL</option>
+                </select>
               </div>
             </div>
 

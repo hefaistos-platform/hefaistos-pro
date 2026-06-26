@@ -370,6 +370,25 @@ code {
   background: color-mix(in srgb, var(--hef-info-bg) 75%, var(--hef-bg-surface)) !important;
 }
 
+/* Native selects used by Authentication tab for guaranteed visible selected text in dark mode. */
+.configuration-theme .config-auth-native-select {
+  background: var(--hef-bg-subtle) !important;
+  color: var(--hef-text-primary) !important;
+  border-color: var(--hef-border) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
+.configuration-theme .config-auth-native-select option {
+  background: var(--hef-bg-surface);
+  color: var(--hef-text-primary);
+}
+
+:root[data-theme='dark'] .configuration-theme .config-auth-native-select,
+:root[data-theme='dark'] .configuration-theme .config-auth-native-select option {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
 .configuration-theme .ant-select-selection-placeholder,
 .configuration-theme .ant-input::placeholder {
   color: var(--hef-text-muted) !important;
