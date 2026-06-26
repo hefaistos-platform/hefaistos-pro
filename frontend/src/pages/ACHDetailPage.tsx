@@ -390,6 +390,7 @@ export const ACHDetailPage: React.FC = () => {
   if (!analysis) return <div style={{ padding: 24 }}><Text>Analysis not found</Text></div>;
 
   const myAiSettings = aiSettingsData?.myAiSettings;
+  const isDarkTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
   const hasPersonalAiProvider = Boolean(
     myAiSettings?.hasGemini ||
     myAiSettings?.hasOpenai ||
@@ -892,16 +893,19 @@ export const ACHDetailPage: React.FC = () => {
               </th>
               {analysis.hypotheses.map((h: any) => {
                 const score = scores[h.id] || 0;
-                let categoryColor = '#fafafa';
+                let categoryColor = isDarkTheme ? '#2f1f1f' : '#fafafa';
+                let categoryBadgeColor = isDarkTheme ? '#a61d24' : '#ff7875';
                 let categoryLabel = 'Eliminated';
                 let categoryEmoji = '🔴';
                 
                 if (score <= 3) {
-                  categoryColor = '#f6ffed';
+                  categoryColor = isDarkTheme ? '#1d3122' : '#f6ffed';
+                  categoryBadgeColor = isDarkTheme ? '#2f8f4e' : '#85ce61';
                   categoryLabel = 'Most Likely';
                   categoryEmoji = '🟢';
                 } else if (score <= 10) {
-                  categoryColor = '#fffbe6';
+                  categoryColor = isDarkTheme ? '#352c16' : '#fffbe6';
+                  categoryBadgeColor = isDarkTheme ? '#b8841a' : '#ffc53d';
                   categoryLabel = 'Plausible';
                   categoryEmoji = '🟡';
                 }
@@ -968,7 +972,7 @@ export const ACHDetailPage: React.FC = () => {
                     <div style={{ marginTop: 8, fontSize: 12, fontWeight: 'bold', color: '#1890ff', marginBottom: 8 }}>
                       Score: {score}
                     </div>
-                    <div style={{ marginBottom: 8, fontSize: 11, fontFamily: 'monospace', color: '#666' }}>
+                    <div style={{ marginBottom: 8, fontSize: 11, fontFamily: 'monospace', color: 'var(--hef-text-muted)' }}>
                       {visualBar}
                     </div>
                     <div style={{ 
@@ -977,7 +981,7 @@ export const ACHDetailPage: React.FC = () => {
                       borderRadius: 4,
                       fontSize: 11,
                       fontWeight: 'bold',
-                      background: categoryColor === '#f6ffed' ? '#85ce61' : categoryColor === '#fffbe6' ? '#ffc53d' : '#ff7875',
+                      background: categoryBadgeColor,
                       color: '#fff'
                     }}>
                       {categoryEmoji} {categoryLabel}
