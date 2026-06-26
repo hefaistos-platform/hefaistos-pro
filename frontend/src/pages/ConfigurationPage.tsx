@@ -2286,10 +2286,11 @@ export const ConfigurationPage: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold mb-1">Authentication Mode</label>
                 <Select
-                  className="w-full"
+                  className="w-full config-auth-select"
                   value={authForm.authMode}
                   onChange={(value) => setAuthForm({ ...authForm, authMode: value })}
                   disabled={!canAdminConfig}
+                  popupClassName="config-auth-select-dropdown"
                   options={[
                     { value: 'ENTRA_ONLY', label: 'ENTRA_ONLY' },
                     { value: 'OIDC_ONLY', label: 'OIDC_ONLY' },
@@ -2301,10 +2302,11 @@ export const ConfigurationPage: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold mb-1">Default Login Provider</label>
                 <Select
-                  className="w-full"
+                  className="w-full config-auth-select"
                   value={authForm.defaultLoginProvider}
                   onChange={(value) => setAuthForm({ ...authForm, defaultLoginProvider: value })}
                   disabled={!canAdminConfig}
+                  popupClassName="config-auth-select-dropdown"
                   options={[
                     { value: 'ENTRA', label: 'ENTRA' },
                     { value: 'OIDC', label: 'OIDC' },

@@ -318,6 +318,25 @@ code {
   color: var(--hef-text-primary) !important;
 }
 
+.configuration-theme .config-auth-select .ant-select-selection-item,
+.configuration-theme .config-auth-select .ant-select-selection-search-input,
+.configuration-theme .config-auth-select .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+}
+
+.config-auth-select-dropdown {
+  background: var(--hef-bg-surface) !important;
+  border: 1px solid var(--hef-border) !important;
+}
+
+.config-auth-select-dropdown .ant-select-item-option-content {
+  color: var(--hef-text-primary) !important;
+}
+
+.config-auth-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: color-mix(in srgb, var(--hef-info-bg) 75%, var(--hef-bg-surface)) !important;
+}
+
 .configuration-theme .ant-select-selection-placeholder,
 .configuration-theme .ant-input::placeholder {
   color: var(--hef-text-muted) !important;
