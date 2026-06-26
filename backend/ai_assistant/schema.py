@@ -702,28 +702,23 @@ class OrgAISettingsType(DjangoObjectType):
     shared_profile_name = graphene.String()
     can_edit_custom_settings = graphene.Boolean()
 
-    def _effective(self):
-        if hasattr(self, 'get_effective_settings'):
-            return self.get_effective_settings()
-        return self
-
     def resolve_has_ollama(self, info):
-        return bool(getattr(self._effective(), 'has_ollama', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_ollama', False))
 
     def resolve_has_openai(self, info):
-        return bool(getattr(self._effective(), 'has_openai', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_openai', False))
 
     def resolve_has_gemini(self, info):
-        return bool(getattr(self._effective(), 'has_gemini', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_gemini', False))
 
     def resolve_has_claude(self, info):
-        return bool(getattr(self._effective(), 'has_claude', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_claude', False))
 
     def resolve_has_azure_openai(self, info):
-        return bool(getattr(self._effective(), 'has_azure_openai', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_azure_openai', False))
 
     def resolve_has_any_provider(self, info):
-        return bool(getattr(self._effective(), 'has_any_provider', False))
+        return bool(getattr(_resolve_effective_org_ai_settings(self), 'has_any_provider', False))
 
     def resolve_config_source(self, info):
         return getattr(self, 'config_source', 'CUSTOM')
@@ -738,6 +733,13 @@ class OrgAISettingsType(DjangoObjectType):
 
     def resolve_can_edit_custom_settings(self, info):
         return bool(getattr(self, 'can_edit_custom_settings', True))
+
+
+def _resolve_effective_org_ai_settings(settings_obj):
+    """Resolve effective Org AI settings from a GraphQL root object."""
+    if hasattr(settings_obj, 'get_effective_settings'):
+        return settings_obj.get_effective_settings()
+    return settings_obj
 
 
 class SharedAIProfileType(DjangoObjectType):

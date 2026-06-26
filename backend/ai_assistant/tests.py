@@ -5,7 +5,9 @@ from organizations.models import Organization
 from platform_data.models import MitreAttackTechnique
 from playbooks.models import PlaybookGraph, CapabilityAbstraction
 
+from .models import OrgAISettings
 from .schema import (
+    OrgAISettingsType,
     _build_playbook_generation_context,
     _compose_translated_response_playbook,
     _coerce_markdown_text,
@@ -170,3 +172,18 @@ class ResponsePlaybookTranslationTests(TestCase):
         self.assertIn("[Original]", rendered)
         self.assertIn("1. Aislar host.", rendered)
         self.assertTrue(rendered.rstrip().endswith("1. Isolate host."))
+
+
+class OrgAISettingsTypeResolverTests(TestCase):
+    def test_resolve_has_any_provider_works_with_graphene_root_model_instance(self):
+        org = Organization.objects.create(name="Resolver Org")
+        settings = OrgAISettings.objects.create(
+            organization=org,
+            openai_api_key="sk-test",
+            openai_enabled=True,
+        )
+
+        # Graphene resolves fields with the model instance as root.
+        has_any_provider = OrgAISettingsType.resolve_has_any_provider(settings, info=None)
+
+        self.assertTrue(has_any_provider)
