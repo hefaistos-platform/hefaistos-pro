@@ -49,6 +49,25 @@ RESPONSE_PLAYBOOK_TRANSLATION_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+VALID_USER_PREFERRED_MODELS = [
+    'GPT-5.5',
+    'GPT-5.4',
+    'GPT-5.4-MINI',
+    'GEMINI-3.1-PRO-PREVIEW',
+    'GEMINI-3.5-FLASH',
+    'GEMINI-3-FLASH-PREVIEW',
+    'GEMINI-3.1-FLASH-LITE',
+    'GEMINI-3.1-FLASH-LITE-PREVIEW',
+    'CLAUDE-OPUS-4.7',
+    'CLAUDE-SONNET-4.6',
+    'CLAUDE-HAIKU-4.5-20251001',
+]
+
+_PREFERRED_MODEL_ALIASES = {
+    model.upper(): model
+    for model in VALID_USER_PREFERRED_MODELS
+}
+
 
 def _get_effective_ai_settings(user_settings):
     """Return OrgAISettings if the user has opted in and the org has any AI provider configured."""
@@ -63,6 +82,21 @@ def _get_effective_ai_settings(user_settings):
             except OrgAISettings.DoesNotExist:
                 pass
     return user_settings
+
+
+def _normalize_preferred_model_choice(value: str | None) -> str | None:
+    """Map user-supplied model labels to canonical enum values."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return ''
+    upper = raw.upper()
+    canonical = _PREFERRED_MODEL_ALIASES.get(upper)
+    if canonical:
+        return canonical
+    relaxed = re.sub(r'[\s_]+', '-', upper)
+    return _PREFERRED_MODEL_ALIASES.get(relaxed)
 
 
 def _resolve_target_org(user, organization_id=None):
@@ -879,8 +913,10 @@ class UpdateAISettings(graphene.Mutation):
             settings.claude_api_key = kwargs['claude_key'] or ''
         # Accept both snake_case and camelCase from GraphQL client
         pm = kwargs.get('preferred_model') if 'preferred_model' in kwargs else kwargs.get('preferredModel')
+        normalized_pm = _normalize_preferred_model_choice(pm)
         if pm is not None and pm != "":
-            settings.preferred_model = pm
+            if normalized_pm:
+                settings.preferred_model = normalized_pm
         if 'use_org_ai' in kwargs and kwargs['use_org_ai'] is not None:
             settings.use_org_ai = kwargs['use_org_ai']
 
@@ -889,7 +925,7 @@ class UpdateAISettings(graphene.Mutation):
         from .engine import build_available
         available = build_available(settings)
 
-        original_preferred = (kwargs.get('preferred_model') or kwargs.get('preferredModel')) or settings.preferred_model
+        original_preferred = pm if pm else settings.preferred_model
         warning = None
         if available and settings.preferred_model not in available:
             from .engine import FALLBACK_PRIORITY
@@ -899,6 +935,10 @@ class UpdateAISettings(graphene.Mutation):
                     break
             if original_preferred and original_preferred != settings.preferred_model:
                 warning = f"Preferred model '{original_preferred}' not available; switched to '{settings.preferred_model}'."
+        if settings.preferred_model not in VALID_USER_PREFERRED_MODELS:
+            settings.preferred_model = VALID_USER_PREFERRED_MODELS[0]
+            if not warning and original_preferred and original_preferred != settings.preferred_model:
+                warning = f"Preferred model '{original_preferred}' is invalid; switched to '{settings.preferred_model}'."
         if not available:
             warning = "No provider keys configured; add at least one to enable AI generation."
 
@@ -2674,28 +2714,25 @@ class Query(graphene.ObjectType):
                 except OrgAISettings.DoesNotExist:
                     pass
             settings = UserAISettings.objects.create(user=info.context.user, use_org_ai=use_org_ai)
-        # Ensure preferred_model is always set to a valid value.
-        # Skip this check for users opted into org AI — their effective model comes from org settings.
-        if not settings.use_org_ai:
-            valid_choices = [
-                'GPT-5.5', 'GPT-5.4', 'GPT-5.4-MINI',
-                'GEMINI-3.1-PRO-PREVIEW', 'GEMINI-3.5-FLASH', 'GEMINI-3-FLASH-PREVIEW',
-                'GEMINI-3.1-FLASH-LITE', 'GEMINI-3.1-FLASH-LITE-PREVIEW',
-                'CLAUDE-OPUS-4.7', 'CLAUDE-SONNET-4.6', 'CLAUDE-HAIKU-4.5-20251001'
-            ]
-            if not settings.preferred_model or settings.preferred_model not in valid_choices:
-                from .engine import build_available, FALLBACK_PRIORITY
-                available = build_available(settings)
-                new_model = None
-                for p in FALLBACK_PRIORITY:
-                    if p in available:
-                        new_model = p
-                        break
-                if new_model is None and valid_choices:
-                    new_model = valid_choices[0]
-                if new_model:
-                    settings.preferred_model = new_model
-                    settings.save(update_fields=['preferred_model'])
+        # Ensure preferred_model is always canonical and GraphQL-enum-safe.
+        # This also repairs legacy lowercase values (e.g. "gpt-5.4") on read.
+        normalized_preferred = _normalize_preferred_model_choice(settings.preferred_model)
+        if normalized_preferred and normalized_preferred != settings.preferred_model:
+            settings.preferred_model = normalized_preferred
+            settings.save(update_fields=['preferred_model'])
+        elif not normalized_preferred or settings.preferred_model not in VALID_USER_PREFERRED_MODELS:
+            from .engine import build_available, FALLBACK_PRIORITY
+            available = build_available(settings)
+            new_model = None
+            for p in FALLBACK_PRIORITY:
+                if p in available and p in VALID_USER_PREFERRED_MODELS:
+                    new_model = p
+                    break
+            if new_model is None and VALID_USER_PREFERRED_MODELS:
+                new_model = VALID_USER_PREFERRED_MODELS[0]
+            if new_model:
+                settings.preferred_model = new_model
+                settings.save(update_fields=['preferred_model'])
         return settings
 
     def resolve_org_ai_settings(self, info, organization_id=None):

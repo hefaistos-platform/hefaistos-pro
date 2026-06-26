@@ -5,9 +5,11 @@ from organizations.models import Organization
 from platform_data.models import MitreAttackTechnique
 from playbooks.models import PlaybookGraph, CapabilityAbstraction
 
-from .models import OrgAISettings
+from .models import OrgAISettings, UserAISettings
 from .schema import (
     OrgAISettingsType,
+    Query,
+    _normalize_preferred_model_choice,
     _build_playbook_generation_context,
     _compose_translated_response_playbook,
     _coerce_markdown_text,
@@ -187,3 +189,23 @@ class OrgAISettingsTypeResolverTests(TestCase):
         has_any_provider = OrgAISettingsType.resolve_has_any_provider(settings, info=None)
 
         self.assertTrue(has_any_provider)
+
+
+class PreferredModelNormalizationTests(TestCase):
+    def test_normalize_preferred_model_choice_maps_lowercase_openai_model(self):
+        self.assertEqual(_normalize_preferred_model_choice('gpt-5.4'), 'GPT-5.4')
+
+    def test_resolve_my_ai_settings_repairs_legacy_lowercase_preferred_model(self):
+        org = Organization.objects.create(name="Legacy Model Org")
+        User = get_user_model()
+        user = User.objects.create_user(username="legacy-model-user", password="password", organization=org)
+        UserAISettings.objects.create(
+            user=user,
+            preferred_model='gpt-5.4',
+            use_org_ai=True,
+        )
+
+        info = type("Info", (), {"context": type("Context", (), {"user": user})()})()
+        resolved = Query().resolve_my_ai_settings(info)
+
+        self.assertEqual(resolved.preferred_model, 'GPT-5.4')
