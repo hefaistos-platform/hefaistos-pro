@@ -129,15 +129,15 @@ export const L1PortalDetailPage: React.FC = () => {
         </Space>
 
         <Card size="small" title="Response Playbook" style={{ marginBottom: 12 }}>
-          <MarkdownRenderer content={entry.responsePlaybook || 'N/A'} variant="default" />
+          <MarkdownRenderer content={entry.responsePlaybook || 'N/A'} variant="small" />
         </Card>
 
         <Card size="small" title="Known False Positives" style={{ marginBottom: 12 }}>
-          <MarkdownRenderer content={entry.knownFalsePositives || 'N/A'} variant="default" />
+          <MarkdownRenderer content={entry.knownFalsePositives || 'N/A'} variant="small" />
         </Card>
 
         <Card size="small" title="Blind Spots & Coverage Gaps">
-          <MarkdownRenderer content={entry.blindSpotsCoverageGaps || 'N/A'} variant="default" />
+          <MarkdownRenderer content={entry.blindSpotsCoverageGaps || 'N/A'} variant="small" />
         </Card>
       </Card>
     </div>
