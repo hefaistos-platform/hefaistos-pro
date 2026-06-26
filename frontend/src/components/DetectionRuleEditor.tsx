@@ -57,6 +57,30 @@ interface DetectionRuleEditorProps {
 
 type LspStatus = 'connecting' | 'connected' | 'error' | 'disabled';
 
+function defineTerminalTheme(monacoApi: typeof monaco) {
+  monacoApi.editor.defineTheme('hef-terminal', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: '', foreground: '8BFF8B' },
+      { token: 'comment', foreground: '4EA35B' },
+      { token: 'string', foreground: 'A5FFAD' },
+      { token: 'keyword', foreground: '6DFE6D' },
+      { token: 'number', foreground: '8CF7C8' },
+    ],
+    colors: {
+      'editor.background': '#071108',
+      'editor.foreground': '#8BFF8B',
+      'editorLineNumber.foreground': '#2C6E3A',
+      'editorLineNumber.activeForeground': '#8BFF8B',
+      'editorCursor.foreground': '#C9FFBA',
+      'editor.selectionBackground': '#123A1B',
+      'editor.inactiveSelectionBackground': '#0D2A14',
+      'editorGutter.background': '#071108',
+    },
+  });
+}
+
 /** Map a format string to the LSP language identifier used by the proxy. */
 const FORMAT_TO_LSP_LANGUAGE: Record<string, string> = {
   KQL: 'kql',
@@ -146,27 +170,7 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   useEffect(() => {
     if (visualStyle !== 'terminal') return;
 
-    monaco.editor.defineTheme('hef-terminal', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [
-        { token: '', foreground: '8BFF8B' },
-        { token: 'comment', foreground: '4EA35B' },
-        { token: 'string', foreground: 'A5FFAD' },
-        { token: 'keyword', foreground: '6DFE6D' },
-        { token: 'number', foreground: '8CF7C8' },
-      ],
-      colors: {
-        'editor.background': '#071108',
-        'editor.foreground': '#8BFF8B',
-        'editorLineNumber.foreground': '#2C6E3A',
-        'editorLineNumber.activeForeground': '#8BFF8B',
-        'editorCursor.foreground': '#C9FFBA',
-        'editor.selectionBackground': '#123A1B',
-        'editor.inactiveSelectionBackground': '#0D2A14',
-        'editorGutter.background': '#071108',
-      },
-    });
+    defineTerminalTheme(monaco);
   }, [visualStyle]);
 
   // LSP WebSocket connection via Django Channels proxy
@@ -385,9 +389,15 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
       )}
 
       <Editor
+        className={visualStyle === 'terminal' ? 'hef-terminal-editor' : undefined}
         height={height}
         language={getMonacoLanguage(format)}
         value={value}
+        beforeMount={(monacoApi) => {
+          if (visualStyle === 'terminal') {
+            defineTerminalTheme(monacoApi as typeof monaco);
+          }
+        }}
         onChange={(val) => {
           const newValue = val || '';
           onChange(newValue);
@@ -427,6 +437,9 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
         }}
         onMount={(editor) => {
           editorRef.current = editor;
+          if (visualStyle === 'terminal') {
+            monaco.editor.setTheme('hef-terminal');
+          }
           if (onBlur) {
             blurDisposableRef.current?.dispose();
             blurDisposableRef.current = editor.onDidBlurEditorText(() => {

@@ -760,6 +760,18 @@ code {
   color: var(--hef-danger-text) !important;
 }
 
+/* Force terminal-like Monaco visuals for the inline workbench rule editor. */
+.hef-terminal-editor .monaco-editor,
+.hef-terminal-editor .monaco-editor .margin,
+.hef-terminal-editor .monaco-editor-background {
+  background: #071108 !important;
+}
+
+.hef-terminal-editor .monaco-editor .view-line,
+.hef-terminal-editor .monaco-editor .view-line span {
+  color: #8bff8b !important;
+}
+
 .workbench-theme .workbench-sidebar {
   background: var(--hef-bg-surface) !important;
   border-left-color: var(--hef-border) !important;
