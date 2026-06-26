@@ -638,6 +638,7 @@ export const ADVOPSPage: React.FC<ADVOPSPageProps> = ({ embedded = false }) => {
         footer={null}
         destroyOnClose
         width={1200}
+        className="advops-theme-modal"
       >
         <ADVOPSForm
           initial={editing || (nextHuntId ? { huntId: nextHuntId } : undefined)}

@@ -1099,6 +1099,60 @@ code {
   color: var(--hef-text-primary) !important;
 }
 
+/* ADVOPS hunt modal (portal-rendered) */
+.advops-theme-modal .ant-modal-content,
+.advops-theme-modal .ant-modal-header,
+.advops-theme-modal .ant-modal-footer {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.advops-theme-modal .ant-modal-title,
+.advops-theme-modal .ant-form-item-label > label,
+.advops-theme-modal .ant-typography {
+  color: var(--hef-text-primary) !important;
+}
+
+.advops-theme-modal .ant-input,
+.advops-theme-modal .ant-input-textarea textarea,
+.advops-theme-modal .ant-select-selector,
+.advops-theme-modal .ant-select-selection-item,
+.advops-theme-modal .ant-select-arrow {
+  background: var(--hef-bg-subtle) !important;
+  border-color: var(--hef-border) !important;
+  color: var(--hef-text-primary) !important;
+}
+
+.advops-theme-modal .bg-blue-50 {
+  background: var(--hef-info-bg) !important;
+}
+
+.advops-theme-modal .border-blue-100 {
+  border-color: var(--hef-info-border) !important;
+}
+
+.advops-theme-modal .text-blue-900,
+.advops-theme-modal .text-blue-600,
+.advops-theme-modal .text-blue-500 {
+  color: var(--hef-info-text) !important;
+}
+
+.advops-theme-modal .bg-green-50 {
+  background: var(--hef-success-bg) !important;
+}
+
+.advops-theme-modal .border-green-300 {
+  border-color: var(--hef-success-border) !important;
+}
+
+.advops-theme-modal .text-green-800 {
+  color: var(--hef-success-text) !important;
+}
+
+.advops-theme-modal .bg-white {
+  background: var(--hef-bg-surface) !important;
+}
+
 /* Threat report populate modal content */
 .threat-report-populate .bg-white {
   background: var(--hef-bg-surface) !important;
