@@ -93,6 +93,19 @@ interface GetRuleVars {
 export const RuleDetailPage = () => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
+  const darkSyntaxStyle = {
+    ...oneDark,
+    'code[class*="language-"]': {
+      ...oneDark['code[class*="language-"]'],
+      textShadow: 'none',
+      background: 'transparent',
+    },
+    'pre[class*="language-"]': {
+      ...oneDark['pre[class*="language-"]'],
+      textShadow: 'none',
+      background: 'transparent',
+    },
+  };
   const { ruleId } = useParams<{ ruleId: string }>();
   const navigate = useNavigate();
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -253,7 +266,7 @@ export const RuleDetailPage = () => {
       </div>
       <SyntaxHighlighter
         language="yaml"
-        style={isDark ? oneDark : solarizedlight}
+        style={isDark ? darkSyntaxStyle : solarizedlight}
         customStyle={{
           maxHeight: '600px',
           overflowY: 'auto',
