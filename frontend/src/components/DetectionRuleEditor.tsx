@@ -51,6 +51,8 @@ interface DetectionRuleEditorProps {
   dataSourceId?: string;
   readOnly?: boolean;
   enableLSP?: boolean;
+  onBlur?: () => void;
+  visualStyle?: 'default' | 'terminal';
 }
 
 type LspStatus = 'connecting' | 'connected' | 'error' | 'disabled';
@@ -117,18 +119,55 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   dataSourceId,
   readOnly = false,
   enableLSP = true,
+  onBlur,
+  visualStyle = 'default',
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const blurDisposableRef = useRef<monaco.IDisposable | null>(null);
   const lastRequestRef = useRef<number>(0);
   const lspClientRef = useRef<LSPClient | null>(null);
   const [lspStatus, setLspStatus] = useState<LspStatus>('disabled');
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
+  const themeName = visualStyle === 'terminal' ? 'hef-terminal' : (isDark ? 'vs-dark' : 'vs');
 
   // Register custom Monaco language definitions once on mount
   useEffect(() => {
     registerCustomLanguages();
   }, []);
+
+  useEffect(() => {
+    return () => {
+      blurDisposableRef.current?.dispose();
+      blurDisposableRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (visualStyle !== 'terminal') return;
+
+    monaco.editor.defineTheme('hef-terminal', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: '', foreground: '8BFF8B' },
+        { token: 'comment', foreground: '4EA35B' },
+        { token: 'string', foreground: 'A5FFAD' },
+        { token: 'keyword', foreground: '6DFE6D' },
+        { token: 'number', foreground: '8CF7C8' },
+      ],
+      colors: {
+        'editor.background': '#071108',
+        'editor.foreground': '#8BFF8B',
+        'editorLineNumber.foreground': '#2C6E3A',
+        'editorLineNumber.activeForeground': '#8BFF8B',
+        'editorCursor.foreground': '#C9FFBA',
+        'editor.selectionBackground': '#123A1B',
+        'editor.inactiveSelectionBackground': '#0D2A14',
+        'editorGutter.background': '#071108',
+      },
+    });
+  }, [visualStyle]);
 
   // LSP WebSocket connection via Django Channels proxy
   useEffect(() => {
@@ -359,7 +398,7 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
             lspClientRef.current.didChange(uri, Date.now(), newValue);
           }
         }}
-        theme={isDark ? 'vs-dark' : 'vs'}
+        theme={themeName}
         options={{
           minimap: { enabled: true },
           fontSize: 14,
@@ -388,6 +427,12 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
         }}
         onMount={(editor) => {
           editorRef.current = editor;
+          if (onBlur) {
+            blurDisposableRef.current?.dispose();
+            blurDisposableRef.current = editor.onDidBlurEditorText(() => {
+              onBlur();
+            });
+          }
           console.log('Editor mounted, language model:', editor.getModel()?.getLanguageId());
         }}
         loading={

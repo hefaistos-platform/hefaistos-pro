@@ -26,6 +26,7 @@ import CapabilityAbstractionMapNode from '../components/CapabilityAbstractionMap
 import TechniqueRootNode from '../components/TechniqueRootNode';
 import CoverageGapNode from '../components/CoverageGapNode';
 import DetectionRuleEditorModal, { DetectionMode } from '../components/DetectionRuleEditorModal';
+import DetectionRuleEditor from '../components/DetectionRuleEditor';
 import ExportImportModal from '../components/playbook/ExportImportModal';
 import { MaieuticEngineModal } from '../components/maieutic/MaieuticEngineModal';
 import { ThreatReportPopulateModal } from '../components/playbook/ThreatReportPopulateModal';
@@ -2273,16 +2274,20 @@ export const PlaybookWorkbench = () => {
                           )}
 
                           {/* Editor */}
-                          <textarea 
-                           className="w-full h-[32rem] p-4 font-mono text-sm bg-gray-900 text-green-400 rounded-lg shadow-inner border border-gray-700"
-                           value={localRule}
-                           onChange={(e) => {
-                             setLocalRule(e.target.value);
-                             if (detectionMode !== 'manual') setDetectionMode('manual');
-                           }}
-                           onBlur={() => handleStrategyChange({ detectionRule: localRule })}
-                           placeholder="# Select an analytic above or use the Multi-Platform Editor..."
-                         />
+                          <div className="h-[32rem] rounded-lg overflow-hidden border border-gray-700 shadow-inner bg-[#071108]">
+                            <DetectionRuleEditor
+                              value={localRule}
+                              onChange={(value) => {
+                                setLocalRule(value);
+                                if (detectionMode !== 'manual') setDetectionMode('manual');
+                              }}
+                              onBlur={() => handleStrategyChange({ detectionRule: localRule })}
+                              format={aiFormat}
+                              height="100%"
+                              enableLSP={false}
+                              visualStyle="terminal"
+                            />
+                          </div>
                        </div>
 
                     {/* Part 4: SOAR Configuration */}
