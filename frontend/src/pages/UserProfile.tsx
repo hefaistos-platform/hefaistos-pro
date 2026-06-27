@@ -46,6 +46,24 @@ interface UpdateProfileResult {
   };
 }
 interface UpdateProfileVars { bio?: string; jobTitle?: string; slackHandle?: string }
+type NotificationPreferenceKey =
+  | 'emailNotifyReviewApproved'
+  | 'emailNotifySystemMessage'
+  | 'emailNotifyChatMessage'
+  | 'emailNotifyWorkbenchEdited'
+  | 'emailNotifyNewsDigest';
+
+type NotificationPreferencesState = Record<NotificationPreferenceKey, boolean>;
+
+interface UpdateNotificationPrefsResult {
+  updateNotificationPreferences: {
+    user: {
+      id: string;
+    } & NotificationPreferencesState;
+  };
+}
+
+type UpdateNotificationPrefsVars = Partial<Record<NotificationPreferenceKey, boolean>>;
 
 // ACH Analyses summary for profile page
 interface AchAnalysisLite {
@@ -378,13 +396,23 @@ const GET_MY_PROFILE_SUMMARY = gql`
 
 const SECTION_PAGE_SIZE = 6;
 
+const buildNotificationPreferences = (
+  user?: Partial<NotificationPreferencesState> | null,
+): NotificationPreferencesState => ({
+  emailNotifyReviewApproved: !!user?.emailNotifyReviewApproved,
+  emailNotifySystemMessage: !!user?.emailNotifySystemMessage,
+  emailNotifyChatMessage: !!user?.emailNotifyChatMessage,
+  emailNotifyWorkbenchEdited: !!user?.emailNotifyWorkbenchEdited,
+  emailNotifyNewsDigest: !!user?.emailNotifyNewsDigest,
+});
+
 export const UserProfile: React.FC = () => {
   const { message } = App.useApp();
   const { data, loading, refetch } = useQuery<GetMyProfileResult>(GET_MY_PROFILE);
   const { data: myRulesData } = useQuery<MyRulesCountData, MyRulesCountVars>(MY_RULES_COUNT, { skip: !data?.me?.username, variables: { author: data?.me?.username || '' } });
   const { data: summaryData } = useQuery<MyProfileSummaryData>(GET_MY_PROFILE_SUMMARY);
   const [updateProfile] = useMutation<UpdateProfileResult, UpdateProfileVars>(UPDATE_PROFILE_MUTATION);
-  const [updateNotificationPrefs] = useMutation(UPDATE_NOTIFICATION_PREFS);
+  const [updateNotificationPrefs] = useMutation<UpdateNotificationPrefsResult, UpdateNotificationPrefsVars>(UPDATE_NOTIFICATION_PREFS);
   const [uploadAvatar] = useMutation(UPLOAD_AVATAR);
   const [changePassword, { loading: changingPassword }] = useMutation(CHANGE_PASSWORD);
   const [isEditing, setIsEditing] = useState(false);
@@ -404,6 +432,10 @@ export const UserProfile: React.FC = () => {
   const [mfaPassword, setMfaPassword] = useState('');
   const [mfaOtpCode, setMfaOtpCode] = useState('');
   const [newSecurityKeyName, setNewSecurityKeyName] = useState('Security Key');
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferencesState>(
+    buildNotificationPreferences(data?.me),
+  );
+  const [savingNotificationKey, setSavingNotificationKey] = useState<NotificationPreferenceKey | null>(null);
   // AI settings state (typed)
   const { data: aiData, refetch: refetchAI } = useQuery<AiSettingsShape>(GET_AI_SETTINGS, { fetchPolicy: 'cache-and-network' });
   const { data: orgAiData } = useQuery<OrgAiSettingsShape>(GET_ORG_AI_SETTINGS, { errorPolicy: 'ignore' });
@@ -433,9 +465,40 @@ export const UserProfile: React.FC = () => {
     }
   }, [aiData?.myAiSettings?.useOrgAi]);
 
+  useEffect(() => {
+    setNotificationPrefs(buildNotificationPreferences(data?.me));
+  }, [
+    data?.me?.id,
+    data?.me?.emailNotifyReviewApproved,
+    data?.me?.emailNotifySystemMessage,
+    data?.me?.emailNotifyChatMessage,
+    data?.me?.emailNotifyWorkbenchEdited,
+    data?.me?.emailNotifyNewsDigest,
+  ]);
+
   if (loading) return <div className="profile-theme p-8">Loading Profile...</div>;
   const user = data?.me;
   if (!user) return <div className="profile-theme p-8">No profile.</div>;
+
+  const handleNotificationPreferenceChange = async (key: NotificationPreferenceKey, checked: boolean) => {
+    const previousValue = notificationPrefs[key];
+    setNotificationPrefs(prev => ({ ...prev, [key]: checked }));
+    setSavingNotificationKey(key);
+    try {
+      const result = await updateNotificationPrefs({ variables: { [key]: checked } });
+      const updated = result.data?.updateNotificationPreferences?.user;
+      if (updated) {
+        setNotificationPrefs(buildNotificationPreferences(updated));
+      } else {
+        await refetch();
+      }
+    } catch (error: any) {
+      setNotificationPrefs(prev => ({ ...prev, [key]: previousValue }));
+      message.error(error?.message || 'Failed to update notification preference');
+    } finally {
+      setSavingNotificationKey(null);
+    }
+  };
 
   const handleSaveProfile = async () => {
     try {
@@ -577,55 +640,45 @@ export const UserProfile: React.FC = () => {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!user.emailNotifyReviewApproved}
-                      onChange={async (e) => {
-                        await updateNotificationPrefs({ variables: { emailNotifyReviewApproved: e.target.checked } });
-                        await refetch();
-                      }}
+                      checked={notificationPrefs.emailNotifyReviewApproved}
+                      disabled={savingNotificationKey === 'emailNotifyReviewApproved'}
+                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyReviewApproved', e.target.checked)}
                     />
                     Review approvals
                   </label>
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!user.emailNotifySystemMessage}
-                      onChange={async (e) => {
-                        await updateNotificationPrefs({ variables: { emailNotifySystemMessage: e.target.checked } });
-                        await refetch();
-                      }}
+                      checked={notificationPrefs.emailNotifySystemMessage}
+                      disabled={savingNotificationKey === 'emailNotifySystemMessage'}
+                      onChange={(e) => handleNotificationPreferenceChange('emailNotifySystemMessage', e.target.checked)}
                     />
                     System messages
                   </label>
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!user.emailNotifyChatMessage}
-                      onChange={async (e) => {
-                        await updateNotificationPrefs({ variables: { emailNotifyChatMessage: e.target.checked } });
-                        await refetch();
-                      }}
+                      checked={notificationPrefs.emailNotifyChatMessage}
+                      disabled={savingNotificationKey === 'emailNotifyChatMessage'}
+                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyChatMessage', e.target.checked)}
                     />
                     Chat messages
                   </label>
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!user.emailNotifyWorkbenchEdited}
-                      onChange={async (e) => {
-                        await updateNotificationPrefs({ variables: { emailNotifyWorkbenchEdited: e.target.checked } });
-                        await refetch();
-                      }}
+                      checked={notificationPrefs.emailNotifyWorkbenchEdited}
+                      disabled={savingNotificationKey === 'emailNotifyWorkbenchEdited'}
+                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyWorkbenchEdited', e.target.checked)}
                     />
                     Workbench edits
                   </label>
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={!!user.emailNotifyNewsDigest}
-                      onChange={async (e) => {
-                        await updateNotificationPrefs({ variables: { emailNotifyNewsDigest: e.target.checked } });
-                        await refetch();
-                      }}
+                      checked={notificationPrefs.emailNotifyNewsDigest}
+                      disabled={savingNotificationKey === 'emailNotifyNewsDigest'}
+                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyNewsDigest', e.target.checked)}
                     />
                     News digest
                   </label>
