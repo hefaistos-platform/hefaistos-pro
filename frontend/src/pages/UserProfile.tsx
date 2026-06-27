@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
-import { App, QRCode } from 'antd';
+import { App, QRCode, Checkbox } from 'antd';
 import { Link } from 'react-router-dom';
 import { credentialToJSON, parseRegistrationOptions } from '../utils/webauthn';
 
@@ -500,6 +500,14 @@ export const UserProfile: React.FC = () => {
     }
   };
 
+  const notificationPreferenceItems: Array<{ key: NotificationPreferenceKey; label: string }> = [
+    { key: 'emailNotifyReviewApproved', label: 'Review approvals' },
+    { key: 'emailNotifySystemMessage', label: 'System messages' },
+    { key: 'emailNotifyChatMessage', label: 'Chat messages' },
+    { key: 'emailNotifyWorkbenchEdited', label: 'Workbench edits' },
+    { key: 'emailNotifyNewsDigest', label: 'News digest' },
+  ];
+
   const handleSaveProfile = async () => {
     try {
       const result = await updateProfile({
@@ -637,51 +645,17 @@ export const UserProfile: React.FC = () => {
               <div className="mt-4 bg-gray-50 p-4 rounded border">
                 <div className="font-semibold text-gray-700 mb-2">Email Notifications</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.emailNotifyReviewApproved}
-                      disabled={savingNotificationKey === 'emailNotifyReviewApproved'}
-                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyReviewApproved', e.target.checked)}
-                    />
-                    Review approvals
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.emailNotifySystemMessage}
-                      disabled={savingNotificationKey === 'emailNotifySystemMessage'}
-                      onChange={(e) => handleNotificationPreferenceChange('emailNotifySystemMessage', e.target.checked)}
-                    />
-                    System messages
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.emailNotifyChatMessage}
-                      disabled={savingNotificationKey === 'emailNotifyChatMessage'}
-                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyChatMessage', e.target.checked)}
-                    />
-                    Chat messages
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.emailNotifyWorkbenchEdited}
-                      disabled={savingNotificationKey === 'emailNotifyWorkbenchEdited'}
-                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyWorkbenchEdited', e.target.checked)}
-                    />
-                    Workbench edits
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={notificationPrefs.emailNotifyNewsDigest}
-                      disabled={savingNotificationKey === 'emailNotifyNewsDigest'}
-                      onChange={(e) => handleNotificationPreferenceChange('emailNotifyNewsDigest', e.target.checked)}
-                    />
-                    News digest
-                  </label>
+                  {notificationPreferenceItems.map(({ key, label }) => (
+                    <Checkbox
+                      key={key}
+                      className="notification-checkbox"
+                      checked={notificationPrefs[key]}
+                      disabled={savingNotificationKey === key}
+                      onChange={(e) => handleNotificationPreferenceChange(key, e.target.checked)}
+                    >
+                      {label}
+                    </Checkbox>
+                  ))}
                 </div>
               </div>
             </div>

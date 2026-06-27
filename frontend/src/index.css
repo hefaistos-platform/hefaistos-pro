@@ -706,6 +706,24 @@ code {
   background: var(--hef-info-text) !important;
 }
 
+.profile-theme .notification-checkbox {
+  color: var(--hef-text-primary);
+}
+
+.profile-theme .notification-checkbox .ant-checkbox-inner {
+  background: var(--hef-bg-surface);
+  border-color: var(--hef-border-strong);
+}
+
+.profile-theme .notification-checkbox .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--hef-info-text);
+  border-color: var(--hef-info-text);
+}
+
+.profile-theme .notification-checkbox .ant-checkbox-checked .ant-checkbox-inner::after {
+  border-color: #ffffff;
+}
+
 /* Workbench detail theming */
 .workbench-theme {
   color: var(--hef-text-primary);
