@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
-import { Alert, Button, Card, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Card, Modal, Select, Space, Switch, Table, Tag, Tooltip, Typography, message, theme } from 'antd';
 
 const { Text } = Typography;
 
@@ -197,10 +197,19 @@ const buildConfigVariables = (task: TaskConfig, patch: Partial<TaskConfig>) => {
 };
 
 const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
+  const { token } = theme.useToken();
   const [savingTaskKey, setSavingTaskKey] = useState<string | null>(null);
   const [runningTaskKey, setRunningTaskKey] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<TaskRun | null>(null);
   const [selectedTaskOutput, setSelectedTaskOutput] = useState<{ task: TaskConfig; text: string } | null>(null);
+
+  const outputBlockStyle: React.CSSProperties = {
+    whiteSpace: 'pre-wrap',
+    background: token.colorFillAlter,
+    color: token.colorText,
+    border: `1px solid ${token.colorBorderSecondary}`,
+    borderRadius: token.borderRadius,
+  };
 
   const { data, loading, error, refetch } = useQuery<{ orgAiTaskConfigs: TaskConfig[] }>(
     GET_ORG_AI_TASK_CONFIGS,
@@ -342,7 +351,10 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                     <div className="text-xs text-gray-500">Next run: {formatDateTime(task.nextRunAt)}</div>
                     {task.lastMessage && (
                       <Space direction="vertical" size={6} className="mt-2 w-full">
-                        <div className="rounded bg-gray-50 p-2 text-xs text-gray-700 whitespace-pre-wrap">
+                        <div
+                          className="p-2 text-xs"
+                          style={outputBlockStyle}
+                        >
                           {compactText(task.lastMessage, 420)}
                         </div>
                         <Space size={8}>
@@ -525,9 +537,10 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                 whiteSpace: 'pre-wrap',
                 maxHeight: 520,
                 overflowY: 'auto',
-                background: '#fafafa',
-                border: '1px solid #f0f0f0',
-                borderRadius: 8,
+                background: token.colorFillAlter,
+                color: token.colorText,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderRadius: token.borderRadius,
                 padding: 12,
                 margin: 0,
               }}
@@ -567,9 +580,10 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                 whiteSpace: 'pre-wrap',
                 maxHeight: 520,
                 overflowY: 'auto',
-                background: '#fafafa',
-                border: '1px solid #f0f0f0',
-                borderRadius: 8,
+                background: token.colorFillAlter,
+                color: token.colorText,
+                border: `1px solid ${token.colorBorderSecondary}`,
+                borderRadius: token.borderRadius,
                 padding: 12,
                 margin: 0,
               }}
