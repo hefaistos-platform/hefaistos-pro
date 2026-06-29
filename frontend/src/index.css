@@ -290,6 +290,26 @@ code {
   border-color: var(--hef-border) !important;
 }
 
+.configuration-theme .border,
+.configuration-theme .border-b,
+.configuration-theme .border-t,
+.configuration-theme .border-l,
+.configuration-theme .border-r,
+.configuration-theme .border-gray-100,
+.configuration-theme .border-gray-200,
+.configuration-theme .border-gray-300,
+.configuration-theme .border-hefaistos-border {
+  border-color: var(--hef-border) !important;
+}
+
+.configuration-theme .ant-card,
+.configuration-theme .ant-card-head,
+.configuration-theme .ant-card-body,
+.configuration-theme .ant-tabs-content-holder {
+  background: var(--hef-bg-surface) !important;
+  border-color: var(--hef-border) !important;
+}
+
 .configuration-theme input:not([type='checkbox']):not([type='radio']),
 .configuration-theme textarea,
 .configuration-theme select {
