@@ -781,6 +781,10 @@ code {
   border-color: var(--hef-border) !important;
 }
 
+.workbench-theme .border-hefaistos-border {
+  border-color: var(--hef-border) !important;
+}
+
 .workbench-theme .border-blue-200 {
   border-color: var(--hef-info-border) !important;
 }
