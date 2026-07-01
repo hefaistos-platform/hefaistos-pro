@@ -240,7 +240,6 @@ class Command(BaseCommand):
             help="Optional existing ChokepointSnapshot UUID to update.",
         )
 
-    @transaction.atomic
     def handle(self, *args, **options):
         mode = (options.get("mode") or "remote").lower().strip()
         source_repo = (options.get("source_repo") or DEFAULT_CHOKEPOINTS_REPO).strip()
@@ -251,7 +250,7 @@ class Command(BaseCommand):
             raise CommandError("--dir is required when --mode=local")
 
         if snapshot_id:
-            snapshot = ChokepointSnapshot.objects.select_for_update().get(id=snapshot_id)
+            snapshot = ChokepointSnapshot.objects.get(id=snapshot_id)
             snapshot.status = ChokepointSnapshot.Status.STAGED
             snapshot.source_repo = source_repo
             snapshot.source_ref = source_ref
@@ -417,10 +416,6 @@ class Command(BaseCommand):
                         )
                         imported_entries += 1
 
-            ChokepointEntry.objects.filter(snapshot=snapshot).delete()
-            if created_rows:
-                ChokepointEntry.objects.bulk_create(created_rows, batch_size=500)
-
             summary = {
                 "mode": mode.upper(),
                 "source_repo": source_repo,
@@ -434,18 +429,23 @@ class Command(BaseCommand):
                 "warning_count": len(warnings),
             }
 
-            snapshot.source_sha = resolved_sha or snapshot.source_sha
-            snapshot.status = (
-                ChokepointSnapshot.Status.STAGED
-                if imported_entries > 0
-                else ChokepointSnapshot.Status.FAILED
-            )
-            snapshot.entry_count = imported_entries
-            snapshot.summary = summary
-            snapshot.validation_errors = "\n".join(warnings[:500])
-            snapshot.save(update_fields=[
-                "source_sha", "status", "entry_count", "summary", "validation_errors", "updated_at",
-            ])
+            with transaction.atomic():
+                ChokepointEntry.objects.filter(snapshot=snapshot).delete()
+                if created_rows:
+                    ChokepointEntry.objects.bulk_create(created_rows, batch_size=500)
+
+                snapshot.source_sha = resolved_sha or snapshot.source_sha
+                snapshot.status = (
+                    ChokepointSnapshot.Status.STAGED
+                    if imported_entries > 0
+                    else ChokepointSnapshot.Status.FAILED
+                )
+                snapshot.entry_count = imported_entries
+                snapshot.summary = summary
+                snapshot.validation_errors = "\n".join(warnings[:500])
+                snapshot.save(update_fields=[
+                    "source_sha", "status", "entry_count", "summary", "validation_errors", "updated_at",
+                ])
 
             if imported_entries == 0:
                 raise CommandError("Chokepoint import produced zero entries.")
