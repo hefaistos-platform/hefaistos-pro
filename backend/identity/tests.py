@@ -12,6 +12,7 @@ from identity.schema import (
     CompleteAccountActivation,
     StartMfaLogin,
     SubmitRegistrationRequest,
+    UpdateProfile,
 )
 from identity.decorators import role_required, Roles
 
@@ -324,6 +325,34 @@ class BotMfaBypassLoginTests(TestCase):
         self.assertFalse(result.mfa_required)
         self.assertIsNone(result.challenge_id)
         self.assertTrue(bool(result.token))
+
+
+class UpdateProfileSessionTimeoutTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Profile Timeout Org")
+        self.user = User.objects.create_user(
+            username="profile_user",
+            email="profile_user@example.com",
+            password="ProfilePass123!",
+            role=Roles.ANALYST,
+            organization=self.org,
+        )
+
+    def test_update_profile_accepts_supported_timeout_value(self):
+        info = _make_info(self.user)
+        result = UpdateProfile.mutate(None, info, session_timeout_hours=8)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.session_timeout_hours, 8)
+        self.assertEqual(result.user.session_timeout_hours, 8)
+
+    def test_update_profile_rejects_unsupported_timeout_value(self):
+        info = _make_info(self.user)
+
+        with self.assertRaises(Exception) as ctx:
+            UpdateProfile.mutate(None, info, session_timeout_hours=6)
+
+        self.assertIn("sessionTimeoutHours", str(ctx.exception))
 
 
 class SubmitRegistrationRequestTests(TestCase):

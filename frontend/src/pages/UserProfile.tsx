@@ -4,6 +4,11 @@ import { useQuery, useMutation } from '@apollo/client/react';
 import { App, QRCode, Checkbox } from 'antd';
 import { Link } from 'react-router-dom';
 import { credentialToJSON, parseRegistrationOptions } from '../utils/webauthn';
+import { useAuth } from '../context/AuthContext';
+import {
+  normalizeSessionTimeoutHours,
+  SESSION_TIMEOUT_HOURS_OPTIONS,
+} from '../utils/authSession';
 
 // --- TypeScript Interfaces ---
 interface CreatedPlaybookLite {
@@ -22,6 +27,7 @@ interface UserProfileData {
   bio?: string;
   jobTitle?: string;
   slackHandle?: string;
+  sessionTimeoutHours?: number;
   avatarUrl?: string;
   emailNotifyReviewApproved?: boolean;
   emailNotifySystemMessage?: boolean;
@@ -42,10 +48,16 @@ interface UpdateProfileResult {
       bio?: string | null;
       jobTitle?: string | null;
       slackHandle?: string | null;
+      sessionTimeoutHours?: number | null;
     };
   };
 }
-interface UpdateProfileVars { bio?: string; jobTitle?: string; slackHandle?: string }
+interface UpdateProfileVars {
+  bio?: string;
+  jobTitle?: string;
+  slackHandle?: string;
+  sessionTimeoutHours?: number;
+}
 type NotificationPreferenceKey =
   | 'emailNotifyReviewApproved'
   | 'emailNotifySystemMessage'
@@ -95,6 +107,7 @@ const GET_MY_PROFILE = gql`
       bio
       jobTitle
       slackHandle
+      sessionTimeoutHours
       avatarUrl
       emailNotifyReviewApproved
       emailNotifySystemMessage
@@ -143,11 +156,13 @@ const UPDATE_PROFILE_MUTATION = gql`
     $bio: String
     $jobTitle: String
     $slackHandle: String
+    $sessionTimeoutHours: Int
   ) {
     updateProfile(
       bio: $bio
       jobTitle: $jobTitle
       slackHandle: $slackHandle
+      sessionTimeoutHours: $sessionTimeoutHours
     ) {
       user {
         id
@@ -155,6 +170,7 @@ const UPDATE_PROFILE_MUTATION = gql`
         bio
         jobTitle
         slackHandle
+        sessionTimeoutHours
       }
     }
   }
@@ -408,6 +424,7 @@ const buildNotificationPreferences = (
 
 export const UserProfile: React.FC = () => {
   const { message } = App.useApp();
+  const { updateSessionTimeoutHours } = useAuth();
   const { data, loading, refetch } = useQuery<GetMyProfileResult>(GET_MY_PROFILE);
   const { data: myRulesData } = useQuery<MyRulesCountData, MyRulesCountVars>(MY_RULES_COUNT, { skip: !data?.me?.username, variables: { author: data?.me?.username || '' } });
   const { data: summaryData } = useQuery<MyProfileSummaryData>(GET_MY_PROFILE_SUMMARY);
@@ -479,6 +496,7 @@ export const UserProfile: React.FC = () => {
   if (loading) return <div className="profile-theme p-8">Loading Profile...</div>;
   const user = data?.me;
   if (!user) return <div className="profile-theme p-8">No profile.</div>;
+  const currentSessionTimeoutHours = normalizeSessionTimeoutHours(user.sessionTimeoutHours);
 
   const handleNotificationPreferenceChange = async (key: NotificationPreferenceKey, checked: boolean) => {
     const previousValue = notificationPrefs[key];
@@ -515,9 +533,12 @@ export const UserProfile: React.FC = () => {
           bio: formData.bio,
           jobTitle: formData.jobTitle,
           slackHandle: formData.slackHandle,
+          sessionTimeoutHours: normalizeSessionTimeoutHours(formData.sessionTimeoutHours ?? user.sessionTimeoutHours),
         },
       });
       if (result.data?.updateProfile?.user) {
+        const updatedHours = normalizeSessionTimeoutHours(result.data.updateProfile.user.sessionTimeoutHours);
+        updateSessionTimeoutHours(updatedHours);
         message.success('Profile updated');
         await refetch();
         setIsEditing(false);
@@ -599,7 +620,15 @@ export const UserProfile: React.FC = () => {
             </div>
             <button
               className="px-4 py-2 text-sm font-semibold rounded border bg-gray-50 hover:bg-gray-100"
-              onClick={() => { setFormData({ bio: user.bio || '', jobTitle: user.jobTitle || '', slackHandle: user.slackHandle || '' }); setIsEditing(!isEditing); }}
+              onClick={() => {
+                setFormData({
+                  bio: user.bio || '',
+                  jobTitle: user.jobTitle || '',
+                  slackHandle: user.slackHandle || '',
+                  sessionTimeoutHours: currentSessionTimeoutHours,
+                });
+                setIsEditing(!isEditing);
+              }}
             >
               {isEditing ? 'Cancel' : 'Edit Profile'}
             </button>
@@ -624,6 +653,23 @@ export const UserProfile: React.FC = () => {
                 value={formData.bio || ''}
                 onChange={e => setFormData({ ...formData, bio: e.target.value })}
               />
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Auto logout after inactivity</label>
+                <select
+                  className="w-full p-2 border rounded bg-white"
+                  value={normalizeSessionTimeoutHours(formData.sessionTimeoutHours ?? currentSessionTimeoutHours)}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    sessionTimeoutHours: normalizeSessionTimeoutHours(e.target.value),
+                  })}
+                >
+                  {SESSION_TIMEOUT_HOURS_OPTIONS.map((hours) => (
+                    <option key={hours} value={hours}>
+                      {hours} hours
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="col-span-2 text-right">
                 <button
                   className="px-4 py-2 text-sm font-semibold rounded bg-blue-600 text-white hover:bg-blue-700"
@@ -641,6 +687,9 @@ export const UserProfile: React.FC = () => {
                   Slack: <span className="text-blue-600 font-mono ml-1">{user.slackHandle}</span>
                 </div>
               )}
+              <div className="text-sm text-gray-500">
+                Auto logout after inactivity: <span className="font-semibold text-gray-700 ml-1">{currentSessionTimeoutHours} hours</span>
+              </div>
               {/* Email Notification Preferences */}
               <div className="mt-4 bg-gray-50 p-4 rounded border">
                 <div className="font-semibold text-gray-700 mb-2">Email Notifications</div>

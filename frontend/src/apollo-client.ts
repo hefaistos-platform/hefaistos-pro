@@ -4,6 +4,12 @@ import { setContext } from '@apollo/client/link/context';
 import { logGraphQLError } from './utils/errorHandling';
 import { print } from 'graphql';
 import { getApiBaseUrl, isDevEnvironment } from './config/env';
+import {
+  clearStoredAccessToken,
+  clearStoredLastActivityAt,
+  getStoredAccessToken,
+  isAuthenticationMessage,
+} from './utils/authSession';
 
 // --- Custom Upload Link (prevents JSON.stringify from stripping File objects) ---
 const uploadLink = new ApolloLink(operation => {
@@ -114,7 +120,7 @@ const logLink = new ApolloLink((operation, forward) => {
 // Sending Authorization: "" (empty string) can cause JWT middleware to throw
 // instead of treating the request as anonymous.
 const authLink = setContext((_, { headers }) => {
-  const token = localStorage.getItem('accessToken');
+  const token = getStoredAccessToken();
   return {
     headers: {
       ...headers,
@@ -150,6 +156,20 @@ const errorLink = onError((error: any) => {
     }, componentName);
     // eslint-disable-next-line no-console
     if (isDevEnvironment()) console.debug('Network error full object:', networkError);
+  }
+
+  const isAuthGraphQLError = (graphQLErrors || []).some((gqlError: any) => {
+    const code = String(gqlError?.extensions?.code || '').toUpperCase();
+    if (code === 'UNAUTHENTICATED') return true;
+    return isAuthenticationMessage(gqlError?.message);
+  });
+
+  const networkStatus = Number((networkError as any)?.statusCode ?? (networkError as any)?.status ?? 0);
+  const isAuthNetworkError = networkStatus === 401 || isAuthenticationMessage((networkError as any)?.message);
+
+  if (isAuthGraphQLError || isAuthNetworkError) {
+    clearStoredAccessToken('auth-error');
+    clearStoredLastActivityAt();
   }
 });
 

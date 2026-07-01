@@ -95,6 +95,17 @@ class CustomUser(AbstractUser):
         blank=True,
         help_text="Slack username or handle (e.g. @hunter01)"
     )
+    session_timeout_hours = models.PositiveSmallIntegerField(
+        choices=(
+            (2, '2 hours'),
+            (4, '4 hours'),
+            (8, '8 hours'),
+            (12, '12 hours'),
+            (24, '24 hours'),
+        ),
+        default=4,
+        help_text="Auto-logout timeout after this many hours of inactivity.",
+    )
     # --- END PROFILE FIELDS ---
 
     # --- EMAIL NOTIFICATION PREFERENCES ---

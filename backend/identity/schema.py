@@ -58,6 +58,7 @@ from identity.oidc import (
 )
 
 logger = logging.getLogger(__name__)
+SESSION_TIMEOUT_HOURS_ALLOWED = {2, 4, 8, 12, 24}
 
 class UserPlaybookGraphLiteType(DjangoObjectType):
     """A lightweight PlaybookGraph representation for embedding in UserType without importing playbooks.schema (avoids circular import)."""
@@ -95,7 +96,7 @@ class UserType(DjangoObjectType):
         # Use 'fields' ONLY (omit password) to avoid Graphene assertion (cannot set both fields & exclude).
         # Note: 'avatar' is NOT included here because we use a computed resolver 'avatar_url' instead.
         fields = (
-            'id', 'username', 'email', 'role', 'bio', 'job_title', 'slack_handle', 'organization',
+            'id', 'username', 'email', 'role', 'bio', 'job_title', 'slack_handle', 'session_timeout_hours', 'organization',
             'email_notify_review_approved',
             'email_notify_system_message',
             'email_notify_chat_message',
@@ -740,29 +741,42 @@ class UpdateProfile(graphene.Mutation):
         bio = graphene.String()
         job_title = graphene.String()
         slack_handle = graphene.String()
+        session_timeout_hours = graphene.Int()
 
-    user = graphene.Field(UserType, description="Updated user profile with new bio, job_title, slack_handle.")
+    user = graphene.Field(
+        UserType,
+        description="Updated user profile with new bio, job_title, slack_handle, and session_timeout_hours.",
+    )
 
     @staticmethod
-    def mutate(root, info, bio=None, job_title=None, slack_handle=None):
+    def mutate(root, info, bio=None, job_title=None, slack_handle=None, session_timeout_hours=None):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Not logged in")
-        
-        changed = False
+
+        changed_fields = []
         if bio is not None:
             user.bio = bio
-            changed = True
+            changed_fields.append('bio')
         if job_title is not None:
             user.job_title = job_title
-            changed = True
+            changed_fields.append('job_title')
         if slack_handle is not None:
             user.slack_handle = slack_handle
-            changed = True
-        
-        if changed:
-            user.save(update_fields=['bio', 'job_title', 'slack_handle'])
-        
+            changed_fields.append('slack_handle')
+        if session_timeout_hours is not None:
+            try:
+                parsed_hours = int(session_timeout_hours)
+            except (TypeError, ValueError):
+                raise Exception("sessionTimeoutHours must be one of: 2, 4, 8, 12, 24")
+            if parsed_hours not in SESSION_TIMEOUT_HOURS_ALLOWED:
+                raise Exception("sessionTimeoutHours must be one of: 2, 4, 8, 12, 24")
+            user.session_timeout_hours = parsed_hours
+            changed_fields.append('session_timeout_hours')
+
+        if changed_fields:
+            user.save(update_fields=changed_fields)
+
         return UpdateProfile(user=user)
 
 
