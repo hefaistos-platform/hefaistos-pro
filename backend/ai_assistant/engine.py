@@ -390,6 +390,19 @@ def _format_chokepoint_guidance_for_prompt(playbook_context: dict | None) -> str
                 hint_parts.append(f"{key}={str(values[0])[:110]}")
         if hint_parts:
             details.append(f"Native hints: {' | '.join(hint_parts)}")
+        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+        known_bypasses = metadata.get("known_bypasses") or []
+        if isinstance(known_bypasses, list) and known_bypasses:
+            first_bypass = known_bypasses[0]
+            if isinstance(first_bypass, dict):
+                bypass_text = str(first_bypass.get("Bypass") or first_bypass.get("bypass") or "").strip()
+                mitigation_text = str(first_bypass.get("Mitigation") or first_bypass.get("mitigation") or "").strip()
+                if bypass_text:
+                    details.append(f"Known bypass: {bypass_text[:140]}")
+                if mitigation_text:
+                    details.append(f"Mitigation: {mitigation_text[:140]}")
+            else:
+                details.append(f"Known bypass: {str(first_bypass)[:140]}")
         if details:
             line += f" ({'; '.join(details)})"
         lines.append(line)

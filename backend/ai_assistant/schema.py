@@ -521,6 +521,19 @@ def _build_active_chokepoint_context_lines(technique_codes: list[str], limit: in
                 hint_chunks.append(f"{key}: {str(values[0])[:100]}")
         if hint_chunks:
             details.append("hints: " + " | ".join(hint_chunks))
+        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
+        known_bypasses = metadata.get("known_bypasses") or []
+        if isinstance(known_bypasses, list) and known_bypasses:
+            first_bypass = known_bypasses[0]
+            if isinstance(first_bypass, dict):
+                bypass = str(first_bypass.get("Bypass") or first_bypass.get("bypass") or "").strip()
+                mitigation = str(first_bypass.get("Mitigation") or first_bypass.get("mitigation") or "").strip()
+                if bypass:
+                    details.append(f"bypass: {bypass[:110]}")
+                if mitigation:
+                    details.append(f"mitigation: {mitigation[:110]}")
+            else:
+                details.append(f"bypass: {str(first_bypass)[:110]}")
         if details:
             line += f" ({'; '.join(details)})"
         lines.append(line)

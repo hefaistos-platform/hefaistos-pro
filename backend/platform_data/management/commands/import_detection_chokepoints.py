@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover - dependency availability is validated at 
 
 TECHNIQUE_RE = re.compile(r"\bT\d{4}(?:\.\d{3})?\b", re.IGNORECASE)
 DET_RE = re.compile(r"\bDET\d{3,}\b", re.IGNORECASE)
+URL_RE = re.compile(r"https?://[^\s<>\"]+", re.IGNORECASE)
 
 
 def _norm_key(value: str) -> str:
@@ -112,6 +113,96 @@ def _extract_codes(node: Any, pattern: re.Pattern[str]) -> list[str]:
     return ordered
 
 
+def _iter_keyed_values(node: Any, key_aliases: set[str]) -> Iterable[Any]:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if _norm_key(str(key)) in key_aliases:
+                yield value
+            yield from _iter_keyed_values(value, key_aliases)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _iter_keyed_values(item, key_aliases)
+
+
+def _collect_list_values(node: Any, key_aliases: set[str]) -> list[str]:
+    values: list[str] = []
+    for raw in _iter_keyed_values(node, key_aliases):
+        values.extend(_to_list(raw))
+    return _unique_keep_order([v for v in values if v])
+
+
+def _extract_urls(node: Any) -> list[str]:
+    urls: list[str] = []
+    for n in _iter_nodes(node):
+        if isinstance(n, str):
+            urls.extend(URL_RE.findall(n))
+    return _unique_keep_order([u.rstrip(".,);") for u in urls if u])
+
+
+def _clip(value: str, max_len: int = 260) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3].rstrip() + "..."
+
+
+def _join_text_values(values: Iterable[str], sep: str = ", ", max_items: int = 6) -> str:
+    cleaned = [v.strip() for v in values if isinstance(v, str) and v.strip()]
+    if not cleaned:
+        return ""
+    return sep.join(cleaned[:max_items])
+
+
+def _summarize_chokepoint_stages(value: Any, max_rows: int = 6) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    rows: list[str] = []
+    for item in value[:max_rows]:
+        if isinstance(item, dict):
+            stage = _to_text(_find_first_value(item, {"stage", "title", "name"}))
+            observable = _to_text(_find_first_value(item, {"observable", "logic"}))
+            why = _to_text(_find_first_value(item, {"whycantbypass", "bypassnote"}))
+            parts = []
+            if stage:
+                parts.append(stage)
+            if observable:
+                parts.append(f"Observable: {_clip(observable, 180)}")
+            if why:
+                parts.append(f"Bypass note: {_clip(why, 140)}")
+            row = " | ".join(parts) if parts else _clip(_to_text(item), 220)
+        else:
+            row = _clip(_to_text(item), 220)
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _summarize_known_bypasses(value: Any, max_rows: int = 6) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    rows: list[str] = []
+    for item in value[:max_rows]:
+        if isinstance(item, dict):
+            bypass = _to_text(_find_first_value(item, {"bypass", "name", "title"}))
+            mitigation = _to_text(_find_first_value(item, {"mitigation"}))
+            detection = _to_text(_find_first_value(item, {"detection", "observable"}))
+            parts = []
+            if bypass:
+                parts.append(_clip(bypass, 120))
+            if mitigation:
+                parts.append(f"Mitigation: {_clip(mitigation, 130)}")
+            if detection:
+                parts.append(f"Detection: {_clip(detection, 130)}")
+            row = " | ".join(parts) if parts else _clip(_to_text(item), 220)
+        else:
+            row = _clip(_to_text(item), 220)
+        if row:
+            rows.append(row)
+    return rows
+
+
 def _unique_keep_order(values: Iterable[str]) -> list[str]:
     seen = set()
     ordered = []
@@ -136,6 +227,16 @@ def _iter_candidate_entries(data: Any) -> Iterable[tuple[int, dict[str, Any]]]:
         return
 
     if not isinstance(data, dict):
+        return
+
+    top_keys = {_norm_key(str(key)) for key in data.keys()}
+    # detection-chokepoints upstream files are single chokepoint records and also
+    # contain a nested "Chokepoints" stage list. Treat such documents as one entry.
+    if (
+        ("chokepoints" in top_keys and ("mitreids" in top_keys or "name" in top_keys))
+        or {"name", "mitreids"}.issubset(top_keys)
+    ):
+        yield 0, data
         return
 
     list_containers = {
@@ -329,31 +430,84 @@ class Command(BaseCommand):
                         continue
                     for entry_idx, candidate in _iter_candidate_entries(doc):
                         raw_candidate_entries += 1
+
+                        if not isinstance(candidate, dict):
+                            warnings.append(
+                                f"Skipped non-object candidate in {source_path} doc#{doc_idx} row#{entry_idx}"
+                            )
+                            continue
+
+                        upstream_id = _to_text(_find_first_value(candidate, {"id", "uid", "slug", "key"}))
+
+                        mitre_ids = _collect_list_values(candidate, {"mitreids", "mitreid"})
+                        technique_codes = _unique_keep_order(
+                            mitre_ids + _extract_codes(candidate, TECHNIQUE_RE)
+                        )
+                        det_codes = _extract_codes(candidate, DET_RE)
+
                         title = _to_text(_find_first_value(candidate, {
                             "title", "name", "chokepoint", "chokepointname", "component", "artifact",
                         }))
-                        technique_name = _to_text(_find_first_value(candidate, {
-                            "techniquename", "mitretechniquename", "attacktechniquename",
-                        }))
-                        tactic = _to_text(_find_first_value(candidate, {"tactic", "mitretactic", "attacktactic"}))
-                        telemetry = _to_text(_find_first_value(candidate, {
-                            "telemetry", "telemetryprerequisites", "requiredtelemetry", "requireddata",
-                        }))
-                        detection_context = _to_text(_find_first_value(candidate, {
+
+                        technique_labels = _collect_list_values(candidate, {
+                            "techniques", "techniquename", "mitretechniquename", "attacktechniquename",
+                        })
+                        technique_name = _join_text_values(technique_labels, sep=" | ", max_items=5)
+
+                        tactic_values = _collect_list_values(candidate, {
+                            "tactics", "tactic", "mitretactic", "attacktactic",
+                        })
+                        tactic = _join_text_values(tactic_values, sep=", ", max_items=6)
+
+                        prerequisites = _collect_list_values(candidate, {
+                            "prerequisites", "telemetry", "telemetryprerequisites",
+                            "requiredtelemetry", "requireddata",
+                        })
+                        log_sources = _collect_list_values(candidate, {"logsources", "logsource"})
+                        telemetry_lines = _unique_keep_order(
+                            prerequisites + [f"LogSource: {source}" for source in log_sources]
+                        )
+                        telemetry = "\n".join(telemetry_lines)
+
+                        description = _to_text(_find_first_value(candidate, {
                             "description", "detectioncontext", "logic", "notes", "details",
                         }))
+                        chokepoints_raw = _find_first_value(candidate, {"chokepoints"})
+                        known_bypasses_raw = _find_first_value(candidate, {"knownbypasses", "bypasses"})
+                        chokepoint_stage_summaries = _summarize_chokepoint_stages(chokepoints_raw)
+                        bypass_summaries = _summarize_known_bypasses(known_bypasses_raw)
 
-                        platforms = _to_list(_find_first_value(candidate, {"platform", "platforms"}))
-                        data_components = _to_list(_find_first_value(candidate, {
+                        detection_context_parts = [part for part in [description] if part]
+                        if chokepoint_stage_summaries:
+                            detection_context_parts.append(
+                                "Chokepoint stages:\n- " + "\n- ".join(chokepoint_stage_summaries)
+                            )
+                        if bypass_summaries:
+                            detection_context_parts.append(
+                                "Known bypasses:\n- " + "\n- ".join(bypass_summaries)
+                            )
+                        detection_context = "\n\n".join(detection_context_parts)
+
+                        platforms = _collect_list_values(candidate, {"platform", "platforms"})
+                        data_components = _collect_list_values(candidate, {
                             "datacomponents", "datasources", "logsources",
-                        }))
-                        references = _to_list(_find_first_value(candidate, {
-                            "reference", "references", "externalreferences", "urls", "links",
-                        }))
-                        tags = _to_list(_find_first_value(candidate, {"tags", "keywords", "labels"}))
+                        })
 
-                        technique_codes = _extract_codes(candidate, TECHNIQUE_RE)
-                        det_codes = _extract_codes(candidate, DET_RE)
+                        references = _unique_keep_order(
+                            _collect_list_values(candidate, {
+                                "reference", "references", "externalreferences",
+                                "urls", "links", "sourceurl", "url",
+                            })
+                            + _extract_urls(candidate)
+                        )
+                        tags = _unique_keep_order(
+                            _collect_list_values(candidate, {
+                                "tags", "keywords", "labels", "detectionpriority",
+                                "threatprevalence", "detectiondifficulty",
+                            })
+                            + tactic_values
+                        )
+
                         primary_code = technique_codes[0] if technique_codes else ""
                         sub_code = ""
                         if primary_code and "." in primary_code:
@@ -366,15 +520,16 @@ class Command(BaseCommand):
                                     break
 
                         if not title:
-                            fallback = technique_codes[0] if technique_codes else "unknown"
-                            title = f"Chokepoint {fallback} ({Path(source_path).stem})"
+                            fallback = upstream_id or (technique_codes[0] if technique_codes else Path(source_path).stem)
+                            title = f"Chokepoint {fallback}"
 
                         source_hash = hashlib.sha256(
                             json.dumps(candidate, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
                         ).hexdigest()
                         native_rule_hints = _extract_native_rule_hints(candidate)
-                        confidence = _map_confidence(_find_first_value(candidate, {"confidence", "quality", "status"}))
-                        upstream_id = _to_text(_find_first_value(candidate, {"id", "uid", "slug", "key"}))
+                        confidence = _map_confidence(_find_first_value(candidate, {
+                            "confidence", "quality", "status", "detectionpriority",
+                        }))
                         key_seed = upstream_id or title or f"{doc_idx}-{entry_idx}"
                         entry_key = f"{source_path}::{_slug(key_seed)}"
 
@@ -411,6 +566,18 @@ class Command(BaseCommand):
                                     "det_codes": det_codes,
                                     "source_doc_index": doc_idx,
                                     "source_entry_index": entry_idx,
+                                    "mitre_ids_raw": mitre_ids,
+                                    "technique_labels": technique_labels,
+                                    "tactic_values": tactic_values,
+                                    "detection_priority": _to_text(_find_first_value(candidate, {"detectionpriority"})),
+                                    "threat_prevalence": _to_text(_find_first_value(candidate, {"threatprevalence"})),
+                                    "detection_difficulty": _to_text(_find_first_value(candidate, {"detectiondifficulty"})),
+                                    "known_bypasses": known_bypasses_raw if known_bypasses_raw is not None else [],
+                                    "chokepoints": chokepoints_raw if chokepoints_raw is not None else [],
+                                    "detections": _find_first_value(candidate, {"detections"}) or [],
+                                    "variations": _find_first_value(candidate, {"variations"}) or [],
+                                    "intel": _find_first_value(candidate, {"intel"}) or [],
+                                    "related_chokepoints": _collect_list_values(candidate, {"relatedchokepoints"}),
                                 },
                             )
                         )

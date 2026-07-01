@@ -66,6 +66,79 @@ chokepoints:
         self.assertIn("kql", entry.native_rule_hints)
         self.assertTrue(entry.native_rule_hints["kql"])
 
+    def test_remote_import_parses_upstream_file_level_schema(self):
+        snapshot = ChokepointSnapshot.objects.create(
+            source_repo="https://github.com/iimp0ster/detection-chokepoints",
+            source_ref="main",
+            status=ChokepointSnapshot.Status.STAGED,
+        )
+
+        sample_yaml = """
+Name: AiTM WebSocket Kit Relay
+Id: 42a49200-e524-492e-8352-3ce4a2c78864
+MitreIds:
+  - T1539
+  - T1078.004
+Tactics:
+  - Credential Access
+Techniques:
+  - Steal Web Session Cookie
+  - Valid Accounts: Cloud Accounts
+Description: >
+  Adversary-in-the-Middle kit relays authentication and captures session tokens.
+Prerequisites:
+  - Victim must visit phishing page
+Chokepoints:
+  - Stage: Kit Relay Sign-In (Node.js UA)
+    Observable: Entra ID SigninLogs with node/axios user agent
+    LogSources:
+      - Entra ID Sign-in Logs
+KnownBypasses:
+  - Bypass: Operator rotates residential proxies quickly
+    Mitigation: Correlate session IDs and ASN transitions
+    Detection: Pair cloud-VPS + residential transitions for same UPN
+Intel:
+  - Name: Elastic research
+    URL: https://www.elastic.co/security-labs/tycoon-2fa-aitm-detection-engineering
+"""
+
+        with patch(
+            "platform_data.management.commands.import_detection_chokepoints.list_remote_chokepoint_paths",
+            return_value=["chokepoints/credential-access/aitm-websocket-relay.yml"],
+        ), patch(
+            "platform_data.management.commands.import_detection_chokepoints.fetch_remote_chokepoint_text",
+            return_value=sample_yaml,
+        ), patch(
+            "platform_data.management.commands.import_detection_chokepoints.fetch_latest_ref_sha",
+            return_value="3853e3c04131432e5c00ecaf3bfa62582f478c4",
+        ):
+            call_command(
+                "import_detection_chokepoints",
+                snapshot_id=str(snapshot.id),
+                mode="remote",
+                source_repo="https://github.com/iimp0ster/detection-chokepoints",
+                ref="main",
+            )
+
+        snapshot.refresh_from_db()
+        self.assertEqual(snapshot.status, ChokepointSnapshot.Status.STAGED)
+        self.assertEqual(snapshot.entry_count, 1)
+
+        entry = ChokepointEntry.objects.get(snapshot=snapshot)
+        self.assertEqual(entry.title, "AiTM WebSocket Kit Relay")
+        self.assertEqual(entry.primary_technique_id, "T1539")
+        self.assertEqual(entry.sub_technique_id, "T1078.004")
+        self.assertIn("Steal Web Session Cookie", entry.technique_name)
+        self.assertIn("Credential Access", entry.tactic)
+        self.assertIn("Victim must visit phishing page", entry.telemetry_prerequisites)
+        self.assertIn("Known bypasses:", entry.detection_context)
+        self.assertIn("Elastic", "\n".join(entry.references))
+
+        metadata = entry.metadata or {}
+        self.assertIn("T1539", metadata.get("technique_codes", []))
+        self.assertIn("T1078.004", metadata.get("technique_codes", []))
+        self.assertTrue(metadata.get("known_bypasses"))
+
     def test_remote_import_marks_snapshot_failed_on_empty_input(self):
         snapshot = ChokepointSnapshot.objects.create(
             source_repo="https://github.com/iimp0ster/detection-chokepoints",
