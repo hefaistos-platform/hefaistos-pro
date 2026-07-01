@@ -132,12 +132,15 @@ Intel:
         self.assertIn("Credential Access", entry.tactic)
         self.assertIn("Victim must visit phishing page", entry.telemetry_prerequisites)
         self.assertIn("Known bypasses:", entry.detection_context)
-        self.assertIn("Elastic", "\n".join(entry.references))
+        self.assertIn("https://www.elastic.co/security-labs/tycoon-2fa-aitm-detection-engineering", entry.references)
 
         metadata = entry.metadata or {}
         self.assertIn("T1539", metadata.get("technique_codes", []))
         self.assertIn("T1078.004", metadata.get("technique_codes", []))
         self.assertTrue(metadata.get("known_bypasses"))
+        intel = metadata.get("intel", [])
+        self.assertTrue(intel)
+        self.assertIn("Elastic", str(intel[0]))
 
     def test_remote_import_marks_snapshot_failed_on_empty_input(self):
         snapshot = ChokepointSnapshot.objects.create(
