@@ -26,6 +26,7 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - ./nginx/certs:/etc/nginx/certs
+      - static_data:/var/www/static:ro
       - media_data:/var/www/media:ro
       - navigator_data:/navigator-data:ro
     extra_hosts:
@@ -54,6 +55,7 @@ services:
       - "7001:7001"  # SPL LSP Server
     volumes:
       - ./backend:/app
+      - static_data:/app/staticfiles
       - connector-token:/run/connector
       - media_data:/app/media
       - navigator_data:/navigator-data
@@ -437,6 +439,7 @@ volumes:
   rabbitmq_data:
   elasticsearch_data:
   connector-token:
+  static_data:
   media_data:
   navigator_data:
 

@@ -69,6 +69,11 @@ def check_no_model_drift() -> None:
         print("WARNING: Django model/migration drift detected.")
         print("Run `python manage.py makemigrations` and commit generated migration files.")
 
+def collect_static_assets() -> None:
+    """Collect Django static files for nginx (admin UI, GraphiQL assets, etc.)."""
+    print("Collecting Django static files...")
+    run([sys.executable, "manage.py", "collectstatic", "--noinput"], check=True)
+
 def ensure_connector_token(token_file: str) -> None:
     try:
         proc = run([sys.executable, "manage.py", "generate_connector_token", "--no-color"], check=False, capture=True)
@@ -120,19 +125,22 @@ def main():
     # 1) Run migrations with retry (DB may not be ready immediately)
     run_migrations_with_retry()
 
-    # 2) Warn (non-fatal) when model changes are missing committed migrations
+    # 2) Collect static files for nginx-served admin and GraphiQL assets.
+    collect_static_assets()
+
+    # 3) Warn (non-fatal) when model changes are missing committed migrations
     check_no_model_drift()
 
-    # 3) Optionally generate and export token to shared file
+    # 4) Optionally generate and export token to shared file
     token_file = os.getenv("CONNECTOR_TOKEN_FILE")
     if token_file:
         print("Ensuring connector_svc JWT token is generated...")
         ensure_connector_token(token_file)
 
-    # 4) Start LSP servers (optional, will gracefully fail if SyntaxTide unavailable)
+    # 5) Start LSP servers (optional, will gracefully fail if SyntaxTide unavailable)
     start_lsp_servers()
 
-    # 5) Start dev server
+    # 6) Start dev server
     print("Starting Django development server...")
     os.execvp(sys.executable, [sys.executable, "manage.py", "runserver", "0.0.0.0:8000"])
 
