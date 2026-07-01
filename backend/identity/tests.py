@@ -354,6 +354,15 @@ class UpdateProfileSessionTimeoutTests(TestCase):
         self.assertEqual(self.user.session_timeout_hours, 12)
         self.assertEqual(result.user.session_timeout_hours, 12)
 
+    def test_update_profile_uses_graphql_variable_values_fallback(self):
+        info = _make_info(self.user)
+        info.variable_values = {'sessionTimeoutHours': 24}
+        result = UpdateProfile.mutate(None, info)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.session_timeout_hours, 24)
+        self.assertEqual(result.user.session_timeout_hours, 24)
+
     def test_update_profile_rejects_unsupported_timeout_value(self):
         info = _make_info(self.user)
 

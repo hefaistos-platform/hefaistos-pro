@@ -744,7 +744,8 @@ class UpdateProfile(graphene.Mutation):
         bio = graphene.String()
         job_title = graphene.String()
         slack_handle = graphene.String()
-        session_timeout_hours = graphene.Int()
+        # Explicit GraphQL argument name for reliability across schema configurations.
+        session_timeout_hours = graphene.Int(name='sessionTimeoutHours')
 
     user = graphene.Field(
         UserType,
@@ -759,6 +760,16 @@ class UpdateProfile(graphene.Mutation):
 
         if session_timeout_hours is None and 'sessionTimeoutHours' in kwargs:
             session_timeout_hours = kwargs.get('sessionTimeoutHours')
+        if session_timeout_hours is None and 'session_timeout_hours' in kwargs:
+            session_timeout_hours = kwargs.get('session_timeout_hours')
+        # Final fallback: read directly from GraphQL variables payload.
+        if session_timeout_hours is None:
+            try:
+                variable_values = getattr(info, 'variable_values', None) or {}
+                if isinstance(variable_values, dict):
+                    session_timeout_hours = variable_values.get('sessionTimeoutHours', variable_values.get('session_timeout_hours'))
+            except Exception:
+                session_timeout_hours = None
 
         changed_fields = []
         requested_timeout_hours = None
