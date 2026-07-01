@@ -1537,3 +1537,64 @@ code {
   color: var(--hef-text-primary) !important;
   border-color: var(--hef-border) !important;
 }
+
+/* Framework Updates: keep summary/log blocks readable in both themes and avoid overflow. */
+.framework-updates-page .framework-updates-pre {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hef-border);
+  background: var(--hef-bg-subtle);
+  color: var(--hef-text-primary);
+  font-size: 11px;
+  line-height: 1.45;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.framework-updates-page .framework-updates-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.framework-updates-page .framework-updates-cell-content {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.framework-updates-page .framework-updates-cell-content .ant-collapse {
+  width: 100%;
+  max-width: 100%;
+  background: transparent;
+}
+
+.framework-updates-page .framework-updates-cell-content .ant-collapse-content-box {
+  max-width: 100%;
+}
+
+.framework-updates-page .framework-updates-pre--log {
+  max-height: 200px;
+}
+
+.framework-updates-page .framework-updates-pre--summary {
+  max-height: 160px;
+}
+
+.framework-updates-page .framework-updates-pre--error {
+  max-height: 120px;
+  border-color: var(--hef-danger-border);
+  background: var(--hef-danger-bg);
+  color: var(--hef-danger-text);
+}
+
+.framework-updates-page .framework-updates-pre--warning {
+  max-height: 120px;
+  border-color: var(--hef-warning-border);
+  background: var(--hef-warning-bg);
+  color: var(--hef-warning-text);
+}

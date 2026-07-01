@@ -696,18 +696,20 @@ export const FrameworkUpdatesPage: React.FC = () => {
       title: 'Log',
       key: 'log',
       render: (_: any, r: JobRecord) => (
-        <Collapse ghost>
-          <Panel header="Show last 20 lines" key="log">
-            <pre style={{ maxHeight: 200, overflow: 'auto', fontSize: 11, background: '#f5f5f5', padding: 8 }}>
-              {r.log ? r.log.split('\n').slice(-20).join('\n') : '(empty)'}
-            </pre>
-            {r.error && (
-              <pre style={{ maxHeight: 100, overflow: 'auto', fontSize: 11, background: '#fff1f0', padding: 8, color: '#cf1322' }}>
-                {r.error.split('\n').slice(-10).join('\n')}
+        <div className="framework-updates-cell-content">
+          <Collapse ghost>
+            <Panel header="Show last 20 lines" key="log">
+              <pre className="framework-updates-pre framework-updates-pre--log">
+                {r.log ? r.log.split('\n').slice(-20).join('\n') : '(empty)'}
               </pre>
-            )}
-          </Panel>
-        </Collapse>
+              {r.error && (
+                <pre className="framework-updates-pre framework-updates-pre--error">
+                  {r.error.split('\n').slice(-10).join('\n')}
+                </pre>
+              )}
+            </Panel>
+          </Collapse>
+        </div>
       ),
     },
   ];
@@ -763,18 +765,20 @@ export const FrameworkUpdatesPage: React.FC = () => {
       title: 'Log',
       key: 'log',
       render: (_: any, r: ChokepointJobRecord) => (
-        <Collapse ghost>
-          <Panel header="Show last 20 lines" key="log">
-            <pre style={{ maxHeight: 200, overflow: 'auto', fontSize: 11, background: '#f5f5f5', padding: 8 }}>
-              {r.log ? r.log.split('\n').slice(-20).join('\n') : '(empty)'}
-            </pre>
-            {r.error && (
-              <pre style={{ maxHeight: 100, overflow: 'auto', fontSize: 11, background: '#fff1f0', padding: 8, color: '#cf1322' }}>
-                {r.error.split('\n').slice(-10).join('\n')}
+        <div className="framework-updates-cell-content">
+          <Collapse ghost>
+            <Panel header="Show last 20 lines" key="log">
+              <pre className="framework-updates-pre framework-updates-pre--log">
+                {r.log ? r.log.split('\n').slice(-20).join('\n') : '(empty)'}
               </pre>
-            )}
-          </Panel>
-        </Collapse>
+              {r.error && (
+                <pre className="framework-updates-pre framework-updates-pre--error">
+                  {r.error.split('\n').slice(-10).join('\n')}
+                </pre>
+              )}
+            </Panel>
+          </Collapse>
+        </div>
       ),
     },
   ];
@@ -796,7 +800,7 @@ export const FrameworkUpdatesPage: React.FC = () => {
   );
 
   return (
-    <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+    <div className="framework-updates-page" style={{ maxWidth: 1120, margin: '0 auto' }}>
       {contextHolder}
 
       <Title level={3} style={{ marginBottom: 24 }}>
@@ -894,6 +898,8 @@ export const FrameworkUpdatesPage: React.FC = () => {
           size="small"
           pagination={false}
           locale={{ emptyText: 'No ATT&CK import jobs yet.' }}
+          className="framework-updates-table"
+          tableLayout="fixed"
         />
       </Card>
 
@@ -1084,21 +1090,25 @@ export const FrameworkUpdatesPage: React.FC = () => {
               title: 'Validation',
               key: 'validation',
               render: (_: any, s: ChokepointSnapshotRecord) => (
-                <Collapse ghost>
-                  <Panel header="Show summary / validation" key="validation">
-                    <pre style={{ maxHeight: 160, overflow: 'auto', fontSize: 11, background: '#f5f5f5', padding: 8 }}>
-                      {JSON.stringify(s.summary || {}, null, 2)}
-                    </pre>
-                    {s.validationErrors && (
-                      <pre style={{ maxHeight: 120, overflow: 'auto', fontSize: 11, background: '#fff7e6', padding: 8, color: '#ad6800' }}>
-                        {s.validationErrors.split('\n').slice(0, 20).join('\n')}
+                <div className="framework-updates-cell-content">
+                  <Collapse ghost>
+                    <Panel header="Show summary / validation" key="validation">
+                      <pre className="framework-updates-pre framework-updates-pre--summary">
+                        {JSON.stringify(s.summary || {}, null, 2)}
                       </pre>
-                    )}
-                  </Panel>
-                </Collapse>
+                      {s.validationErrors && (
+                        <pre className="framework-updates-pre framework-updates-pre--warning">
+                          {s.validationErrors.split('\n').slice(0, 20).join('\n')}
+                        </pre>
+                      )}
+                    </Panel>
+                  </Collapse>
+                </div>
               ),
             },
           ]}
+          className="framework-updates-table"
+          tableLayout="fixed"
         />
       </Card>
 
@@ -1111,6 +1121,8 @@ export const FrameworkUpdatesPage: React.FC = () => {
           size="small"
           pagination={false}
           locale={{ emptyText: 'No chokepoint import jobs yet.' }}
+          className="framework-updates-table"
+          tableLayout="fixed"
         />
       </Card>
     </div>
