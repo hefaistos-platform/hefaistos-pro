@@ -752,20 +752,23 @@ class UpdateProfile(graphene.Mutation):
     )
 
     @staticmethod
-    def mutate(root, info, bio=None, job_title=None, slack_handle=None, session_timeout_hours=None):
+    def mutate(root, info, bio=None, job_title=None, slack_handle=None, session_timeout_hours=None, **kwargs):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Not logged in")
 
+        if session_timeout_hours is None and 'sessionTimeoutHours' in kwargs:
+            session_timeout_hours = kwargs.get('sessionTimeoutHours')
+
         changed_fields = []
         requested_timeout_hours = None
-        if bio is not None:
+        if bio is not None and bio != user.bio:
             user.bio = bio
             changed_fields.append('bio')
-        if job_title is not None:
+        if job_title is not None and job_title != user.job_title:
             user.job_title = job_title
             changed_fields.append('job_title')
-        if slack_handle is not None:
+        if slack_handle is not None and slack_handle != user.slack_handle:
             user.slack_handle = slack_handle
             changed_fields.append('slack_handle')
         if session_timeout_hours is not None:
@@ -775,16 +778,20 @@ class UpdateProfile(graphene.Mutation):
                 raise Exception("sessionTimeoutHours must be one of: 2, 4, 8, 12, 24")
             if parsed_hours not in SESSION_TIMEOUT_HOURS_ALLOWED:
                 raise Exception("sessionTimeoutHours must be one of: 2, 4, 8, 12, 24")
-            user.session_timeout_hours = parsed_hours
             requested_timeout_hours = parsed_hours
-            changed_fields.append('session_timeout_hours')
 
         if changed_fields:
             user.save(update_fields=changed_fields)
-            if requested_timeout_hours is not None:
-                user.refresh_from_db(fields=['session_timeout_hours'])
-                if int(user.session_timeout_hours) != int(requested_timeout_hours):
-                    raise Exception("Failed to persist sessionTimeoutHours. Please try again.")
+        if requested_timeout_hours is not None:
+            # Use direct queryset update for reliability across auth/user wrappers.
+            rows_updated = CustomUser.objects.filter(pk=user.pk).update(
+                session_timeout_hours=requested_timeout_hours,
+            )
+            if rows_updated != 1:
+                raise Exception("Failed to persist sessionTimeoutHours. Please try again.")
+            user.refresh_from_db(fields=['session_timeout_hours'])
+            if int(user.session_timeout_hours) != int(requested_timeout_hours):
+                raise Exception("Failed to persist sessionTimeoutHours. Please try again.")
 
         return UpdateProfile(user=user)
 

@@ -555,7 +555,7 @@ export const UserProfile: React.FC = () => {
 
         if (persistedHours !== requestedTimeoutHours) {
           message.warning(
-            `Profile saved, but inactivity timeout is still ${persistedHours} hours.`,
+            `Profile saved, but inactivity timeout remained ${persistedHours}h (requested ${requestedTimeoutHours}h).`,
           );
         } else {
           message.success('Profile updated');

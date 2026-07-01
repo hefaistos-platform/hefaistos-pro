@@ -346,6 +346,14 @@ class UpdateProfileSessionTimeoutTests(TestCase):
         self.assertEqual(self.user.session_timeout_hours, 8)
         self.assertEqual(result.user.session_timeout_hours, 8)
 
+    def test_update_profile_accepts_camel_case_timeout_kwarg(self):
+        info = _make_info(self.user)
+        result = UpdateProfile.mutate(None, info, sessionTimeoutHours=12)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.session_timeout_hours, 12)
+        self.assertEqual(result.user.session_timeout_hours, 12)
+
     def test_update_profile_rejects_unsupported_timeout_value(self):
         info = _make_info(self.user)
 
