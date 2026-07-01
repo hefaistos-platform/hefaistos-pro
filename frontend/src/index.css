@@ -950,9 +950,11 @@ code {
 
 .workbench-theme .deep-dive-section .EasyMDEContainer .CodeMirror,
 .workbench-theme .deep-dive-section .EasyMDEContainer .editor-preview,
+.workbench-theme .deep-dive-section .EasyMDEContainer .editor-preview-full,
 .workbench-theme .deep-dive-section .EasyMDEContainer .editor-preview-side,
 .workbench-theme .testing-guidance-section .EasyMDEContainer .CodeMirror,
 .workbench-theme .testing-guidance-section .EasyMDEContainer .editor-preview,
+.workbench-theme .testing-guidance-section .EasyMDEContainer .editor-preview-full,
 .workbench-theme .testing-guidance-section .EasyMDEContainer .editor-preview-side {
   background: var(--hef-bg-subtle) !important;
   color: var(--hef-text-primary) !important;
@@ -1057,6 +1059,7 @@ code {
 :root[data-theme='dark'] .EasyMDEContainer .CodeMirror,
 :root[data-theme='dark'] .EasyMDEContainer .CodeMirror-scroll,
 :root[data-theme='dark'] .EasyMDEContainer .editor-preview,
+:root[data-theme='dark'] .EasyMDEContainer .editor-preview-full,
 :root[data-theme='dark'] .EasyMDEContainer .editor-preview-side {
   background: var(--hef-bg-surface) !important;
   color: var(--hef-text-primary) !important;
@@ -1414,6 +1417,7 @@ code {
 
 .knowledge-theme .EasyMDEContainer .CodeMirror,
 .knowledge-theme .EasyMDEContainer .editor-preview,
+.knowledge-theme .EasyMDEContainer .editor-preview-full,
 .knowledge-theme .EasyMDEContainer .editor-preview-side {
   background: var(--hef-bg-subtle) !important;
   color: var(--hef-text-primary) !important;
@@ -1514,6 +1518,7 @@ code {
 
 .news-admin-theme .EasyMDEContainer .CodeMirror,
 .news-admin-theme .EasyMDEContainer .editor-preview,
+.news-admin-theme .EasyMDEContainer .editor-preview-full,
 .news-admin-theme .EasyMDEContainer .editor-preview-side {
   background: var(--hef-bg-subtle) !important;
   color: var(--hef-text-primary) !important;
@@ -1522,9 +1527,11 @@ code {
 
 .pain-points-page .EasyMDEContainer .CodeMirror,
 .pain-points-page .EasyMDEContainer .editor-preview,
+.pain-points-page .EasyMDEContainer .editor-preview-full,
 .pain-points-page .EasyMDEContainer .editor-preview-side,
 .pain-theme-modal .EasyMDEContainer .CodeMirror,
 .pain-theme-modal .EasyMDEContainer .editor-preview,
+.pain-theme-modal .EasyMDEContainer .editor-preview-full,
 .pain-theme-modal .EasyMDEContainer .editor-preview-side {
   background: var(--hef-bg-subtle) !important;
   color: var(--hef-text-primary) !important;
