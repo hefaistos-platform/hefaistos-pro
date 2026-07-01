@@ -51,7 +51,7 @@ class Migration(migrations.Migration):
                 'verbose_name_plural': 'Chokepoint Snapshots',
                 'ordering': ['-created_at'],
                 'indexes': [
-                    models.Index(fields=['status', 'created_at'], name='platform_chkp_snap_status_created_idx'),
+                    models.Index(fields=['status', 'created_at'], name='pld_chkp_snap_st_cr_idx'),
                     models.Index(fields=['source_sha'], name='platform_chkp_snap_sha_idx'),
                 ],
             },
@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
                 'indexes': [
                     models.Index(fields=['primary_technique_id'], name='platform_chkp_ent_primary_idx'),
                     models.Index(fields=['sub_technique_id'], name='platform_chkp_ent_subtech_idx'),
-                    models.Index(fields=['snapshot', 'primary_technique_id'], name='platform_chkp_ent_snap_primary_idx'),
+                    models.Index(fields=['snapshot', 'primary_technique_id'], name='pld_chkp_ent_snap_pr_idx'),
                 ],
             },
         ),
