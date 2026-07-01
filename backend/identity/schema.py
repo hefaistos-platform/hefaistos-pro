@@ -82,6 +82,7 @@ class UserADVOPSReportLiteType(DjangoObjectType):
 
 class UserType(DjangoObjectType):
     avatar_url = graphene.String(description="Absolute URL to the user's avatar image (if set).")
+    session_timeout_hours = graphene.Int(description="Auto-logout timeout in hours.")
     created_playbooks = graphene.List(UserPlaybookGraphLiteType, description="Playbook graphs authored by the user (latest first).")
     ach_analyses = graphene.List(UserACHAnalysisLiteType, description="ACH Analyses created by the user.")
     advops_reports = graphene.List(UserADVOPSReportLiteType, description="ADVOPS Reports created by the user.")
@@ -121,6 +122,13 @@ class UserType(DjangoObjectType):
             except Exception:
                 return url
         return None
+
+    def resolve_session_timeout_hours(self, info):
+        value = getattr(self, 'session_timeout_hours', None)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 4
 
     def resolve_created_playbooks(self, info):
         # Filter by author (self) – ordered by most recently updated

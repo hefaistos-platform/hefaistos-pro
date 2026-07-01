@@ -15,6 +15,8 @@ from identity.schema import (
     UpdateProfile,
 )
 from identity.decorators import role_required, Roles
+from core.schema import schema
+from django.test import RequestFactory
 
 User = get_user_model()
 
@@ -370,6 +372,17 @@ class UpdateProfileSessionTimeoutTests(TestCase):
             UpdateProfile.mutate(None, info, session_timeout_hours=6)
 
         self.assertIn("sessionTimeoutHours", str(ctx.exception))
+
+    def test_graphql_me_returns_session_timeout_as_int(self):
+        self.user.session_timeout_hours = 8
+        self.user.save(update_fields=['session_timeout_hours'])
+
+        req = RequestFactory().post('/graphql')
+        req.user = self.user
+        result = schema.execute('{ me { sessionTimeoutHours } }', context_value=req)
+
+        self.assertIsNone(result.errors)
+        self.assertEqual(result.data['me']['sessionTimeoutHours'], 8)
 
 
 class SubmitRegistrationRequestTests(TestCase):

@@ -16,6 +16,7 @@ describe('authSession utils', () => {
   test('normalizeSessionTimeoutHours keeps allowed values and falls back for invalid', () => {
     expect(normalizeSessionTimeoutHours(8)).toBe(8);
     expect(normalizeSessionTimeoutHours('12')).toBe(12);
+    expect(normalizeSessionTimeoutHours('A_8')).toBe(8);
     expect(normalizeSessionTimeoutHours(6)).toBe(DEFAULT_SESSION_TIMEOUT_HOURS);
     expect(normalizeSessionTimeoutHours('abc')).toBe(DEFAULT_SESSION_TIMEOUT_HOURS);
   });

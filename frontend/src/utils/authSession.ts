@@ -10,7 +10,13 @@ export const DEFAULT_SESSION_TIMEOUT_HOURS: SessionTimeoutHours = 4;
 const SESSION_TIMEOUT_HOURS_SET = new Set<number>(SESSION_TIMEOUT_HOURS_OPTIONS);
 
 export const normalizeSessionTimeoutHours = (value: unknown): SessionTimeoutHours => {
-  const parsed = Number(value);
+  let parsed = Number(value);
+  if (!Number.isFinite(parsed) && typeof value === 'string') {
+    const match = value.match(/(\d+)/);
+    if (match) {
+      parsed = Number(match[1]);
+    }
+  }
   return SESSION_TIMEOUT_HOURS_SET.has(parsed)
     ? (parsed as SessionTimeoutHours)
     : DEFAULT_SESSION_TIMEOUT_HOURS;
