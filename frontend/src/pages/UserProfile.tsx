@@ -424,7 +424,7 @@ const buildNotificationPreferences = (
 
 export const UserProfile: React.FC = () => {
   const { message } = App.useApp();
-  const { updateSessionTimeoutHours } = useAuth();
+  const { sessionTimeoutHours: authSessionTimeoutHours, updateSessionTimeoutHours } = useAuth();
   const { data, loading, refetch } = useQuery<GetMyProfileResult>(GET_MY_PROFILE);
   const { data: myRulesData } = useQuery<MyRulesCountData, MyRulesCountVars>(MY_RULES_COUNT, { skip: !data?.me?.username, variables: { author: data?.me?.username || '' } });
   const { data: summaryData } = useQuery<MyProfileSummaryData>(GET_MY_PROFILE_SUMMARY);
@@ -496,7 +496,9 @@ export const UserProfile: React.FC = () => {
   if (loading) return <div className="profile-theme p-8">Loading Profile...</div>;
   const user = data?.me;
   if (!user) return <div className="profile-theme p-8">No profile.</div>;
-  const currentSessionTimeoutHours = normalizeSessionTimeoutHours(user.sessionTimeoutHours);
+  const currentSessionTimeoutHours = normalizeSessionTimeoutHours(
+    user.sessionTimeoutHours ?? authSessionTimeoutHours,
+  );
 
   const handleNotificationPreferenceChange = async (key: NotificationPreferenceKey, checked: boolean) => {
     const previousValue = notificationPrefs[key];
@@ -527,20 +529,37 @@ export const UserProfile: React.FC = () => {
   ];
 
   const handleSaveProfile = async () => {
+    const requestedTimeoutHours = normalizeSessionTimeoutHours(
+      formData.sessionTimeoutHours ?? currentSessionTimeoutHours,
+    );
     try {
       const result = await updateProfile({
         variables: {
           bio: formData.bio,
           jobTitle: formData.jobTitle,
           slackHandle: formData.slackHandle,
-          sessionTimeoutHours: normalizeSessionTimeoutHours(formData.sessionTimeoutHours ?? user.sessionTimeoutHours),
+          sessionTimeoutHours: requestedTimeoutHours,
         },
       });
       if (result.data?.updateProfile?.user) {
-        const updatedHours = normalizeSessionTimeoutHours(result.data.updateProfile.user.sessionTimeoutHours);
-        updateSessionTimeoutHours(updatedHours);
-        message.success('Profile updated');
-        await refetch();
+        const mutationHours = normalizeSessionTimeoutHours(
+          result.data.updateProfile.user.sessionTimeoutHours ?? requestedTimeoutHours,
+        );
+        updateSessionTimeoutHours(mutationHours);
+
+        const refreshed = await refetch();
+        const persistedHours = normalizeSessionTimeoutHours(
+          refreshed.data?.me?.sessionTimeoutHours ?? mutationHours,
+        );
+        updateSessionTimeoutHours(persistedHours);
+
+        if (persistedHours !== requestedTimeoutHours) {
+          message.warning(
+            `Profile saved, but inactivity timeout is still ${persistedHours} hours.`,
+          );
+        } else {
+          message.success('Profile updated');
+        }
         setIsEditing(false);
       }
     } catch (error: any) {

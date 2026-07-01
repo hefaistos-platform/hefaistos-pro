@@ -294,9 +294,12 @@ class Query(graphene.ObjectType):
                 
             if user.is_anonymous:
                 raise Exception("User is not authenticated")
-            
+
             logger.info(f"resolve_me: User authenticated as {user.username}")
-            return user
+            # Return a fresh DB instance so profile fields edited in previous
+            # requests are reflected immediately.
+            fresh_user = CustomUser.objects.filter(pk=user.pk).first()
+            return fresh_user or user
             
         except AttributeError as e:
             logger.error(f"AttributeError in resolve_me: {str(e)}")
@@ -755,6 +758,7 @@ class UpdateProfile(graphene.Mutation):
             raise Exception("Not logged in")
 
         changed_fields = []
+        requested_timeout_hours = None
         if bio is not None:
             user.bio = bio
             changed_fields.append('bio')
@@ -772,10 +776,15 @@ class UpdateProfile(graphene.Mutation):
             if parsed_hours not in SESSION_TIMEOUT_HOURS_ALLOWED:
                 raise Exception("sessionTimeoutHours must be one of: 2, 4, 8, 12, 24")
             user.session_timeout_hours = parsed_hours
+            requested_timeout_hours = parsed_hours
             changed_fields.append('session_timeout_hours')
 
         if changed_fields:
             user.save(update_fields=changed_fields)
+            if requested_timeout_hours is not None:
+                user.refresh_from_db(fields=['session_timeout_hours'])
+                if int(user.session_timeout_hours) != int(requested_timeout_hours):
+                    raise Exception("Failed to persist sessionTimeoutHours. Please try again.")
 
         return UpdateProfile(user=user)
 
