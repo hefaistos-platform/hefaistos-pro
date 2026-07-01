@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 
 import graphene
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, transaction, models
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 from .models import UserAISettings, OrgAISettings, SharedAIProfile, AIGenerationTask
@@ -27,7 +27,7 @@ from .engine import (
 import requests
 from requests.exceptions import RequestException
 from playbooks.models import PlaybookGraph, CapabilityAbstraction
-from platform_data.models import MitreAttackTechnique
+from platform_data.models import MitreAttackTechnique, ChokepointSnapshot, ChokepointEntry
 from identity.decorators import role_required, Roles
 
 logger = logging.getLogger(__name__)
@@ -468,6 +468,63 @@ def _resolve_mitre_technique(technique_codes: list[str]):
                 except MitreAttackTechnique.DoesNotExist:
                     continue
     return None
+
+
+def _build_active_chokepoint_context_lines(technique_codes: list[str], limit: int = 5) -> list[str]:
+    """
+    Return short markdown lines with active chokepoint guidance for ATT&CK codes.
+    """
+    codes = []
+    for code in technique_codes or []:
+        normalized = (code or "").upper().strip()
+        if not normalized:
+            continue
+        codes.append(normalized)
+        if '.' in normalized:
+            codes.append(normalized.split('.', 1)[0])
+    deduped = []
+    for code in codes:
+        if code not in deduped:
+            deduped.append(code)
+    if not deduped:
+        return []
+
+    snapshot = ChokepointSnapshot.objects.filter(status=ChokepointSnapshot.Status.ACTIVE).first()
+    if not snapshot:
+        return []
+
+    entries = list(
+        ChokepointEntry.objects.filter(snapshot=snapshot)
+        .filter(
+            models.Q(primary_technique_id__in=deduped) |
+            models.Q(sub_technique_id__in=deduped)
+        )
+        .order_by('sub_technique_id', 'title')[:limit]
+    )
+    if not entries:
+        return []
+
+    revision = (snapshot.source_sha or snapshot.source_ref or '')[:12]
+    lines = [f"Active chokepoint guidance ({revision}):"]
+    for entry in entries:
+        technique = entry.sub_technique_id or entry.primary_technique_id or 'Unknown'
+        line = f"- {technique} [{entry.title}]"
+        details = []
+        telemetry = (entry.telemetry_prerequisites or '').strip()
+        if telemetry:
+            details.append(f"telemetry: {telemetry[:140]}")
+        hints = entry.native_rule_hints if isinstance(entry.native_rule_hints, dict) else {}
+        hint_chunks = []
+        for key in ('kql', 'spl', 'wazuh_xml'):
+            values = hints.get(key) or []
+            if isinstance(values, list) and values:
+                hint_chunks.append(f"{key}: {str(values[0])[:100]}")
+        if hint_chunks:
+            details.append("hints: " + " | ".join(hint_chunks))
+        if details:
+            line += f" ({'; '.join(details)})"
+        lines.append(line)
+    return lines
 
 
 def _to_strategy_dict(raw_strategy):
@@ -2412,6 +2469,12 @@ class ApplyThreatReportPopulateResult(graphene.Mutation):
                     context_lines.append(f"Related ATT&CK techniques: {', '.join(related_techniques)}")
             if detection_strategy_codes:
                 context_lines.append(f"Detection strategy codes: {', '.join(detection_strategy_codes)}")
+            chokepoint_lines = _build_active_chokepoint_context_lines(
+                [primary_choke_point_code] if primary_choke_point_code else technique_codes,
+                limit=6,
+            )
+            if chokepoint_lines:
+                context_lines.extend(chokepoint_lines)
             if capability_entries:
                 context_lines.append("Capability abstractions extracted:")
                 for row in capability_entries[:20]:

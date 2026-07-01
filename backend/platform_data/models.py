@@ -235,6 +235,7 @@ class PlatformDataVersion(models.Model):
         ('ics-attack', 'MITRE ATT&CK ICS'),
         ('mobile-attack', 'MITRE ATT&CK Mobile'),
         ('d3fend', 'MITRE D3FEND'),
+        ('detection-chokepoints', 'Detection Chokepoints'),
     ]
 
     framework = models.CharField(
@@ -304,3 +305,189 @@ class MitreImportJob(models.Model):
 
     def __str__(self):
         return f"MitreImportJob v{self.version} [{self.status}] @ {self.created_at}"
+
+
+# ---------------------------------------------------------------------------
+# Detection Chokepoints
+# ---------------------------------------------------------------------------
+
+class ChokepointSnapshot(models.Model):
+    """
+    Versioned imported snapshot of detection chokepoints.
+
+    Import jobs create staged snapshots first. A snapshot is promoted to ACTIVE
+    only after explicit approval so upstream changes are never auto-applied.
+    """
+
+    class Status(models.TextChoices):
+        STAGED = 'STAGED', 'Staged'
+        ACTIVE = 'ACTIVE', 'Active'
+        FAILED = 'FAILED', 'Failed'
+        ARCHIVED = 'ARCHIVED', 'Archived'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_repo = models.URLField(
+        max_length=512,
+        default='https://github.com/iimp0ster/detection-chokepoints',
+        help_text="Upstream source repository URL.",
+    )
+    source_ref = models.CharField(
+        max_length=128,
+        default='main',
+        help_text="Imported ref (branch/tag/commit).",
+    )
+    source_sha = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text="Resolved upstream commit SHA when available.",
+    )
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.STAGED)
+    summary = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Import summary counters/diff metadata.",
+    )
+    entry_count = models.PositiveIntegerField(default=0)
+    validation_errors = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='chokepoint_snapshots',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at'], name='platform_chkp_snap_status_created_idx'),
+            models.Index(fields=['source_sha'], name='platform_chkp_snap_sha_idx'),
+        ]
+        verbose_name = "Chokepoint Snapshot"
+        verbose_name_plural = "Chokepoint Snapshots"
+
+    def __str__(self):
+        rev = self.source_sha[:12] if self.source_sha else self.source_ref
+        return f"ChokepointSnapshot {rev} [{self.status}]"
+
+
+class ChokepointEntry(models.Model):
+    """
+    Normalized chokepoint record belonging to a specific snapshot.
+    """
+
+    class Confidence(models.TextChoices):
+        UNKNOWN = 'UNKNOWN', 'Unknown'
+        LOW = 'LOW', 'Low'
+        MEDIUM = 'MEDIUM', 'Medium'
+        HIGH = 'HIGH', 'High'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    snapshot = models.ForeignKey(
+        ChokepointSnapshot,
+        on_delete=models.CASCADE,
+        related_name='entries',
+    )
+    entry_key = models.CharField(
+        max_length=320,
+        help_text="Stable key within a snapshot (derived from source path + title/id).",
+    )
+    source_path = models.CharField(max_length=512, blank=True, default='')
+    source_hash = models.CharField(max_length=64, blank=True, default='')
+    title = models.CharField(max_length=255)
+    primary_technique_id = models.CharField(max_length=20, blank=True, default='')
+    sub_technique_id = models.CharField(max_length=20, blank=True, default='')
+    technique_name = models.CharField(max_length=255, blank=True, default='')
+    tactic = models.CharField(max_length=120, blank=True, default='')
+    telemetry_prerequisites = models.TextField(blank=True, default='')
+    detection_context = models.TextField(blank=True, default='')
+    platforms = models.JSONField(default=list, blank=True)
+    data_components = models.JSONField(default=list, blank=True)
+    detection_strategy_hints = models.JSONField(default=list, blank=True)
+    native_rule_hints = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Engine-specific hints, e.g. {'kql': [...], 'spl': [...], 'wazuh_xml': [...]}",
+    )
+    references = models.JSONField(default=list, blank=True)
+    tags = models.JSONField(default=list, blank=True)
+    confidence = models.CharField(max_length=16, choices=Confidence.choices, default=Confidence.UNKNOWN)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['primary_technique_id', 'title']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['snapshot', 'entry_key'],
+                name='unique_chokepoint_entry_per_snapshot',
+            )
+        ]
+        indexes = [
+            models.Index(fields=['primary_technique_id'], name='platform_chkp_ent_primary_idx'),
+            models.Index(fields=['sub_technique_id'], name='platform_chkp_ent_subtech_idx'),
+            models.Index(fields=['snapshot', 'primary_technique_id'], name='platform_chkp_ent_snap_primary_idx'),
+        ]
+        verbose_name = "Chokepoint Entry"
+        verbose_name_plural = "Chokepoint Entries"
+
+    def __str__(self):
+        technique = self.sub_technique_id or self.primary_technique_id or "Unknown"
+        return f"{technique}: {self.title}"
+
+
+class ChokepointImportJob(models.Model):
+    """
+    Tracks async detection-chokepoints imports triggered from the management UI.
+    """
+
+    class Mode(models.TextChoices):
+        REMOTE = 'REMOTE', 'Remote'
+        LOCAL = 'LOCAL', 'Local'
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        SUCCESS = 'SUCCESS', 'Success'
+        FAILED = 'FAILED', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source_repo = models.URLField(
+        max_length=512,
+        default='https://github.com/iimp0ster/detection-chokepoints',
+    )
+    source_ref = models.CharField(max_length=128, default='main')
+    mode = models.CharField(max_length=10, choices=Mode.choices, default=Mode.REMOTE)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    snapshot = models.ForeignKey(
+        ChokepointSnapshot,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='import_jobs',
+    )
+    summary = models.JSONField(default=dict, blank=True)
+    log = models.TextField(blank=True, default='')
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='chokepoint_import_jobs',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Chokepoint Import Job"
+        verbose_name_plural = "Chokepoint Import Jobs"
+
+    def __str__(self):
+        return f"ChokepointImportJob {self.source_ref} [{self.status}] @ {self.created_at}"

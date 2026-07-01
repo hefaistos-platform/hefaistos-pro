@@ -1,9 +1,9 @@
 """
-Async runner for MITRE import jobs.
+Async runners for platform-data import jobs.
 
-Uses a background thread so the GraphQL mutation can return immediately while
-the long-running `import_mitre_universal` management command executes.
-The job record (MitreImportJob) is updated with status, log and timestamps.
+Uses background threads so GraphQL mutations can return immediately while
+long-running management commands execute. Job records are updated with status,
+logs, and timestamps.
 """
 import io
 import logging
@@ -18,11 +18,11 @@ def run_mitre_import_job(job_id: str) -> None:
     Dispatch the import in a daemon thread.  Returns immediately; the thread
     updates the MitreImportJob row as it progresses.
     """
-    t = threading.Thread(target=_execute_job, args=(job_id,), daemon=True)
+    t = threading.Thread(target=_execute_mitre_job, args=(job_id,), daemon=True)
     t.start()
 
 
-def _execute_job(job_id: str) -> None:
+def _execute_mitre_job(job_id: str) -> None:
     """Background thread: run the import command and persist results."""
     from django.core.management import call_command
     from platform_data.models import MitreImportJob
@@ -58,3 +58,64 @@ def _execute_job(job_id: str) -> None:
     job.log = stdout_buf.getvalue()
     job.finished_at = datetime.now(tz=timezone.utc)
     job.save(update_fields=['status', 'log', 'error', 'finished_at', 'updated_at'])
+
+
+def run_chokepoint_import_job(job_id: str) -> None:
+    """
+    Dispatch a detection-chokepoints import in a daemon thread.
+    """
+    t = threading.Thread(target=_execute_chokepoint_job, args=(job_id,), daemon=True)
+    t.start()
+
+
+def _execute_chokepoint_job(job_id: str) -> None:
+    """Background thread: run chokepoint import command and persist results."""
+    from django.core.management import call_command
+    from platform_data.models import ChokepointImportJob, ChokepointSnapshot
+
+    try:
+        job = ChokepointImportJob.objects.get(id=job_id)
+    except ChokepointImportJob.DoesNotExist:
+        logger.error("ChokepointImportJob %s not found", job_id)
+        return
+
+    job.status = ChokepointImportJob.Status.RUNNING
+    job.started_at = datetime.now(tz=timezone.utc)
+    job.save(update_fields=['status', 'started_at', 'updated_at'])
+
+    snapshot = job.snapshot
+    if snapshot is None:
+        snapshot = ChokepointSnapshot.objects.create(
+            source_repo=job.source_repo,
+            source_ref=job.source_ref,
+            status=ChokepointSnapshot.Status.STAGED,
+            triggered_by=job.triggered_by,
+        )
+        job.snapshot = snapshot
+        job.save(update_fields=['snapshot', 'updated_at'])
+
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    try:
+        call_command(
+            'import_detection_chokepoints',
+            source_repo=job.source_repo,
+            ref=job.source_ref,
+            mode=job.mode.lower(),
+            snapshot_id=str(snapshot.id),
+            stdout=stdout_buf,
+            stderr=stderr_buf,
+        )
+        snapshot.refresh_from_db(fields=['summary'])
+        job.summary = snapshot.summary or {}
+        job.status = ChokepointImportJob.Status.SUCCESS
+        job.error = stderr_buf.getvalue()
+    except Exception as exc:
+        logger.exception("ChokepointImportJob %s failed: %s", job_id, exc)
+        job.status = ChokepointImportJob.Status.FAILED
+        job.error = f"{exc}\n\n{stderr_buf.getvalue()}"
+
+    job.log = stdout_buf.getvalue()
+    job.finished_at = datetime.now(tz=timezone.utc)
+    job.save(update_fields=['status', 'summary', 'log', 'error', 'finished_at', 'updated_at'])

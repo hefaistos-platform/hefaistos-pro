@@ -3,8 +3,16 @@ import graphene
 import uuid as _uuid
 from django.core.cache import cache
 from django.db import models
+from django.db import transaction
+from django.utils import timezone
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
+from .chokepoints_sync import (
+    DEFAULT_CHOKEPOINTS_REF,
+    DEFAULT_CHOKEPOINTS_REPO,
+    fetch_latest_ref_sha,
+    normalize_git_ref,
+)
 from .scraper import (
     scrape_mitre_analytic_details,
     scrape_mitre_log_sources_json,
@@ -14,6 +22,7 @@ from .models import (
     MitreAnalytic, MitreDetectionStrategy,
     D3fendDefensiveTechnique, D3fendDigitalArtifact, D3fendAttackMapping,
     ShareTideIndexEntry, PlatformDataVersion, MitreImportJob,
+    ChokepointSnapshot, ChokepointEntry, ChokepointImportJob,
 )
 from playbooks.models import PlaybookGraph
 
@@ -84,6 +93,44 @@ class MitreImportJobType(DjangoObjectType):
         if self.started_at and self.finished_at:
             return (self.finished_at - self.started_at).total_seconds()
         return None
+
+
+class ChokepointSnapshotType(DjangoObjectType):
+    class Meta:
+        model = ChokepointSnapshot
+        fields = (
+            "id", "source_repo", "source_ref", "source_sha", "status",
+            "summary", "entry_count", "validation_errors",
+            "created_at", "updated_at", "activated_at", "triggered_by",
+        )
+
+
+class ChokepointImportJobType(DjangoObjectType):
+    duration_seconds = graphene.Float(description="Wall-clock duration in seconds, or null if not finished.")
+
+    class Meta:
+        model = ChokepointImportJob
+        fields = (
+            "id", "source_repo", "source_ref", "mode", "status", "summary",
+            "log", "error", "created_at", "updated_at", "started_at",
+            "finished_at", "snapshot", "triggered_by",
+        )
+
+    def resolve_duration_seconds(self, info):
+        if self.started_at and self.finished_at:
+            return (self.finished_at - self.started_at).total_seconds()
+        return None
+
+
+class ChokepointDiffSummaryType(graphene.ObjectType):
+    snapshot_id = graphene.UUID()
+    active_snapshot_id = graphene.UUID()
+    added = graphene.Int()
+    changed = graphene.Int()
+    removed = graphene.Int()
+    unchanged = graphene.Int()
+    staged_count = graphene.Int()
+    active_count = graphene.Int()
 
 # --- QUERY ---
 
@@ -160,6 +207,39 @@ class ShareTideIndexEntryType(DjangoObjectType):
         fields = ("id", "category", "value", "description", "source_url", "sort_order")
 
 
+def _require_superuser(info):
+    user = info.context.user
+    if user.is_anonymous:
+        raise GraphQLError("Authentication required")
+    if not user.is_superuser:
+        raise GraphQLError("Permission denied. Superuser access required.")
+    return user
+
+
+@transaction.atomic
+def _activate_chokepoint_snapshot(snapshot: ChokepointSnapshot) -> ChokepointSnapshot:
+    """
+    Promote a snapshot as ACTIVE and archive any previously active snapshot.
+    """
+    active_qs = (
+        ChokepointSnapshot.objects.select_for_update()
+        .filter(status=ChokepointSnapshot.Status.ACTIVE)
+        .exclude(id=snapshot.id)
+    )
+    active_qs.update(status=ChokepointSnapshot.Status.ARCHIVED)
+
+    snapshot.status = ChokepointSnapshot.Status.ACTIVE
+    snapshot.activated_at = timezone.now()
+    snapshot.save(update_fields=["status", "activated_at", "updated_at"])
+
+    version_value = (snapshot.source_sha[:12] if snapshot.source_sha else snapshot.source_ref)[:20] or "staged"
+    PlatformDataVersion.objects.update_or_create(
+        framework='detection-chokepoints',
+        defaults={'version': version_value},
+    )
+    return snapshot
+
+
 class Query(graphene.ObjectType):
     detection_suggestions = graphene.Field(
         SuggestionResultType,
@@ -224,6 +304,51 @@ class Query(graphene.ObjectType):
         MitreImportJobType,
         limit=graphene.Int(default_value=20),
         description="List recent MITRE import jobs, newest first.",
+    )
+
+    latest_available_chokepoint_revision = graphene.String(
+        source_repo=graphene.String(default_value=DEFAULT_CHOKEPOINTS_REPO),
+        ref=graphene.String(default_value=DEFAULT_CHOKEPOINTS_REF),
+        description=(
+            "Resolve latest commit SHA for detection-chokepoints source ref "
+            "(cached 1 hour). Returns null on network errors."
+        ),
+    )
+
+    active_chokepoint_snapshot = graphene.Field(
+        ChokepointSnapshotType,
+        description="Currently active chokepoint snapshot.",
+    )
+
+    chokepoint_snapshot = graphene.Field(
+        ChokepointSnapshotType,
+        id=graphene.UUID(required=True),
+        description="Get a single chokepoint snapshot by ID.",
+    )
+
+    chokepoint_snapshots = graphene.List(
+        ChokepointSnapshotType,
+        status=graphene.String(),
+        limit=graphene.Int(default_value=20),
+        description="List chokepoint snapshots (latest first).",
+    )
+
+    chokepoint_import_job = graphene.Field(
+        ChokepointImportJobType,
+        id=graphene.UUID(required=True),
+        description="Get a single chokepoint import job by ID.",
+    )
+
+    chokepoint_import_jobs = graphene.List(
+        ChokepointImportJobType,
+        limit=graphene.Int(default_value=20),
+        description="List recent chokepoint import jobs, newest first.",
+    )
+
+    staged_chokepoint_diff = graphene.Field(
+        ChokepointDiffSummaryType,
+        snapshot_id=graphene.UUID(required=True),
+        description="Compare a staged snapshot to current active snapshot.",
     )
 
     # D3FEND Queries
@@ -324,23 +449,107 @@ class Query(graphene.ObjectType):
             return None
 
     def resolve_mitre_import_job(self, info, id):
-        user = info.context.user
-        if user.is_anonymous:
-            raise GraphQLError("Authentication required")
-        if not user.is_superuser:
-            raise GraphQLError("Permission denied. Superuser access required.")
+        _require_superuser(info)
         try:
             return MitreImportJob.objects.get(id=id)
         except MitreImportJob.DoesNotExist:
             return None
 
     def resolve_mitre_import_jobs(self, info, limit=20):
-        user = info.context.user
-        if user.is_anonymous:
-            raise GraphQLError("Authentication required")
-        if not user.is_superuser:
-            raise GraphQLError("Permission denied. Superuser access required.")
+        _require_superuser(info)
         return MitreImportJob.objects.all()[:limit]
+
+    def resolve_latest_available_chokepoint_revision(
+        self,
+        info,
+        source_repo=DEFAULT_CHOKEPOINTS_REPO,
+        ref=DEFAULT_CHOKEPOINTS_REF,
+    ):
+        cache_key = f"chokepoints:latest_revision:{source_repo}:{ref}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            resolved = fetch_latest_ref_sha(source_repo, normalize_git_ref(ref))
+            cache.set(cache_key, resolved, timeout=3600)
+            return resolved
+        except Exception:
+            return None
+
+    def resolve_active_chokepoint_snapshot(self, info):
+        _require_superuser(info)
+        return ChokepointSnapshot.objects.filter(status=ChokepointSnapshot.Status.ACTIVE).first()
+
+    def resolve_chokepoint_snapshot(self, info, id):
+        _require_superuser(info)
+        try:
+            return ChokepointSnapshot.objects.get(id=id)
+        except ChokepointSnapshot.DoesNotExist:
+            return None
+
+    def resolve_chokepoint_snapshots(self, info, status=None, limit=20):
+        _require_superuser(info)
+        qs = ChokepointSnapshot.objects.all()
+        if status:
+            status_upper = str(status).upper()
+            if status_upper in ChokepointSnapshot.Status.values:
+                qs = qs.filter(status=status_upper)
+        return qs[:limit]
+
+    def resolve_chokepoint_import_job(self, info, id):
+        _require_superuser(info)
+        try:
+            return ChokepointImportJob.objects.get(id=id)
+        except ChokepointImportJob.DoesNotExist:
+            return None
+
+    def resolve_chokepoint_import_jobs(self, info, limit=20):
+        _require_superuser(info)
+        return ChokepointImportJob.objects.select_related("snapshot", "triggered_by").all()[:limit]
+
+    def resolve_staged_chokepoint_diff(self, info, snapshot_id):
+        _require_superuser(info)
+        try:
+            staged = ChokepointSnapshot.objects.get(id=snapshot_id)
+        except ChokepointSnapshot.DoesNotExist:
+            return None
+
+        active = (
+            ChokepointSnapshot.objects
+            .filter(status=ChokepointSnapshot.Status.ACTIVE)
+            .exclude(id=staged.id)
+            .order_by("-activated_at", "-created_at")
+            .first()
+        )
+
+        staged_rows = dict(
+            ChokepointEntry.objects.filter(snapshot=staged).values_list("entry_key", "source_hash")
+        )
+        active_rows = {}
+        if active:
+            active_rows = dict(
+                ChokepointEntry.objects.filter(snapshot=active).values_list("entry_key", "source_hash")
+            )
+
+        staged_keys = set(staged_rows.keys())
+        active_keys = set(active_rows.keys())
+
+        added = len(staged_keys - active_keys)
+        removed = len(active_keys - staged_keys)
+        shared = staged_keys & active_keys
+        changed = sum(1 for key in shared if staged_rows.get(key) != active_rows.get(key))
+        unchanged = len(shared) - changed
+
+        return ChokepointDiffSummaryType(
+            snapshot_id=staged.id,
+            active_snapshot_id=active.id if active else None,
+            added=added,
+            changed=changed,
+            removed=removed,
+            unchanged=unchanged,
+            staged_count=len(staged_rows),
+            active_count=len(active_rows),
+        )
 
     def resolve_enrich_analytic_data(self, info, strategy_url, analytic_id):
         cache_key = f"mitre:text:{strategy_url}#{analytic_id}"
@@ -604,7 +813,117 @@ class RunMitreImport(graphene.Mutation):
         return RunMitreImport(job=job)
 
 
+class RunChokepointImport(graphene.Mutation):
+    """
+    Admin-only mutation to trigger an async detection-chokepoints import job.
+    """
+
+    class Arguments:
+        source_repo = graphene.String(
+            default_value=DEFAULT_CHOKEPOINTS_REPO,
+            description="Source repository URL.",
+        )
+        ref = graphene.String(
+            default_value=DEFAULT_CHOKEPOINTS_REF,
+            description="Source git ref (branch/tag/commit).",
+        )
+        mode = graphene.String(default_value="remote", description="'remote' or 'local'")
+
+    job = graphene.Field(ChokepointImportJobType)
+
+    @staticmethod
+    def mutate(root, info, source_repo=DEFAULT_CHOKEPOINTS_REPO, ref=DEFAULT_CHOKEPOINTS_REF, mode="remote"):
+        from .tasks import run_chokepoint_import_job
+
+        user = _require_superuser(info)
+        mode_upper = str(mode).upper().strip()
+        if mode_upper not in (ChokepointImportJob.Mode.REMOTE, ChokepointImportJob.Mode.LOCAL):
+            mode_upper = ChokepointImportJob.Mode.REMOTE
+
+        source_ref = normalize_git_ref(ref)
+        job = ChokepointImportJob.objects.create(
+            source_repo=(source_repo or DEFAULT_CHOKEPOINTS_REPO).strip(),
+            source_ref=source_ref,
+            mode=mode_upper,
+            status=ChokepointImportJob.Status.PENDING,
+            triggered_by=user,
+        )
+        run_chokepoint_import_job(str(job.id))
+        return RunChokepointImport(job=job)
+
+
+class PromoteChokepointSnapshot(graphene.Mutation):
+    """
+    Promote a staged snapshot to active.
+    """
+
+    class Arguments:
+        snapshot_id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    snapshot = graphene.Field(ChokepointSnapshotType)
+
+    @staticmethod
+    def mutate(root, info, snapshot_id):
+        _require_superuser(info)
+        try:
+            snapshot = ChokepointSnapshot.objects.get(id=snapshot_id)
+        except ChokepointSnapshot.DoesNotExist:
+            raise GraphQLError("Chokepoint snapshot not found.")
+
+        if snapshot.status == ChokepointSnapshot.Status.FAILED:
+            raise GraphQLError("Cannot promote a failed snapshot.")
+
+        _activate_chokepoint_snapshot(snapshot)
+        return PromoteChokepointSnapshot(
+            success=True,
+            message=f"Snapshot {snapshot.id} is now active.",
+            snapshot=snapshot,
+        )
+
+
+class RollbackChokepointSnapshot(graphene.Mutation):
+    """
+    Roll back active chokepoints to a selected snapshot.
+    """
+
+    class Arguments:
+        snapshot_id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+    snapshot = graphene.Field(ChokepointSnapshotType)
+
+    @staticmethod
+    def mutate(root, info, snapshot_id):
+        _require_superuser(info)
+        try:
+            snapshot = ChokepointSnapshot.objects.get(id=snapshot_id)
+        except ChokepointSnapshot.DoesNotExist:
+            raise GraphQLError("Target snapshot not found.")
+
+        if snapshot.status == ChokepointSnapshot.Status.FAILED:
+            raise GraphQLError("Cannot roll back to a failed snapshot.")
+
+        _activate_chokepoint_snapshot(snapshot)
+        return RollbackChokepointSnapshot(
+            success=True,
+            message=f"Rolled back active chokepoints to snapshot {snapshot.id}.",
+            snapshot=snapshot,
+        )
+
+
 class Mutation(graphene.ObjectType):
     run_mitre_import = RunMitreImport.Field(
         description="Trigger an async MITRE ATT&CK import (admin only)."
+    )
+    run_chokepoint_import = RunChokepointImport.Field(
+        description="Trigger an async detection-chokepoints import (admin only)."
+    )
+    promote_chokepoint_snapshot = PromoteChokepointSnapshot.Field(
+        description="Promote a staged chokepoint snapshot to active (admin only)."
+    )
+    rollback_chokepoint_snapshot = RollbackChokepointSnapshot.Field(
+        description="Roll back to a selected chokepoint snapshot (admin only)."
     )

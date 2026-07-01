@@ -21,9 +21,11 @@ import requests
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 try:
-    from platform_data.models import MitreAttackTechnique
+    from platform_data.models import MitreAttackTechnique, ChokepointEntry, ChokepointSnapshot
 except Exception:
     MitreAttackTechnique = None
+    ChokepointEntry = None
+    ChokepointSnapshot = None
 
 logger = logging.getLogger(__name__)
 
@@ -334,6 +336,66 @@ def _format_capability_abstractions_for_prompt(playbook_context: dict | None) ->
     return "\n".join(lines)
 
 
+def _format_chokepoint_guidance_for_prompt(playbook_context: dict | None) -> str:
+    """
+    Return active chokepoint guidance for the current ATT&CK technique.
+    """
+    context = playbook_context or {}
+    technique = str(context.get('technique_id') or '').strip().upper()
+    if not technique or technique == 'UNKNOWN':
+        return "No ATT&CK technique selected for chokepoint guidance."
+    if ChokepointEntry is None or ChokepointSnapshot is None:
+        return "Chokepoint models unavailable."
+
+    primary = technique.split('.', 1)[0]
+
+    try:
+        active = ChokepointSnapshot.objects.filter(status=ChokepointSnapshot.Status.ACTIVE).first()
+        if not active:
+            return "No active chokepoint snapshot."
+
+        entries = list(
+            ChokepointEntry.objects.filter(snapshot=active)
+            .filter(
+                Q(primary_technique_id__iexact=primary)
+                | Q(sub_technique_id__iexact=technique)
+                | Q(primary_technique_id__iexact=technique)
+            )
+            .order_by('sub_technique_id', 'title')[:5]
+        )
+    except Exception as exc:
+        logger.warning("Failed to query chokepoint guidance for %s: %s", technique, exc)
+        return f"Chokepoint guidance lookup failed for {technique}."
+
+    if not entries:
+        return f"No active chokepoint entries matched {technique}."
+
+    revision = (active.source_sha or active.source_ref or '')[:12]
+    lines = [f"ACTIVE CHOKEPOINT SNAPSHOT: {revision}"]
+    for idx, entry in enumerate(entries, start=1):
+        tech = entry.sub_technique_id or entry.primary_technique_id or 'Unknown'
+        line = f"{idx}. {tech} - {entry.title}"
+        details = []
+        telemetry = (entry.telemetry_prerequisites or '').strip()
+        if telemetry:
+            details.append(f"Telemetry: {telemetry[:160]}")
+        context_text = (entry.detection_context or '').strip()
+        if context_text:
+            details.append(f"Context: {context_text[:180]}")
+        hints = entry.native_rule_hints if isinstance(entry.native_rule_hints, dict) else {}
+        hint_parts = []
+        for key in ('kql', 'spl', 'wazuh_xml'):
+            values = hints.get(key) or []
+            if isinstance(values, list) and values:
+                hint_parts.append(f"{key}={str(values[0])[:110]}")
+        if hint_parts:
+            details.append(f"Native hints: {' | '.join(hint_parts)}")
+        if details:
+            line += f" ({'; '.join(details)})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _extract_delimited_section(text: str, section_name: str) -> str:
     pattern = rf"[ \t]*---{section_name}-START---[ \t]*\r?\n(.*?)\r?\n[ \t]*---{section_name}-END---"
     match = re.search(pattern, text or '', re.DOTALL)
@@ -488,6 +550,7 @@ def generate_rule_bundle(user_settings, playbook_context, output_format: str = '
         fmt_requirements = "- Output a valid, production-ready detection rule.\n- Include relevant context, descriptions, and MITRE mappings."
 
     capability_context = _format_capability_abstractions_for_prompt(playbook_context)
+    chokepoint_context = _format_chokepoint_guidance_for_prompt(playbook_context)
     system_prompt = f"""You are a Principal Detection Engineer. Generate layered detection outputs grounded in the supplied capability abstractions.
 
 Use the structured capability abstractions as authoritative grounding data. Do not ignore them. The PRIMARY-RULE must prioritize the requested detection focus layer when one is provided.
@@ -539,6 +602,11 @@ STRUCTURED CAPABILITY ABSTRACTIONS:
 <capability_abstractions>
 {capability_context}
 </capability_abstractions>
+
+ACTIVE CHOKEPOINT GUIDANCE:
+<chokepoint_guidance>
+{chokepoint_context}
+</chokepoint_guidance>
 
 DATA SOURCES (Log Requirements):
 {playbook_context.get('data_sources', 'Standard Windows Logs')}
@@ -737,6 +805,7 @@ def suggest_rule_improvements(user_settings, rule_content: str, rule_format: str
     fmt = (rule_format or 'KQL').upper()
     
     capability_context = _format_capability_abstractions_for_prompt(playbook_context)
+    chokepoint_context = _format_chokepoint_guidance_for_prompt(playbook_context)
 
     system_prompt = f"""You are a Senior Detection Engineer and rule reviewer. Analyze the provided {fmt} detection rule and suggest specific, actionable improvements.
 
@@ -802,6 +871,9 @@ Do not offer follow-up suggestions, alternative versions, or ask if the user wan
 
 CAPABILITY ABSTRACTIONS / DETECTION FOCUS:
 {capability_context}
+
+ACTIVE CHOKEPOINT GUIDANCE:
+{chokepoint_context}
 
 Provide specific, actionable recommendations for improving this rule's effectiveness, reducing false positives, and following {fmt} best practices.
 Finish your response with section 8 containing a complete, improved version of the rule in valid {fmt} format, wrapped between ---IMPROVED-RULE-START--- and ---IMPROVED-RULE-END--- delimiter lines."""
@@ -924,6 +996,7 @@ def generate_similar_rules(user_settings, rule_content: str, rule_format: str = 
     num_variations = max(1, min(5, num_variations))  # Clamp to 1-5
 
     capability_context = _format_capability_abstractions_for_prompt(playbook_context)
+    chokepoint_context = _format_chokepoint_guidance_for_prompt(playbook_context)
 
     # Build variation-specific instructions
     variation_instructions = {
@@ -1007,6 +1080,9 @@ SOURCE RULE:
 
 CAPABILITY ABSTRACTIONS / DETECTION FOCUS:
 {capability_context}
+
+ACTIVE CHOKEPOINT GUIDANCE:
+{chokepoint_context}
 
 {f"ADDITIONAL INSTRUCTIONS: {custom_instructions}" if custom_instructions and variation_type != 'custom' else ""}
 
@@ -1099,8 +1175,8 @@ Output exactly {num_variations} complete, production-ready {out_fmt} rule(s). Us
 
 
 def _get_relevant_knowledge(user_input: str) -> str:
-    """Keywords search to find relevant MITRE TTPs to ground the AI."""
-    if not MitreAttackTechnique:
+    """Keywords search to find relevant ATT&CK + active chokepoint grounding."""
+    if not MitreAttackTechnique and not (ChokepointEntry and ChokepointSnapshot):
         return ""
 
     # Simple keyword extraction (ignore short words)
@@ -1108,22 +1184,64 @@ def _get_relevant_knowledge(user_input: str) -> str:
     if not keywords:
         return ""
 
-    # Search for techniques matching keywords in name or technique_id
-    query = Q()
-    for k in keywords:
-        query |= Q(name__icontains=k) | Q(technique_id__icontains=k)
-    
-    # Limit to top 5 active (non-revoked, non-deprecated) matches
-    results = MitreAttackTechnique.objects.filter(query, revoked=False, deprecated=False)[:5]
-    
-    if not results:
-        return ""
+    lines: list[str] = []
+    matched_techniques = []
 
-    knowledge_text = "\n\nGROUNDING DATA (REAL MITRE TECHNIQUES):\n"
-    for t in results:
-        knowledge_text += f"- {t.technique_id} {t.name}: {t.description[:150]}...\n"
-    
-    return knowledge_text
+    if MitreAttackTechnique:
+        query = Q()
+        for k in keywords:
+            query |= Q(name__icontains=k) | Q(technique_id__icontains=k)
+
+        matched_techniques = list(
+            MitreAttackTechnique.objects.filter(query, revoked=False, deprecated=False)[:5]
+        )
+        if matched_techniques:
+            lines.append("\nGROUNDING DATA (REAL MITRE TECHNIQUES):")
+            for t in matched_techniques:
+                desc = (t.description or '').strip()
+                if len(desc) > 150:
+                    desc = desc[:150] + "..."
+                lines.append(f"- {t.technique_id} {t.name}: {desc}")
+
+    if ChokepointEntry and ChokepointSnapshot:
+        try:
+            active_snapshot = ChokepointSnapshot.objects.filter(status=ChokepointSnapshot.Status.ACTIVE).first()
+            if active_snapshot:
+                technique_ids: set[str] = set()
+                for technique in matched_techniques:
+                    code = (technique.technique_id or '').upper().strip()
+                    if not code:
+                        continue
+                    technique_ids.add(code)
+                    if '.' in code:
+                        technique_ids.add(code.split('.', 1)[0])
+
+                cp_query = Q()
+                if technique_ids:
+                    cp_query |= Q(primary_technique_id__in=technique_ids) | Q(sub_technique_id__in=technique_ids)
+                for keyword in keywords[:6]:
+                    cp_query |= Q(title__icontains=keyword) | Q(detection_context__icontains=keyword)
+
+                chokepoints = []
+                if cp_query.children:
+                    chokepoints = list(
+                        ChokepointEntry.objects.filter(snapshot=active_snapshot).filter(cp_query)[:5]
+                    )
+
+                if chokepoints:
+                    rev = (active_snapshot.source_sha or active_snapshot.source_ref or '')[:12]
+                    lines.append(f"\nGROUNDING DATA (ACTIVE CHOKEPOINTS {rev}):")
+                    for entry in chokepoints:
+                        code = entry.sub_technique_id or entry.primary_technique_id or 'Unknown'
+                        detail = (entry.telemetry_prerequisites or entry.detection_context or '').strip()
+                        if len(detail) > 160:
+                            detail = detail[:160] + "..."
+                        suffix = f" | {detail}" if detail else ""
+                        lines.append(f"- {code} {entry.title}{suffix}")
+        except Exception as exc:
+            logger.warning("Failed to load chokepoint grounding: %s", exc)
+
+    return "\n".join(lines).strip()
 
 
 def _normalize_ai_json(response_text):

@@ -13,6 +13,9 @@ from .models import (
     ShareTideIndexEntry,
     PlatformDataVersion,
     MitreImportJob,
+    ChokepointSnapshot,
+    ChokepointEntry,
+    ChokepointImportJob,
 )
 
 # --- 1. Techniques ---
@@ -104,3 +107,39 @@ class MitreImportJobAdmin(admin.ModelAdmin):
     list_display = ('id', 'version', 'mode', 'status', 'triggered_by', 'created_at', 'finished_at')
     list_filter = ('status', 'mode')
     readonly_fields = ('id', 'created_at', 'updated_at', 'started_at', 'finished_at', 'log', 'error')
+
+
+# --- Chokepoint Snapshots ---
+@admin.register(ChokepointSnapshot)
+class ChokepointSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'status', 'source_ref', 'source_sha', 'entry_count',
+        'triggered_by', 'created_at', 'activated_at',
+    )
+    list_filter = ('status',)
+    search_fields = ('source_ref', 'source_sha')
+    readonly_fields = (
+        'id', 'created_at', 'updated_at', 'activated_at', 'entry_count', 'summary', 'validation_errors',
+    )
+
+
+@admin.register(ChokepointEntry)
+class ChokepointEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        'title', 'primary_technique_id', 'sub_technique_id', 'confidence',
+        'snapshot', 'source_path',
+    )
+    list_filter = ('confidence',)
+    search_fields = ('title', 'primary_technique_id', 'sub_technique_id', 'source_path', 'entry_key')
+    readonly_fields = ('id',)
+
+
+@admin.register(ChokepointImportJob)
+class ChokepointImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id', 'source_ref', 'mode', 'status', 'snapshot',
+        'triggered_by', 'created_at', 'finished_at',
+    )
+    list_filter = ('status', 'mode')
+    search_fields = ('source_ref', 'source_repo')
+    readonly_fields = ('id', 'created_at', 'updated_at', 'started_at', 'finished_at', 'log', 'error', 'summary')
