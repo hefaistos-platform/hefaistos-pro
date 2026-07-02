@@ -875,6 +875,23 @@ export const PlaybookWorkbench = () => {
     selections: MaieuticImportSelections;
   } | null>(null);
 
+  const maieuticWorkbenchContext = useMemo(() => {
+    const graph = data?.playbookGraph;
+    if (!graph) return undefined;
+    return {
+      techniqueId: graph.mitreTechnique?.techniqueId || '',
+      techniqueName: graph.mitreTechnique?.name || '',
+      detectionFocusLayer: graph.detectionFocusLayer || '',
+      goal: graph.goal || '',
+      technicalContext: graph.technicalContext || '',
+      selectedCapabilityAbstractions: (graph.selectedCapabilityAbstractions || []).slice(0, 8).map((entry) => ({
+        abstractionLayer: entry.abstractionLayer,
+        componentArtifact: entry.componentArtifact,
+        adversaryPurpose: entry.adversaryPurpose || '',
+      })),
+    };
+  }, [data?.playbookGraph]);
+
   // OpenTIDE Preview Modal State (Phase 2)
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
 
@@ -2621,6 +2638,7 @@ export const PlaybookWorkbench = () => {
         isOpen={maieuticModalVisible}
         onClose={() => setMaieuticModalVisible(false)}
         onSubmit={handleMaieuticSubmit}
+        workbenchContext={maieuticWorkbenchContext}
       />
 
       {/* Threat Report Populate Modal */}

@@ -1187,14 +1187,44 @@ Output exactly {num_variations} complete, production-ready {out_fmt} rule(s). Us
         return (f"Error generating similar rules: {str(e)}", provider)
 
 
-def _get_relevant_knowledge(user_input: str) -> str:
-    """Keywords search to find relevant ATT&CK + active chokepoint grounding."""
+def _extract_technique_ids(text: str) -> set[str]:
+    raw_text = (text or "")
+    if not raw_text:
+        return set()
+    return {match.upper() for match in re.findall(r"\bT\d{4}(?:\.\d{3})?\b", raw_text, flags=re.IGNORECASE)}
+
+
+def _get_relevant_knowledge(user_input: str, form_context=None) -> str:
+    """Keyword search to find relevant ATT&CK + active chokepoint grounding."""
     if not MitreAttackTechnique and not (ChokepointEntry and ChokepointSnapshot):
         return ""
 
-    # Simple keyword extraction (ignore short words)
-    keywords = [w for w in user_input.split() if len(w) > 3]
-    if not keywords:
+    context = form_context if isinstance(form_context, dict) else {}
+    context_terms: list[str] = []
+    technique_hints: set[str] = set()
+    workbench_context = context.get("workbenchContext") if isinstance(context.get("workbenchContext"), dict) else {}
+    hypothesis = context.get("hypothesis") if isinstance(context.get("hypothesis"), dict) else {}
+
+    if isinstance(workbench_context, dict):
+        technique_hints.update(_extract_technique_ids(str(workbench_context.get("techniqueId", ""))))
+        technique_hints.update(_extract_technique_ids(str(workbench_context.get("techniqueName", ""))))
+        context_terms.extend(
+            [
+                str(workbench_context.get("techniqueId", "")),
+                str(workbench_context.get("techniqueName", "")),
+                str(workbench_context.get("detectionFocusLayer", "")),
+                str(workbench_context.get("goal", "")),
+                str(workbench_context.get("technicalContext", "")),
+            ]
+        )
+
+    if isinstance(hypothesis, dict):
+        technique_hints.update(_extract_technique_ids(str(hypothesis.get("capability", ""))))
+        context_terms.extend([str(hypothesis.get("intent", "")), str(hypothesis.get("capability", ""))])
+
+    seed_text = " ".join([user_input or "", *context_terms]).strip()
+    keywords = [w for w in seed_text.split() if len(w) > 3]
+    if not keywords and not technique_hints:
         return ""
 
     lines: list[str] = []
@@ -1204,6 +1234,13 @@ def _get_relevant_knowledge(user_input: str) -> str:
         query = Q()
         for k in keywords:
             query |= Q(name__icontains=k) | Q(technique_id__icontains=k)
+        if technique_hints:
+            query |= Q(technique_id__in=list(technique_hints))
+            for tid in technique_hints:
+                if "." in tid:
+                    query |= Q(technique_id__iexact=tid.split(".", 1)[0])
+        if not query.children:
+            return ""
 
         matched_techniques = list(
             MitreAttackTechnique.objects.filter(query, revoked=False, deprecated=False)[:5]
@@ -1318,6 +1355,102 @@ def _extract_single_question(question_text: str) -> str:
     if not first_sentence:
         return "What specific behavior are you trying to detect?"
     return first_sentence + "?"
+
+
+def _question_tokens(question_text: str) -> list[str]:
+    return [token for token in re.findall(r"[a-z0-9]+", (question_text or "").lower()) if len(token) > 2]
+
+
+def _questions_are_similar(candidate: str, previous: str) -> bool:
+    cand_tokens = _question_tokens(candidate)
+    prev_tokens = _question_tokens(previous)
+    if not cand_tokens or not prev_tokens:
+        return False
+    if " ".join(cand_tokens) == " ".join(prev_tokens):
+        return True
+    cand_set = set(cand_tokens)
+    prev_set = set(prev_tokens)
+    overlap = cand_set.intersection(prev_set)
+    union = cand_set.union(prev_set)
+    if not union:
+        return False
+    return (len(overlap) / len(union)) >= 0.8
+
+
+def _next_gap_question(current_step: str, missing_items: list[str], form_context=None) -> str:
+    step = (current_step or "hypothesis").strip().lower()
+    missing = [str(item).strip().lower() for item in (missing_items or []) if str(item).strip()]
+    context = form_context if isinstance(form_context, dict) else {}
+    workbench_context = context.get("workbenchContext") if isinstance(context.get("workbenchContext"), dict) else {}
+    technique = str(workbench_context.get("techniqueId", "")).strip()
+    technique_hint = f" for {technique}" if technique else ""
+    first_missing = missing[0] if missing else ""
+
+    by_missing = {
+        "intent": f"What exact adversary outcome are we trying to detect{technique_hint}, and where does it happen?",
+        "capability": f"Which concrete behavior or ATT&CK technique{technique_hint} should this detection anchor on?",
+        "qa_log": "What one high-signal question and evidence-backed answer should we log first to validate this hypothesis?",
+        "data_quality": "How reliable and complete is the telemetry source you depend on, and what known gaps remain?",
+        "false_positive_rate": "What benign activity will trigger this, and what false-positive rate is acceptable after baseline tuning?",
+        "coverage_gaps": "Which environment segment or host class remains uncovered by this detection today?",
+        "justification": "Why is this detection resilient against common attacker variations in your environment?",
+        "playbook_content": "What is the first mandatory human triage action, and what one action can be safely automated?",
+        "interrogation_log": "What additional interrogation evidence is still needed before review can be considered complete?",
+        "detection_rule": "What minimum detection rule logic should be drafted now to test this hypothesis end to end?",
+        "triage_guidance": "What concise triage guidance should an analyst follow on first alert?",
+        "test_scenario": "What concrete test scenario will prove this detection works in your environment?",
+        "test_expected_output": "What exact expected output confirms success when the test scenario runs?",
+    }
+    if first_missing in by_missing:
+        return by_missing[first_missing]
+
+    by_step = {
+        "hypothesis": f"What single behavior-level decision will make this hypothesis testable{technique_hint}?",
+        "interrogation": "What field-level evidence most cleanly separates malicious behavior from the closest benign lookalike?",
+        "robustness": "What is the most likely evasion path, and what telemetry dependency would fail first?",
+        "playbook": "What triage step must remain human, and what response step can be safely automated now?",
+        "review": "What final evidence is missing before this can be considered deployment-ready?",
+    }
+    return by_step.get(step, "What is the next most specific detail we should lock down?")
+
+
+def _apply_maieutic_repeat_guard(normalized_json: str, conversation_history=None, current_step='hypothesis', form_context=None):
+    history = conversation_history if isinstance(conversation_history, list) else []
+    if not history:
+        return normalized_json
+
+    try:
+        payload = json.loads(normalized_json)
+    except Exception:
+        return normalized_json
+
+    if not isinstance(payload, dict):
+        return normalized_json
+
+    candidate_question = _extract_single_question(str(payload.get("socratic_question", "")).strip())
+    if not candidate_question:
+        return normalized_json
+
+    previous_question = ""
+    for entry in reversed(history):
+        if not isinstance(entry, dict):
+            continue
+        ai_text = str(entry.get("ai", "")).strip()
+        if ai_text:
+            previous_question = _extract_single_question(ai_text)
+            break
+
+    if not previous_question or not _questions_are_similar(candidate_question, previous_question):
+        return normalized_json
+
+    completion_check = payload.get("completion_check") if isinstance(payload.get("completion_check"), dict) else {}
+    missing_items = completion_check.get("missing_items") if isinstance(completion_check.get("missing_items"), list) else []
+    payload["socratic_question"] = _next_gap_question(current_step, missing_items, form_context=form_context)
+    payload["reasoning"] = (
+        str(payload.get("reasoning", "")).strip()
+        or "The prior question was already covered, so the next gap-focused question is used."
+    )
+    return json.dumps(payload)
 
 
 def _normalize_maieutic_source_type(raw_value: str) -> str:
@@ -1623,6 +1756,29 @@ def run_maieutic_questioning(
     if form_context:
         form_summary = "\n\n=== CURRENT FORM STATE (What user has already entered) ===\n"
 
+        if 'workbenchContext' in form_context and isinstance(form_context['workbenchContext'], dict):
+            wb = form_context['workbenchContext']
+            if wb.get('techniqueId'):
+                technique_name = str(wb.get('techniqueName', '')).strip()
+                technique_label = f"{wb['techniqueId']} ({technique_name})" if technique_name else wb['techniqueId']
+                form_summary += f"WORKBENCH ATT&CK: {technique_label}\n"
+            if wb.get('detectionFocusLayer'):
+                form_summary += f"WORKBENCH FOCUS LAYER: {wb['detectionFocusLayer']}\n"
+            if wb.get('goal'):
+                form_summary += f"WORKBENCH GOAL: {wb['goal']}\n"
+            selected_caps = wb.get('selectedCapabilityAbstractions')
+            if isinstance(selected_caps, list) and selected_caps:
+                form_summary += f"WORKBENCH CAPABILITY ENTRIES ({len(selected_caps)} shown):\n"
+                for idx, entry in enumerate(selected_caps[:3]):
+                    if not isinstance(entry, dict):
+                        continue
+                    layer = str(entry.get('abstractionLayer', '')).strip()
+                    artifact = str(entry.get('componentArtifact', '')).strip()
+                    purpose = str(entry.get('adversaryPurpose', '')).strip()
+                    entry_parts = [part for part in [layer, artifact, purpose] if part]
+                    if entry_parts:
+                        form_summary += f"  - C{idx+1}: {' | '.join(entry_parts)}\n"
+
         if 'hypothesis' in form_context:
             hyp = form_context['hypothesis']
             if hyp.get('intent'):
@@ -1774,7 +1930,7 @@ If synthesis mode is enabled:
     step_prompt = step_instructions.get(current_step, step_instructions['hypothesis'])
     
     # NEW: Fetch Grounding Data
-    knowledge_context = _get_relevant_knowledge(user_input)
+    knowledge_context = _get_relevant_knowledge(user_input, form_context=form_context)
 
     normalized_challenge = (challenge_level or "standard").strip().lower()
     if normalized_challenge not in {"light", "standard", "expert"}:
@@ -1822,6 +1978,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
                 form_context=form_context,
                 synthesis_mode=synthesis_mode,
             )
+            normalized = _apply_maieutic_repeat_guard(
+                normalized,
+                conversation_history=conversation_history,
+                current_step=current_step,
+                form_context=form_context,
+            )
             try:
                 field_suggestions = json.loads(normalized).get('field_suggestions', {})
             except Exception:
@@ -1852,6 +2014,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
                 form_context=form_context,
                 synthesis_mode=synthesis_mode,
             )
+            normalized = _apply_maieutic_repeat_guard(
+                normalized,
+                conversation_history=conversation_history,
+                current_step=current_step,
+                form_context=form_context,
+            )
             try:
                 field_suggestions = json.loads(normalized).get('field_suggestions', {})
             except Exception:
@@ -1881,6 +2049,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
                 form_context=form_context,
                 synthesis_mode=synthesis_mode,
             )
+            normalized = _apply_maieutic_repeat_guard(
+                normalized,
+                conversation_history=conversation_history,
+                current_step=current_step,
+                form_context=form_context,
+            )
             try:
                 field_suggestions = json.loads(normalized).get('field_suggestions', {})
             except Exception:
@@ -1903,6 +2077,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
                 user_input,
                 form_context=form_context,
                 synthesis_mode=synthesis_mode,
+            )
+            normalized = _apply_maieutic_repeat_guard(
+                normalized,
+                conversation_history=conversation_history,
+                current_step=current_step,
+                form_context=form_context,
             )
             try:
                 field_suggestions = json.loads(normalized).get('field_suggestions', {})
@@ -1929,6 +2109,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
                 form_context=form_context,
                 synthesis_mode=synthesis_mode,
             )
+            normalized = _apply_maieutic_repeat_guard(
+                normalized,
+                conversation_history=conversation_history,
+                current_step=current_step,
+                form_context=form_context,
+            )
             try:
                 field_suggestions = json.loads(normalized).get('field_suggestions', {})
             except Exception:
@@ -1947,6 +2133,12 @@ Based on what the user has ALREADY ENTERED in the form fields and what they just
             user_input,
             form_context=form_context,
             synthesis_mode=synthesis_mode,
+        )
+        fallback = _apply_maieutic_repeat_guard(
+            fallback,
+            conversation_history=conversation_history,
+            current_step=current_step,
+            form_context=form_context,
         )
         return (fallback, provider, {})
 

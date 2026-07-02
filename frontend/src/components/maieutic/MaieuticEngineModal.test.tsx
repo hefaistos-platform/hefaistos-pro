@@ -188,4 +188,73 @@ describe('MaieuticEngineModal 2.0', () => {
     expect(screen.getByRole('option', { name: 'Pseudocode' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Other' })).toBeInTheDocument();
   });
+
+  test('allows progression when required fields are complete even if AI readiness is advisory', async () => {
+    mockAskAI.mockResolvedValue({
+      data: {
+        maieuticQuestion: {
+          aiResponse: {
+            ...aiResponsePayload,
+            completion_check: {
+              step_ready: false,
+              quality_score: 74,
+              missing_items: ['capability'],
+              next_best_action: 'Add more detail about capability.',
+            },
+          },
+          providerUsed: 'GPT-5.5',
+          fieldSuggestions: JSON.stringify({}),
+          autofillCandidates: JSON.stringify({ target_fields: [], proposed_text: {} }),
+        },
+      },
+    });
+
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/What adversary behavior/i), {
+      target: { value: 'Detect suspicious script proxy execution behavior' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/What technical capability/i), {
+      target: { value: 'ATT&CK T1218.005 mshta execution chain' },
+    });
+
+    const nextButton = screen.getByRole('button', { name: /Next/i });
+    await waitFor(() => expect(nextButton).not.toBeDisabled());
+    expect(screen.getByText(/You can continue now\. AI suggests refining/i)).toBeInTheDocument();
+  });
+
+  test('explains challenge levels clearly', async () => {
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+
+    expect(screen.getByText(/Standard: balanced depth/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Challenge/i), { target: { value: 'expert' } });
+    expect(screen.getByText(/Expert: assumes advanced detection knowledge/i)).toBeInTheDocument();
+  });
+
+  test('seeds hypothesis context from selected ATT&CK technique', async () => {
+    render(
+      <MaieuticEngineModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onSubmit={mockOnSubmit}
+        workbenchContext={{
+          techniqueId: 'T1218.005',
+          techniqueName: 'Mshta',
+          detectionFocusLayer: 'Execution',
+          goal: 'Detect suspicious mshta script execution chain',
+        }}
+      />,
+    );
+
+    const intentField = screen.getByPlaceholderText(/What adversary behavior/i) as HTMLTextAreaElement;
+    const capabilityField = screen.getByPlaceholderText(/What technical capability/i) as HTMLTextAreaElement;
+
+    await waitFor(() => {
+      expect(intentField.value).toContain('Detect suspicious mshta script execution chain');
+      expect(capabilityField.value).toContain('T1218.005');
+    });
+
+    expect(screen.getByText(/Loaded Workbench context:/i)).toBeInTheDocument();
+  });
 });

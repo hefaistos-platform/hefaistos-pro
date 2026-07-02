@@ -74,11 +74,27 @@ interface MaieuticQuestionResponse {
   };
 }
 
+interface MaieuticWorkbenchCapability {
+  abstractionLayer?: string;
+  componentArtifact?: string;
+  adversaryPurpose?: string;
+}
+
+interface MaieuticWorkbenchContext {
+  techniqueId?: string;
+  techniqueName?: string;
+  detectionFocusLayer?: string;
+  goal?: string;
+  technicalContext?: string;
+  selectedCapabilityAbstractions?: MaieuticWorkbenchCapability[];
+}
+
 interface MaieuticEngineModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (output: MaieuticOutput, selections: MaieuticImportSelections) => void | Promise<void>;
   submitLabel?: string;
+  workbenchContext?: MaieuticWorkbenchContext;
 }
 
 const STEPS: MaieuticStep[] = ['Hypothesis', 'Interrogation', 'Robustness', 'Playbook', 'Review'];
@@ -102,6 +118,51 @@ const stepKickoffPrompts: Record<MaieuticStep, string> = {
     'Kick off Playbook with one Socratic question that separates human triage decisions from automatable actions.',
   Review:
     'Kick off Review with one Socratic question that validates test evidence, coverage delta, and operational readiness.',
+};
+
+const challengeLevelDescriptions: Record<ChallengeLevel, string> = {
+  light: 'Light: guided coaching mode for less-experienced users.',
+  standard: 'Standard: balanced depth for day-to-day detection engineering.',
+  expert: 'Expert: assumes advanced detection knowledge and challenges assumptions hard.',
+};
+
+const missingItemLabels: Record<string, string> = {
+  intent: 'Detection intent',
+  capability: 'Technical capability',
+  qa_log: 'Interrogation Q&A entry',
+  data_quality: 'Data quality assessment',
+  false_positive_rate: 'False positive expectations',
+  coverage_gaps: 'Coverage and blind spots',
+  justification: 'Overall robustness justification',
+  playbook_content: 'Manual or SOAR playbook content',
+  complete_prior_stages: 'Completion of all prior stages',
+  interrogation_log: 'Interrogation log',
+  detection_rule: 'Detection rule draft',
+  triage_guidance: 'Triage guidance draft',
+  test_scenario: 'Test scenario draft',
+  test_expected_output: 'Expected test output draft',
+  step_context: 'Step context',
+};
+
+const humanizeMissingItem = (raw: string): string => {
+  const key = String(raw || '').trim();
+  if (!key) return '';
+  if (missingItemLabels[key]) return missingItemLabels[key];
+  return key
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
+const buildKickoffPrompt = (
+  step: MaieuticStep,
+  contextSummary: string,
+): string => {
+  if (!contextSummary) return stepKickoffPrompts[step];
+  return `${stepKickoffPrompts[step]}
+Use this existing Workbench context:
+${contextSummary}
+Do not repeat known information. Ask one question that targets the highest-impact missing detail for this step.`;
 };
 
 const defaultCompletion = (nextBestAction: string): MaieuticCompletionCheck => ({
@@ -151,6 +212,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
   onClose,
   onSubmit,
   submitLabel,
+  workbenchContext,
 }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const currentStep = STEPS[currentStepIndex];
@@ -211,8 +273,30 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
   );
   const [synthesis, setSynthesis] = useState<MaieuticSynthesisOutput>({});
   const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [contextPrimed, setContextPrimed] = useState(false);
 
   const [askAI] = useMutation<MaieuticQuestionResponse>(MAIEUTIC_QUESTION_MUTATION);
+
+  const workbenchContextSummary = useMemo(() => {
+    if (!workbenchContext) return '';
+    const parts: string[] = [];
+    if (workbenchContext.techniqueId) {
+      const techniqueLabel = workbenchContext.techniqueName
+        ? `${workbenchContext.techniqueId} (${workbenchContext.techniqueName})`
+        : workbenchContext.techniqueId;
+      parts.push(`ATT&CK Technique: ${techniqueLabel}`);
+    }
+    if (workbenchContext.detectionFocusLayer) {
+      parts.push(`Focus Layer: ${workbenchContext.detectionFocusLayer}`);
+    }
+    if (workbenchContext.goal) {
+      parts.push(`Goal Seed: ${workbenchContext.goal}`);
+    }
+    if (workbenchContext.selectedCapabilityAbstractions?.length) {
+      parts.push(`Capability Entries: ${workbenchContext.selectedCapabilityAbstractions.length}`);
+    }
+    return parts.join('\n');
+  }, [workbenchContext]);
 
   const buildLocalCompletion = useCallback(
     (step: MaieuticStep): MaieuticCompletionCheck => {
@@ -346,8 +430,16 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
         rule: detectionRule.rule,
       },
       synthesis,
+      workbenchContext: {
+        techniqueId: workbenchContext?.techniqueId || '',
+        techniqueName: workbenchContext?.techniqueName || '',
+        detectionFocusLayer: workbenchContext?.detectionFocusLayer || '',
+        goal: workbenchContext?.goal || '',
+        technicalContext: workbenchContext?.technicalContext || '',
+        selectedCapabilityAbstractions: (workbenchContext?.selectedCapabilityAbstractions || []).slice(0, 8),
+      },
     };
-  }, [hypothesis, qaLog, robustness, playbookDesign, detectionRule, synthesis]);
+  }, [hypothesis, qaLog, robustness, playbookDesign, detectionRule, synthesis, workbenchContext]);
 
   const hasRequiredFields = useCallback(
     (step: MaieuticStep): boolean => {
@@ -378,12 +470,12 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     (step: MaieuticStep): boolean => {
       if (step === 'Review') {
         return ['Hypothesis', 'Interrogation', 'Robustness', 'Playbook'].every((s) =>
-          hasRequiredFields(s as MaieuticStep) && mergeCompletion(s as MaieuticStep, completionChecks[s as MaieuticStep]).step_ready,
+          hasRequiredFields(s as MaieuticStep),
         );
       }
-      return hasRequiredFields(step) && mergeCompletion(step, completionChecks[step]).step_ready;
+      return hasRequiredFields(step);
     },
-    [hasRequiredFields, mergeCompletion, completionChecks],
+    [hasRequiredFields],
   );
 
   const maxUnlockedStepIndex = useMemo(() => {
@@ -404,6 +496,39 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     }
     return isStepReady(currentStep);
   }, [currentStep, isStepReady]);
+
+  const requiredMissingItems = useMemo(() => {
+    switch (currentStep) {
+      case 'Hypothesis': {
+        const missing: string[] = [];
+        if (!hypothesis.intent.trim()) missing.push('intent');
+        if (!hypothesis.capability.trim()) missing.push('capability');
+        return missing;
+      }
+      case 'Interrogation':
+        return qaLog.length > 0 ? [] : ['qa_log'];
+      case 'Robustness': {
+        const missing: string[] = [];
+        if (!robustness.dataQuality.trim()) missing.push('data_quality');
+        if (!robustness.falsePositiveRate.trim()) missing.push('false_positive_rate');
+        if (!robustness.coverage.trim()) missing.push('coverage_gaps');
+        if (!robustness.justification.trim()) missing.push('justification');
+        return missing;
+      }
+      case 'Playbook':
+        return playbookDesign.manualSteps.trim() || playbookDesign.soarPlaybook.trim() ? [] : ['playbook_content'];
+      case 'Review': {
+        const missing: string[] = [];
+        if (!isStepReady('Hypothesis')) missing.push('hypothesis');
+        if (!isStepReady('Interrogation')) missing.push('interrogation');
+        if (!isStepReady('Robustness')) missing.push('robustness');
+        if (!isStepReady('Playbook')) missing.push('playbook');
+        return missing;
+      }
+      default:
+        return [];
+    }
+  }, [currentStep, hypothesis, qaLog, robustness, playbookDesign, isStepReady]);
 
   const setCompletionForStep = useCallback(
     (step: MaieuticStep, raw?: Partial<MaieuticCompletionCheck>) => {
@@ -768,16 +893,38 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
   }, [currentStep, handleAskAI]);
 
   useEffect(() => {
+    if (!isOpen || contextPrimed) return;
+    if (!workbenchContext) return;
+
+    const seededIntent = workbenchContext.goal?.trim() || '';
+    const techniqueBits = [workbenchContext.techniqueId, workbenchContext.techniqueName].filter(Boolean).join(' ');
+    const layer = workbenchContext.detectionFocusLayer?.trim();
+    const seededCapability = [techniqueBits, layer ? `Focus layer: ${layer}` : '']
+      .filter(Boolean)
+      .join(' | ')
+      .trim();
+
+    if (seededIntent || seededCapability) {
+      setHypothesis((prev) => ({
+        intent: prev.intent.trim() ? prev.intent : seededIntent,
+        capability: prev.capability.trim() ? prev.capability : seededCapability,
+      }));
+    }
+
+    setContextPrimed(true);
+  }, [isOpen, contextPrimed, workbenchContext]);
+
+  useEffect(() => {
     if (!isOpen || aiLoading) return;
     if (autoKickoffDone[currentStep]) return;
 
     setAutoKickoffDone((prev) => ({ ...prev, [currentStep]: true }));
     void handleAskAI({
-      prefillMessage: stepKickoffPrompts[currentStep],
+      prefillMessage: buildKickoffPrompt(currentStep, workbenchContextSummary),
       autoKickoff: true,
       persistUserMessage: false,
     });
-  }, [isOpen, aiLoading, currentStep, autoKickoffDone, handleAskAI]);
+  }, [isOpen, aiLoading, currentStep, autoKickoffDone, handleAskAI, workbenchContextSummary]);
 
   const handleNext = () => {
     if (!canProceedFromCurrentStep) return;
@@ -841,6 +988,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     setAutoKickoffDone(initialAutoKickoffState());
     setSynthesis({});
     setSynthesisLoading(false);
+    setContextPrimed(false);
   };
 
   const addQAEntry = () => {
@@ -908,6 +1056,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
   const renderAIChat = () => {
     const progressWidth = `${Math.max(0, Math.min(100, currentCompletion.quality_score))}%`;
+    const advisoryMissing = currentCompletion.missing_items.map(humanizeMissingItem).filter(Boolean);
 
     return (
       <div className="maieutic-chat-shell mt-4 border rounded-lg p-3">
@@ -936,14 +1085,22 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
             </select>
           </div>
         </div>
+        <p className="text-[11px] text-gray-600 mt-1">{challengeLevelDescriptions[challengeLevel]}</p>
 
         <div className="maieutic-chat-info mb-2 mt-2 text-xs p-2 rounded">
-          <strong>AI can see:</strong> all current form values. It asks one focused Socratic question and scores stage readiness.
+          <strong>AI can see:</strong> all current form values. It asks one focused Socratic question and scores stage readiness as
+          advisory coaching.
+          {workbenchContextSummary && (
+            <span>
+              {' '}
+              <strong>Loaded Workbench context:</strong> {workbenchContextSummary.replace(/\n/g, ' | ')}
+            </span>
+          )}
         </div>
 
         <div className="mb-3 p-3 border border-gray-200 rounded bg-gray-50">
           <div className="flex items-center justify-between mb-2 text-xs">
-            <span className="font-semibold text-gray-700">Step Readiness</span>
+            <span className="font-semibold text-gray-700">AI Readiness (Advisory)</span>
             <span
               className={`font-semibold ${currentCompletion.step_ready ? 'text-green-700' : 'text-amber-700'}`}
             >
@@ -956,9 +1113,9 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               style={{ width: progressWidth }}
             />
           </div>
-          {currentCompletion.missing_items.length > 0 && (
+          {advisoryMissing.length > 0 && (
             <p className="text-xs text-gray-700 mb-1">
-              Missing: {currentCompletion.missing_items.join(', ')}
+              AI suggests improving: {advisoryMissing.join(', ')}
             </p>
           )}
           <p className="text-xs text-gray-600">Next action: {currentCompletion.next_best_action}</p>
@@ -1046,7 +1203,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
           </Button>
         </div>
         <p className="text-xs mt-1" style={{ color: 'var(--hef-text-secondary)' }}>
-          Tip: Ask "Is my current step ready?" to get strict completion feedback.
+          Tip: Ask "What am I still missing?" to get focused improvement guidance.
         </p>
       </div>
     );
@@ -1489,7 +1646,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                     disabled={isFutureLocked}
                     title={
                       isFutureLocked
-                        ? 'Complete previous stage with AI readiness to unlock this step.'
+                        ? 'Complete previous stage required fields to unlock this step.'
                         : `Open ${step}`
                     }
                     type="button"
@@ -1522,7 +1679,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                 title={
                   canProceedFromCurrentStep
                     ? 'Proceed to next step'
-                    : 'Complete required fields and pass AI readiness for this step'
+                    : 'Complete required fields for this step'
                 }
               >
                 Next
@@ -1533,7 +1690,14 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               </Button>
             )}
             {!canProceedFromCurrentStep && (
-              <p className="text-xs text-amber-700">Complete required fields and satisfy AI readiness to continue.</p>
+              <p className="text-xs text-amber-700">
+                Required to continue: {requiredMissingItems.map(humanizeMissingItem).join(', ')}.
+              </p>
+            )}
+            {canProceedFromCurrentStep && currentCompletion.missing_items.length > 0 && (
+              <p className="text-xs text-blue-700">
+                You can continue now. AI suggests refining: {currentCompletion.missing_items.map(humanizeMissingItem).join(', ')}.
+              </p>
             )}
           </div>
         </div>
