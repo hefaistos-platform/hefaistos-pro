@@ -92,7 +92,7 @@ This performs:
 4. `docker compose exec backend python manage.py migrate`
 5. Search rebuild and smoke checks
 
-Manual equivalent is documented in [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](scripts/SHARP_BOOTSTRAP_RUNBOOK.md).
+Manual equivalent is documented in [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](../scripts/SHARP_BOOTSTRAP_RUNBOOK.md).
 
 ## 8. Post-Install Initialization
 
@@ -130,7 +130,7 @@ Leave model fields empty to allow automatic provider-based model selection.
 
 ## 11. Validation Checklist
 
-Use [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md) and verify:
+Use [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](../scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md) and verify:
 
 1. GraphQL query/mutation works.
 2. JWT login + refresh works.

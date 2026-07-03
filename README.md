@@ -231,8 +231,9 @@ PostgreSQL 18+ compatibility note: SHARP uses `/var/lib/postgresql` mount layout
 
 ## 📘 Installation Documents
 
-- Full installation guide: [INSTALL_MANUAL.md](INSTALL_MANUAL.md)
-- Authentication setup guide (Entra OIDC + Generic OIDC): [AUTH_SETUP.md](AUTH_SETUP.md)
+- Full installation guide: [INSTALL_MANUAL.md](Docs/INSTALL_MANUAL.md)
+- Authentication setup guide (Entra OIDC + Generic OIDC): [AUTH_SETUP.md](Docs/AUTH_SETUP.md)
+- Maieutic Engine guide: [README_MAIEUTIC.md](Docs/README_MAIEUTIC.md)
 - SHARP clean bootstrap operator runbook: [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](scripts/SHARP_BOOTSTRAP_RUNBOOK.md)
 - SHARP acceptance checklist template: [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md)
 
