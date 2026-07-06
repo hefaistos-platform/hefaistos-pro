@@ -169,13 +169,11 @@ def _compute_mgmt_cave_stats_payload(org, last_30d):
     wb_by_status = []
     for status in ['IDEA', 'RESEARCH', 'DEVELOPMENT', 'REVIEW', 'APPROVED', 'TESTING', 'DEPLOYED', 'TUNING']:
         count = wb_qs.filter(status=status).count()
-        if count:
-            wb_by_status.append({'status': status, 'count': count})
+        wb_by_status.append({'status': status, 'count': count})
     wb_by_robustness = []
     for level in range(0, 6):
         count = wb_qs.filter(robustness_level=level).count()
-        if count:
-            wb_by_robustness.append({'status': str(level), 'count': count})
+        wb_by_robustness.append({'status': str(level), 'count': count})
 
     # --- Rules ---
     from rules.models import DetectionRule

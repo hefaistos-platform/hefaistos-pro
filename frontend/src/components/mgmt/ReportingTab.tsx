@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import {
   Alert,
@@ -165,8 +165,12 @@ function downloadBase64File(fileData: string, filename: string, contentType: str
 
 function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: string) => string }) {
   const chartData = data.map((d) => ({ name: d.status, count: d.count }));
+  if (chartData.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No data available" />;
+  }
+
   return (
-    <ResponsiveContainer width="100%" height={160}>
+    <ResponsiveContainer width="100%" height={160} minWidth={280} minHeight={160}>
       <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
@@ -331,6 +335,15 @@ export const ReportingTab: React.FC = () => {
   const [activeView, setActiveView] = useState<'current' | 'trends' | 'builder'>('current');
   const stats = data?.mgmtCaveStats;
 
+  useEffect(() => {
+    // Recharts can render blank when parent width is measured before Tabs layout settles.
+    // Triggering a resize after view changes forces a reliable recalculation.
+    const id = window.setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [activeView, loading]);
+
   const overviewTrend = useMemo(() => ([
     { name: 'ACH', total: stats?.ach.total ?? 0, createdLast30d: stats?.ach.createdLast30d ?? 0 },
     { name: 'AdvOps', total: stats?.advops.total ?? 0, createdLast30d: stats?.advops.createdLast30d ?? 0 },
@@ -426,7 +439,7 @@ export const ReportingTab: React.FC = () => {
         <>
           <Title level={4} style={{ marginTop: 0 }}>Cross-Domain Overview</Title>
           <Card loading={loading} style={{ marginBottom: 24 }} title="Total vs Created (30d)">
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={220} minWidth={300} minHeight={220}>
               <LineChart data={overviewTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
