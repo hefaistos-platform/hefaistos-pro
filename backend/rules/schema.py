@@ -16,6 +16,7 @@ from django.utils import timezone
 import json
 from identity.decorators import role_required, Roles
 from django.utils.text import slugify
+from mgmt_reports.cache_utils import invalidate_mgmt_cave_stats_cache
 
 logger = logging.getLogger(__name__)
 
@@ -1109,6 +1110,8 @@ class SaveDetectionRule(graphene.Mutation):
         except Exception:
             pass
 
+        invalidate_mgmt_cave_stats_cache(getattr(user.organization, 'id', None))
+
         filename = f"{slugify(extracted['title']) or 'rule'}.{get_format_spec(fmt_norm).file_extension}"
         return SaveDetectionRule(
             success=True,
@@ -1433,6 +1436,7 @@ class UpsertRule(graphene.Mutation):
             })
         except Exception:
             pass
+        invalidate_mgmt_cave_stats_cache(getattr(target_org, 'id', None))
         return UpsertRule(rule=rule)
 
 
@@ -1585,6 +1589,8 @@ class UpdateDetectionRule(graphene.Mutation):
             rule.status = extracted['status']
         rule.save()
 
+        invalidate_mgmt_cave_stats_cache(getattr(user.organization, 'id', None))
+
         return UpdateDetectionRule(success=True, message="Rule updated successfully", rule=rule)
 
 
@@ -1627,7 +1633,9 @@ class DeleteDetectionRule(graphene.Mutation):
                 raise Exception("Cannot delete rule: the linked workbench is in DEPLOYED status. Please undeploy it first.")
 
         # Delete the rule
+        org_id = getattr(rule.organization, 'id', None)
         rule.delete()
+        invalidate_mgmt_cave_stats_cache(org_id)
         return DeleteDetectionRule(success=True, message="Rule deleted successfully")
 
 

@@ -10,6 +10,7 @@ from .models import ADVOPSReport
 from .misp_integration import MISPClient, MISPIntegrationError, parse_infrastructure_summary, extract_mitre_techniques
 from organizations.models import MISPInstance
 from identity.decorators import is_bot_auditor_user
+from mgmt_reports.cache_utils import invalidate_mgmt_cave_stats_cache
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,7 @@ class CreateADVOPSReport(graphene.Mutation):
             author=user,
             organization=user.organization,
         )
+        invalidate_mgmt_cave_stats_cache(getattr(user.organization, 'id', None))
         return CreateADVOPSReport(report=report)
 
 
@@ -187,6 +189,7 @@ class UpdateADVOPSReport(graphene.Mutation):
             if value is not None:
                 setattr(report, field, value)
         report.save()
+        invalidate_mgmt_cave_stats_cache(getattr(user.organization, 'id', None))
         return UpdateADVOPSReport(report=report)
 
 
@@ -209,7 +212,9 @@ class DeleteADVOPSReport(graphene.Mutation):
             report = ADVOPSReport.objects.get(**report_filters)
         except ADVOPSReport.DoesNotExist:
             raise GraphQLError("Not found")
+        org_id = getattr(report.organization, 'id', None)
         report.delete()
+        invalidate_mgmt_cave_stats_cache(org_id)
         return DeleteADVOPSReport(ok=True)
 
 

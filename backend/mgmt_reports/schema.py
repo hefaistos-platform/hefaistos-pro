@@ -16,6 +16,7 @@ from ai_assistant.ai_prompts import (
     build_prompt_result_pdf,
     execute_prompt_template,
 )
+from .cache_utils import mgmt_cave_stats_cache_key, mgmt_cave_stats_cache_timeout_seconds
 
 from .models import AIPrompt, MonthlyReportSnapshot, ReportMailingList
 
@@ -128,11 +129,6 @@ def _payload_to_stats_type(payload):
             standalone_count=payload['rules']['standalone_count'],
         ),
     )
-
-
-def _monthly_cache_timeout(now):
-    start_next_month = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0) + timedelta(days=32)).replace(day=1)
-    return max(300, int((start_next_month - now).total_seconds()))
 
 
 def _require_org_context(user):
@@ -329,13 +325,13 @@ class Query(graphene.ObjectType):
         org = _require_org_context(user)
         now = timezone.now()
         last_30d = now - timedelta(days=30)
-        cache_key = f'mgmt_cave_stats:{getattr(org, "id", "none")}:{now.strftime("%Y-%m")}'
+        cache_key = mgmt_cave_stats_cache_key(getattr(org, 'id', 'none'))
         cached_payload = cache.get(cache_key)
         if cached_payload is not None:
             return _payload_to_stats_type(cached_payload)
 
         payload = _compute_mgmt_cave_stats_payload(org, last_30d)
-        cache.set(cache_key, payload, timeout=_monthly_cache_timeout(now))
+        cache.set(cache_key, payload, timeout=mgmt_cave_stats_cache_timeout_seconds())
         return _payload_to_stats_type(payload)
 
     @role_required([Roles.ADMIN, Roles.REVIEWER])
@@ -518,7 +514,7 @@ class ExportReportExcel(graphene.Mutation):
         now = timezone.now()
         last_30d = now - timedelta(days=30)
 
-        cache_key = f'mgmt_cave_stats:{getattr(org, "id", "none")}:{now.strftime("%Y-%m")}'
+        cache_key = mgmt_cave_stats_cache_key(getattr(org, 'id', 'none'))
         payload = cache.get(cache_key) or _compute_mgmt_cave_stats_payload(org, last_30d)
 
         if sections:
