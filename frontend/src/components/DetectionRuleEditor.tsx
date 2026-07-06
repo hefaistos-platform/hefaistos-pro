@@ -1,6 +1,6 @@
 /**
  * DetectionRuleEditor.tsx
- * 
+ *
  * Monaco Editor for detection rules with autocomplete and SyntaxTide LSP support.
  * Replaces textarea in DetectionRuleEditorModal.
  */
@@ -43,6 +43,31 @@ const GET_AUTOCOMPLETE_OPTIONS = `
   }
 `;
 
+const VALIDATE_RULE_CONTENT = `
+  mutation ValidateRuleContent(
+    $format: String!
+    $context: String!
+    $position: Int!
+    $dataSourceId: ID
+  ) {
+    validateRuleContent(
+      format: $format
+      context: $context
+      position: $position
+      dataSourceId: $dataSourceId
+    ) {
+      result {
+        issues {
+          line
+          column
+          message
+          severity
+        }
+      }
+    }
+  }
+`;
+
 interface DetectionRuleEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -51,6 +76,7 @@ interface DetectionRuleEditorProps {
   dataSourceId?: string;
   readOnly?: boolean;
   enableLSP?: boolean;
+  enableSemanticValidation?: boolean;
   onBlur?: () => void;
   visualStyle?: 'default' | 'terminal';
 }
@@ -104,12 +130,25 @@ function kindToMonacoKind(kind: string): number {
   return kindMap[kind] || monaco.languages.CompletionItemKind.Text;
 }
 
+function severityToMarkerSeverity(severity: string): monaco.MarkerSeverity {
+  switch ((severity || '').toLowerCase()) {
+    case 'warning':
+      return monaco.MarkerSeverity.Warning;
+    case 'info':
+      return monaco.MarkerSeverity.Info;
+    case 'hint':
+      return monaco.MarkerSeverity.Hint;
+    default:
+      return monaco.MarkerSeverity.Error;
+  }
+}
+
 /**
  * Extract prefix (word being typed) at cursor position
  */
 function extractPrefix(text: string, position: number): string {
   if (position <= 0) return '';
-  
+
   let start = position - 1;
   while (start >= 0) {
     const char = text[start];
@@ -143,17 +182,21 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   dataSourceId,
   readOnly = false,
   enableLSP = true,
+  enableSemanticValidation = true,
   onBlur,
   visualStyle = 'default',
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const blurDisposableRef = useRef<monaco.IDisposable | null>(null);
   const lastRequestRef = useRef<number>(0);
+  const validationRequestRef = useRef<number>(0);
+  const validationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lspClientRef = useRef<LSPClient | null>(null);
   const [lspStatus, setLspStatus] = useState<LspStatus>('disabled');
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const themeName = visualStyle === 'terminal' ? 'hef-terminal' : (isDark ? 'vs-dark' : 'vs');
+  const supportsSemanticValidation = format === 'KQL' || format === 'WAZUH';
 
   // Register custom Monaco language definitions once on mount
   useEffect(() => {
@@ -164,6 +207,15 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
     return () => {
       blurDisposableRef.current?.dispose();
       blurDisposableRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current);
+        validationTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -236,7 +288,7 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   // Register autocomplete provider globally (once per format)
   useEffect(() => {
     const languageId = getMonacoLanguage(format);
-    
+
     // Configure trigger characters based on format:
     // KQL: '|' (pipe operator), '.' (member access), ',' (argument separator)
     // SPL: '|' (pipe operator), '.' (member access), ',' (argument separator)
@@ -270,10 +322,10 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
             // Use the same API URL pattern as Apollo Client
             const baseApiUrl = getApiBaseUrl();
             const uri = `${baseApiUrl}/graphql`;
-            
+
             // Get auth token from localStorage
             const token = localStorage.getItem('accessToken');
-            
+
             const response = await fetch(uri, {
               method: 'POST',
               headers: {
@@ -292,14 +344,14 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
             });
 
             const result = await response.json();
-            
+
             if (result.errors) {
               console.error('[Autocomplete] GraphQL errors:', result.errors);
               return { suggestions: [] };
             }
 
             const suggestions = result.data?.getAutocompleteOptions?.result?.suggestions || [];
-            
+
             if (suggestions.length > 0) {
               console.log(`[Autocomplete] Got ${suggestions.length} suggestions for format ${format}`);
             }
@@ -337,6 +389,90 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
       provider.dispose();
     };
   }, [format, dataSourceId]); // Re-register when format or dataSourceId changes
+
+  useEffect(() => {
+    if (!enableSemanticValidation || !supportsSemanticValidation) {
+      const model = editorRef.current?.getModel();
+      if (model) {
+        monaco.editor.setModelMarkers(model, 'rule-validation', []);
+      }
+      return;
+    }
+
+    if (validationTimeoutRef.current) {
+      clearTimeout(validationTimeoutRef.current);
+    }
+
+    validationTimeoutRef.current = setTimeout(async () => {
+      const model = editorRef.current?.getModel();
+      if (!model) return;
+
+      const text = value || '';
+      if (!text.trim()) {
+        monaco.editor.setModelMarkers(model, 'rule-validation', []);
+        return;
+      }
+
+      const requestId = ++validationRequestRef.current;
+
+      try {
+        const baseApiUrl = getApiBaseUrl();
+        const uri = `${baseApiUrl}/graphql`;
+        const token = localStorage.getItem('accessToken');
+
+        const response = await fetch(uri, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            query: VALIDATE_RULE_CONTENT,
+            variables: {
+              format,
+              context: text,
+              position: text.length,
+              dataSourceId: dataSourceId || null,
+            },
+          }),
+        });
+
+        const result = await response.json();
+        if (requestId !== validationRequestRef.current) return;
+
+        if (result.errors) {
+          console.error('[Validation] GraphQL errors:', result.errors);
+          monaco.editor.setModelMarkers(model, 'rule-validation', []);
+          return;
+        }
+
+        const issues = result.data?.validateRuleContent?.result?.issues || [];
+        const markers = issues.map((issue: any) => {
+          const lineNumber = Math.max(1, Math.min(issue.line || 1, model.getLineCount()));
+          return {
+            startLineNumber: lineNumber,
+            startColumn: Math.max(1, issue.column || 1),
+            endLineNumber: lineNumber,
+            endColumn: model.getLineMaxColumn(lineNumber),
+            message: issue.message || 'Validation error',
+            severity: severityToMarkerSeverity(issue.severity),
+            source: 'HEFAISTOS',
+          } satisfies monaco.editor.IMarkerData;
+        });
+
+        monaco.editor.setModelMarkers(model, 'rule-validation', markers);
+      } catch (error) {
+        console.error('[Validation] Request failed:', error);
+      }
+    }, 500);
+
+    return () => {
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current);
+        validationTimeoutRef.current = null;
+      }
+    };
+  }, [value, format, dataSourceId, enableSemanticValidation, supportsSemanticValidation]);
 
   return (
     <div className="relative w-full h-full">

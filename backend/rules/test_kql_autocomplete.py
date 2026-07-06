@@ -63,3 +63,12 @@ class KQLAutocompleteTests(TestCase):
         self.assertIn("DeviceNetworkEvents.RemoteUrl", project_labels)
         self.assertNotIn("SecurityEvent.Computer", project_labels)
         self.assertNotIn("ExtraTable.ExtraField", project_labels)
+
+    def test_validate_content_reports_basic_syntax_errors(self):
+        engine = KQLAutocompleteEngine()
+
+        issues = engine.validate_content('SecurityEvent | where ProcessName == "powershell')
+
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "error"
+        assert "quotes" in issues[0]["message"].lower()

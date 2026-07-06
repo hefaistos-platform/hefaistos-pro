@@ -99,7 +99,34 @@ class KQLAutocompleteEngine(AutocompleteEngine):
     def validate_syntax(self, text: str) -> Tuple[bool, Optional[str]]:
         if text.count("(") != text.count(")"):
             return False, "Unbalanced parentheses"
+
+        if text.count('"') % 2 != 0:
+            return False, "Unbalanced double quotes"
+
+        if text.count("'") % 2 != 0:
+            return False, "Unbalanced single quotes"
+
+        stripped = text.rstrip()
+        if stripped.endswith("|"):
+            return False, "Query cannot end with a pipe operator"
+
         return True, None
+
+    def validate_content(self, text: str) -> List[Dict]:
+        """Return Monaco-friendly validation issues for KQL text."""
+        is_valid, error = self.validate_syntax(text)
+        if is_valid:
+            return []
+
+        line = self._get_line_at_position(text, len(text))
+        return [
+            {
+                "line": max(1, text.count("\n") + 1),
+                "column": max(1, len(line) + 1),
+                "message": error or "Invalid KQL syntax",
+                "severity": "error",
+            }
+        ]
 
     def _keyword_suggestions(self) -> List[Suggestion]:
         return [

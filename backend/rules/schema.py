@@ -36,6 +36,17 @@ class AutocompleteResultType(graphene.ObjectType):
     isComplete = graphene.Boolean(required=True)
 
 
+class ValidationIssueType(graphene.ObjectType):
+    line = graphene.Int(required=True)
+    column = graphene.Int()
+    message = graphene.String(required=True)
+    severity = graphene.String(required=True)
+
+
+class ValidationResultType(graphene.ObjectType):
+    issues = graphene.List(ValidationIssueType, required=True)
+
+
 class GetAutocompleteOptions(graphene.Mutation):
     class Arguments:
         format = graphene.String(required=True)
@@ -96,6 +107,58 @@ class GetAutocompleteOptions(graphene.Mutation):
         except Exception as e:
             logger.error(f"Autocomplete error: {e}", exc_info=True)
             return GetAutocompleteOptions(result=AutocompleteResultType(suggestions=[], isComplete=True))
+
+
+class ValidateRuleContent(graphene.Mutation):
+    class Arguments:
+        format = graphene.String(required=True)
+        context = graphene.String(required=True)
+        position = graphene.Int(required=True)
+        dataSourceId = graphene.ID()
+
+    result = graphene.Field(ValidationResultType, required=True)
+
+    @staticmethod
+    def mutate(root, info, format, context, position, dataSourceId=None):
+        from rules.autocomplete import KQLAutocompleteEngine, WazuhAutocompleteEngine, SPLAutocompleteEngine
+
+        fmt = (format or '').upper()
+        if fmt == 'KQL':
+            engine = KQLAutocompleteEngine()
+        elif fmt == 'WAZUH':
+            engine = WazuhAutocompleteEngine()
+        elif fmt == 'SPL':
+            engine = SPLAutocompleteEngine()
+        else:
+            return ValidateRuleContent(result=ValidationResultType(issues=[]))
+
+        try:
+            validator = getattr(engine, 'validate_content', None)
+            if callable(validator):
+                raw_issues = validator(context or '')
+            else:
+                is_valid, error = engine.validate_syntax(context or '')
+                raw_issues = [] if is_valid else [{
+                    'line': 1,
+                    'column': 1,
+                    'message': error or 'Invalid rule content',
+                    'severity': 'error',
+                }]
+
+            issues = [
+                ValidationIssueType(
+                    line=max(1, int(issue.get('line', 1) or 1)),
+                    column=int(issue.get('column', 1) or 1) if issue.get('column') is not None else None,
+                    message=str(issue.get('message', 'Invalid rule content')),
+                    severity=str(issue.get('severity', 'error')),
+                )
+                for issue in raw_issues
+            ]
+
+            return ValidateRuleContent(result=ValidationResultType(issues=issues))
+        except Exception as e:
+            logger.error(f"Validation error: {e}", exc_info=True)
+            return ValidateRuleContent(result=ValidationResultType(issues=[]))
 
 # --- Sigma Rule Conversion Types ---
 class ConversionTarget(graphene.ObjectType):
@@ -483,14 +546,14 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
-        
+
         # Service accounts (connector_svc) can access any repository
         # to support cross-org operations like scheduled pulls
         is_service_account = (
-            hasattr(user, 'username') and 
+            hasattr(user, 'username') and
             (user.username == 'connector_svc' or 'service' in user.username.lower())
         )
-        
+
         try:
             if is_service_account:
                 return RuleRepository.objects.get(pk=id)
@@ -509,20 +572,20 @@ class Query(graphene.ObjectType):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
-        
+
         from django.db.models import Q
-        
+
         qs = DetectionRule.objects.filter(organization=user.organization)
-        
+
         # Filter by format if specified
         if format:
             qs = qs.filter(format=format.upper())
-        
+
         # Search by title or description (case-insensitive)
         qs = qs.filter(
             Q(title__icontains=query) | Q(description__icontains=query)
         )
-        
+
         # Order by title and limit
         return qs.order_by('title')[:limit]
 
@@ -550,7 +613,7 @@ class Query(graphene.ObjectType):
         # Status metrics
         active_count = qs.filter(status__iexact='active').count()
         deprecated_count = qs.filter(status__iexact='deprecated').count()
-        
+
         # Playbook linkage
         with_playbooks_count = qs.filter(playbook__isnull=False).count()
         standalone_count = qs.filter(playbook__isnull=True).count()
@@ -582,7 +645,7 @@ class Query(graphene.ObjectType):
             if all_unique:
                 total_techniques += len(all_unique)
                 rules_with_techniques += 1
-        
+
         # Calculate average techniques per rule
         avg_techniques = round(total_techniques / total, 2) if total > 0 else 0.0
 
@@ -796,14 +859,14 @@ class UpdateRuleRepository(graphene.Mutation):
         if 'auto_pull_enabled' in kwargs:
             repo.auto_pull_enabled = kwargs.pop('auto_pull_enabled')
             schedule_changed = True
-        
+
         if 'auto_pull_schedule' in kwargs:
             schedule = kwargs.pop('auto_pull_schedule')
             valid_schedules = ['DISABLED', '24H', '48H', '72H', 'WEEKLY']
             if schedule and schedule.upper() in valid_schedules:
                 repo.auto_pull_schedule = schedule.upper()
                 schedule_changed = True
-        
+
         # Calculate next scheduled pull if schedule changed and enabled
         if schedule_changed and repo.auto_pull_enabled and repo.auto_pull_schedule != 'DISABLED':
             from datetime import timedelta
@@ -878,13 +941,13 @@ class PullRuleRepository(graphene.Mutation):
             "organization_id": str(user.organization.id),
             "triggered_by_user_id": str(user.id)
         }
-        
+
         try:
             publisher.publish_message(routing_key, message_body)
         except Exception as e:
             logger.error(f"Failed to queue pull request for repository {id}: {e}")
             return PullRuleRepository(
-                ok=False, 
+                ok=False,
                 repository=repo,
                 message=f"Failed to queue pull request: {str(e)}"
             )
@@ -1467,7 +1530,7 @@ class PushPlaybookToGit(graphene.Mutation):
             except Exception as e:
                 logger.error(f"Failed to queue push for rule {rule.id}: {e}")
                 return PushPlaybookToGit(
-                    ok=False, 
+                    ok=False,
                     queued_count=0,
                     message=f"Failed to queue push request: {str(e)}"
                 )
@@ -1527,7 +1590,7 @@ class UpdateDetectionRule(graphene.Mutation):
 
 class DeleteDetectionRule(graphene.Mutation):
     """Delete a detection rule from the library.
-    
+
     Rules can only be deleted if:
     - The linked workbench (if any) is NOT in DEPLOYED status
     - User is the rule author, admin, or superuser
@@ -1553,7 +1616,7 @@ class DeleteDetectionRule(graphene.Mutation):
         # Check if user is author, admin, or superuser
         is_owner = rule.author == user.username
         is_admin_or_super = user.role == Roles.ADMIN or getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)
-        
+
         if not (is_owner or is_admin_or_super):
             raise Exception("Only the rule author, admin, or superadmin can delete this rule")
 
@@ -1581,6 +1644,7 @@ class Mutation(graphene.ObjectType):
     update_detection_rule = UpdateDetectionRule.Field()
     delete_detection_rule = DeleteDetectionRule.Field()
     get_autocomplete_options = GetAutocompleteOptions.Field()
+    validate_rule_content = ValidateRuleContent.Field()
 
 
 # ---------------------------------------------------------------------------
