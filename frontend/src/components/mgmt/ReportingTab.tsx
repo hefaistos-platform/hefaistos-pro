@@ -219,6 +219,7 @@ function StatusBarChart({
   const chartData = data
     .filter((d) => showEmpty || d.count > 0)
     .map((d) => ({ name: d.status, count: d.count }));
+  const chartHeight = Math.max(220, chartData.length * 34 + 36);
   const mutedZero = isDark ? '#334155' : '#d9d9d9';
   const tickColor = isDark ? '#d1d5db' : '#475569';
   const labelColor = isDark ? '#f3f4f6' : '#0f172a';
@@ -230,13 +231,19 @@ function StatusBarChart({
 
   return (
     <StableChart
-      height={160}
+      height={chartHeight}
       minWidth={280}
       render={({ width, height }) => (
-        <BarChart width={width} height={height} data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
+        <BarChart
+          width={width}
+          height={height}
+          data={chartData}
+          layout="vertical"
+          margin={{ top: 8, right: 16, bottom: 8, left: 18 }}
+        >
           <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
-          <XAxis dataKey="name" tick={{ fontSize: 11, fill: tickColor }} angle={-30} textAnchor="end" interval={0} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: tickColor }} />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: tickColor }} />
+          <YAxis type="category" dataKey="name" width={96} tick={{ fontSize: 11, fill: tickColor }} />
           <Tooltip
             formatter={(value: number) => [value, 'Count']}
             contentStyle={{
@@ -247,7 +254,7 @@ function StatusBarChart({
             labelStyle={{ color: labelColor }}
             itemStyle={{ color: labelColor }}
           />
-          <Bar dataKey="count">
+          <Bar dataKey="count" barSize={18} minPointSize={6} radius={[0, 6, 6, 0]}>
             {chartData.map((entry) => (
               <Cell
                 key={entry.name}
@@ -259,10 +266,10 @@ function StatusBarChart({
             ))}
             <LabelList
               dataKey="count"
-              position="top"
+              position="right"
               fill={labelColor}
-              fontSize={11}
-              formatter={(value: number) => (value > 0 ? String(value) : '')}
+              fontSize={12}
+              formatter={(value: number) => (value > 0 ? String(value) : showEmpty ? '0' : '')}
             />
           </Bar>
         </BarChart>
