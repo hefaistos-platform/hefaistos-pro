@@ -28,6 +28,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -40,6 +41,7 @@ import {
   GET_MONTHLY_TRENDS,
   MonthlySnapshot,
 } from '../../graphql/mgmtAIPrompts';
+import { useTheme } from '../../context/ThemeContext';
 
 const { Text, Title } = Typography;
 
@@ -77,19 +79,19 @@ const MGMT_CAVE_STATS_QUERY = gql`
 `;
 
 const STATUS_COLORS: Record<string, string> = {
-  IDEA: '#bfbfbf',
-  RESEARCH: '#1677ff',
-  DEVELOPMENT: '#faad14',
-  APPROVED: '#52c41a',
-  REVIEW: '#722ed1',
-  TESTING: '#13c2c2',
-  DEPLOYED: '#389e0d',
-  TUNING: '#fa8c16',
-  FINISHED: '#52c41a',
-  CRITICAL: '#cf1322',
-  HIGH: '#fa541c',
-  MEDIUM: '#faad14',
-  LOW: '#52c41a',
+  IDEA: '#94a3b8',
+  RESEARCH: '#3b82f6',
+  DEVELOPMENT: '#f59e0b',
+  REVIEW: '#a855f7',
+  TESTING: '#06b6d4',
+  APPROVED: '#22c55e',
+  DEPLOYED: '#15803d',
+  TUNING: '#f97316',
+  FINISHED: '#0ea5a4',
+  CRITICAL: '#dc2626',
+  HIGH: '#ea580c',
+  MEDIUM: '#ca8a04',
+  LOW: '#0284c7',
 };
 
 function statusColor(status: string): string {
@@ -203,8 +205,25 @@ function StableChart({
   );
 }
 
-function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: string) => string }) {
-  const chartData = data.map((d) => ({ name: d.status, count: d.count }));
+function StatusBarChart({
+  data,
+  colorFn,
+  isDark,
+  showEmpty,
+}: {
+  data: StatusCount[];
+  colorFn: (s: string) => string;
+  isDark: boolean;
+  showEmpty: boolean;
+}) {
+  const chartData = data
+    .filter((d) => showEmpty || d.count > 0)
+    .map((d) => ({ name: d.status, count: d.count }));
+  const mutedZero = isDark ? '#334155' : '#d9d9d9';
+  const tickColor = isDark ? '#d1d5db' : '#475569';
+  const labelColor = isDark ? '#f3f4f6' : '#0f172a';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
+
   if (chartData.length === 0) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No data available" />;
   }
@@ -215,14 +234,36 @@ function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: s
       minWidth={280}
       render={({ width, height }) => (
         <BarChart width={width} height={height} data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-          <Tooltip />
+          <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+          <XAxis dataKey="name" tick={{ fontSize: 11, fill: tickColor }} angle={-30} textAnchor="end" interval={0} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: tickColor }} />
+          <Tooltip
+            formatter={(value: number) => [value, 'Count']}
+            contentStyle={{
+              backgroundColor: isDark ? '#111827' : '#ffffff',
+              borderColor: isDark ? '#334155' : '#d9d9d9',
+              color: labelColor,
+            }}
+            labelStyle={{ color: labelColor }}
+            itemStyle={{ color: labelColor }}
+          />
           <Bar dataKey="count">
             {chartData.map((entry) => (
-              <Cell key={entry.name} fill={colorFn(entry.name)} />
+              <Cell
+                key={entry.name}
+                fill={entry.count === 0 ? mutedZero : colorFn(entry.name)}
+                fillOpacity={entry.count === 0 ? 0.45 : 0.95}
+                stroke={entry.count === 0 ? mutedZero : colorFn(entry.name)}
+                strokeOpacity={entry.count === 0 ? 0.6 : 1}
+              />
             ))}
+            <LabelList
+              dataKey="count"
+              position="top"
+              fill={labelColor}
+              fontSize={11}
+              formatter={(value: number) => (value > 0 ? String(value) : '')}
+            />
           </Bar>
         </BarChart>
       )}
@@ -233,13 +274,16 @@ function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: s
 // ---------------------------------------------------------------------------
 // Historical Trends Panel
 // ---------------------------------------------------------------------------
-function HistoricalTrendsPanel() {
+function HistoricalTrendsPanel({ isDark }: { isDark: boolean }) {
   const { data, loading, error } = useQuery<{ monthlyTrends: MonthlySnapshot[] }>(
     GET_MONTHLY_TRENDS,
     { variables: { months: 6 } },
   );
 
   const snapshots = data?.monthlyTrends ?? [];
+  const tickColor = isDark ? '#d1d5db' : '#475569';
+  const labelColor = isDark ? '#f3f4f6' : '#0f172a';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
 
   const trendData = useMemo(() =>
     snapshots.map((snap) => {
@@ -274,10 +318,18 @@ function HistoricalTrendsPanel() {
           height={240}
           render={({ width, height }) => (
             <LineChart width={width} height={height} data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
+              <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: tickColor }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: tickColor }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: isDark ? '#111827' : '#ffffff',
+                  borderColor: isDark ? '#334155' : '#d9d9d9',
+                  color: labelColor,
+                }}
+                labelStyle={{ color: labelColor }}
+                itemStyle={{ color: labelColor }}
+              />
               <Legend />
               <Line type="monotone" dataKey="achTotal" name="ACH" stroke="#722ed1" strokeWidth={2} dot />
               <Line type="monotone" dataKey="advopsTotal" name="AdvOps" stroke="#fa8c16" strokeWidth={2} dot />
@@ -292,10 +344,18 @@ function HistoricalTrendsPanel() {
           height={220}
           render={({ width, height }) => (
             <LineChart width={width} height={height} data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
+              <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: tickColor }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: tickColor }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: isDark ? '#111827' : '#ffffff',
+                  borderColor: isDark ? '#334155' : '#d9d9d9',
+                  color: labelColor,
+                }}
+                labelStyle={{ color: labelColor }}
+                itemStyle={{ color: labelColor }}
+              />
               <Legend />
               <Line type="monotone" dataKey="wbActive" name="Deployed Workbenches" stroke="#389e0d" strokeWidth={2} dot />
               <Line type="monotone" dataKey="rulesActive" name="Active Rules" stroke="#13c2c2" strokeWidth={2} dot />
@@ -380,9 +440,15 @@ function CustomReportBuilder() {
 // Main Reporting Tab
 // ---------------------------------------------------------------------------
 export const ReportingTab: React.FC = () => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
+  const tickColor = isDark ? '#d1d5db' : '#475569';
+  const labelColor = isDark ? '#f3f4f6' : '#0f172a';
+  const gridColor = isDark ? '#334155' : '#e2e8f0';
   const { data, loading, error } = useQuery<{ mgmtCaveStats: MgmtCaveStats }>(MGMT_CAVE_STATS_QUERY);
   const [exportExcel, { loading: exportingExcel }] = useMutation(EXPORT_REPORT_EXCEL);
   const [activeView, setActiveView] = useState<'current' | 'trends' | 'builder'>('current');
+  const [showEmptyCategories, setShowEmptyCategories] = useState(false);
   const stats = data?.mgmtCaveStats;
 
   useEffect(() => {
@@ -456,6 +522,14 @@ export const ReportingTab: React.FC = () => {
           >
             Custom Report
           </Button>
+          {activeView === 'current' && (
+            <Checkbox
+              checked={showEmptyCategories}
+              onChange={(e) => setShowEmptyCategories(e.target.checked)}
+            >
+              Show empty categories
+            </Checkbox>
+          )}
         </Space>
         <AntTooltip title="Export full report as Excel (.xlsx)">
           <Button
@@ -472,7 +546,7 @@ export const ReportingTab: React.FC = () => {
       {activeView === 'trends' && (
         <>
           <Title level={4} style={{ marginTop: 0 }}>Historical Trends (Month-over-Month)</Title>
-          <HistoricalTrendsPanel />
+          <HistoricalTrendsPanel isDark={isDark} />
         </>
       )}
 
@@ -494,10 +568,18 @@ export const ReportingTab: React.FC = () => {
               minWidth={300}
               render={({ width, height }) => (
                 <LineChart width={width} height={height} data={overviewTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
+                  <CartesianGrid stroke={gridColor} strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fill: tickColor }} />
+                  <YAxis allowDecimals={false} tick={{ fill: tickColor }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: isDark ? '#111827' : '#ffffff',
+                      borderColor: isDark ? '#334155' : '#d9d9d9',
+                      color: labelColor,
+                    }}
+                    labelStyle={{ color: labelColor }}
+                    itemStyle={{ color: labelColor }}
+                  />
                   <Legend />
                   <Line type="monotone" dataKey="total" name="Total" stroke="#1677ff" strokeWidth={2} />
                   <Line type="monotone" dataKey="createdLast30d" name="Created (30d)" stroke="#52c41a" strokeWidth={2} />
@@ -521,7 +603,12 @@ export const ReportingTab: React.FC = () => {
             </Col>
             <Col xs={24} md={12}>
               <Card title="By Status" loading={loading}>
-                <StatusBarChart data={stats?.ach.byStatus ?? []} colorFn={statusColor} />
+                <StatusBarChart
+                  data={stats?.ach.byStatus ?? []}
+                  colorFn={statusColor}
+                  isDark={isDark}
+                  showEmpty={showEmptyCategories}
+                />
               </Card>
             </Col>
           </Row>
@@ -543,12 +630,22 @@ export const ReportingTab: React.FC = () => {
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
                   <Card title="By Status" loading={loading}>
-                    <StatusBarChart data={stats?.advops.byStatus ?? []} colorFn={statusColor} />
+                    <StatusBarChart
+                      data={stats?.advops.byStatus ?? []}
+                      colorFn={statusColor}
+                      isDark={isDark}
+                      showEmpty={showEmptyCategories}
+                    />
                   </Card>
                 </Col>
                 <Col xs={24} sm={12}>
                   <Card title="By Priority" loading={loading}>
-                    <StatusBarChart data={stats?.advops.byPriority ?? []} colorFn={statusColor} />
+                    <StatusBarChart
+                      data={stats?.advops.byPriority ?? []}
+                      colorFn={statusColor}
+                      isDark={isDark}
+                      showEmpty={showEmptyCategories}
+                    />
                   </Card>
                 </Col>
               </Row>
@@ -583,7 +680,12 @@ export const ReportingTab: React.FC = () => {
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12}>
                   <Card title="By Status" loading={loading}>
-                    <StatusBarChart data={stats?.workbench.byStatus ?? []} colorFn={statusColor} />
+                    <StatusBarChart
+                      data={stats?.workbench.byStatus ?? []}
+                      colorFn={statusColor}
+                      isDark={isDark}
+                      showEmpty={showEmptyCategories}
+                    />
                   </Card>
                 </Col>
                 <Col xs={24} sm={12}>
@@ -594,6 +696,8 @@ export const ReportingTab: React.FC = () => {
                         count: d.count,
                       }))}
                       colorFn={() => '#1677ff'}
+                      isDark={isDark}
+                      showEmpty={showEmptyCategories}
                     />
                   </Card>
                 </Col>

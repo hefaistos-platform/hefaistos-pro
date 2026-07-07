@@ -10,6 +10,15 @@ jest.mock('@apollo/client', () => ({
   useMutation: (...args: unknown[]) => mockUseMutation(...args),
 }));
 
+jest.mock('../../context/ThemeContext', () => ({
+  useTheme: () => ({
+    mode: 'dark',
+    resolvedTheme: 'dark',
+    setMode: jest.fn(),
+    cycleMode: jest.fn(),
+  }),
+}));
+
 jest.mock('recharts', () => ({
   BarChart: ({ children }: any) => <div data-testid="bar-chart">{children}</div>,
   LineChart: ({ children }: any) => <div data-testid="line-chart">{children}</div>,
