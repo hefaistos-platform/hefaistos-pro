@@ -210,15 +210,22 @@ function StatusBarChart({
   colorFn,
   isDark,
   showEmpty,
+  sortByCount,
 }: {
   data: StatusCount[];
   colorFn: (s: string) => string;
   isDark: boolean;
   showEmpty: boolean;
+  sortByCount: boolean;
 }) {
-  const chartData = data
-    .filter((d) => showEmpty || d.count > 0)
-    .map((d) => ({ name: d.status, count: d.count }));
+  const filteredData = data.filter((d) => showEmpty || d.count > 0);
+  const orderedData = sortByCount
+    ? [...filteredData].sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.status.localeCompare(b.status);
+      })
+    : filteredData;
+  const chartData = orderedData.map((d) => ({ name: d.status, count: d.count }));
   const chartHeight = Math.max(220, chartData.length * 34 + 36);
   const mutedZero = isDark ? '#334155' : '#d9d9d9';
   const tickColor = isDark ? '#d1d5db' : '#475569';
@@ -456,6 +463,7 @@ export const ReportingTab: React.FC = () => {
   const [exportExcel, { loading: exportingExcel }] = useMutation(EXPORT_REPORT_EXCEL);
   const [activeView, setActiveView] = useState<'current' | 'trends' | 'builder'>('current');
   const [showEmptyCategories, setShowEmptyCategories] = useState(false);
+  const [sortCategoriesByCount, setSortCategoriesByCount] = useState(true);
   const stats = data?.mgmtCaveStats;
 
   useEffect(() => {
@@ -530,12 +538,20 @@ export const ReportingTab: React.FC = () => {
             Custom Report
           </Button>
           {activeView === 'current' && (
-            <Checkbox
-              checked={showEmptyCategories}
-              onChange={(e) => setShowEmptyCategories(e.target.checked)}
-            >
-              Show empty categories
-            </Checkbox>
+            <Space size={12}>
+              <Checkbox
+                checked={showEmptyCategories}
+                onChange={(e) => setShowEmptyCategories(e.target.checked)}
+              >
+                Show empty categories
+              </Checkbox>
+              <Checkbox
+                checked={sortCategoriesByCount}
+                onChange={(e) => setSortCategoriesByCount(e.target.checked)}
+              >
+                Sort by count (desc)
+              </Checkbox>
+            </Space>
           )}
         </Space>
         <AntTooltip title="Export full report as Excel (.xlsx)">
@@ -615,6 +631,7 @@ export const ReportingTab: React.FC = () => {
                   colorFn={statusColor}
                   isDark={isDark}
                   showEmpty={showEmptyCategories}
+                  sortByCount={sortCategoriesByCount}
                 />
               </Card>
             </Col>
@@ -642,6 +659,7 @@ export const ReportingTab: React.FC = () => {
                       colorFn={statusColor}
                       isDark={isDark}
                       showEmpty={showEmptyCategories}
+                      sortByCount={sortCategoriesByCount}
                     />
                   </Card>
                 </Col>
@@ -652,6 +670,7 @@ export const ReportingTab: React.FC = () => {
                       colorFn={statusColor}
                       isDark={isDark}
                       showEmpty={showEmptyCategories}
+                      sortByCount={sortCategoriesByCount}
                     />
                   </Card>
                 </Col>
@@ -692,6 +711,7 @@ export const ReportingTab: React.FC = () => {
                       colorFn={statusColor}
                       isDark={isDark}
                       showEmpty={showEmptyCategories}
+                      sortByCount={sortCategoriesByCount}
                     />
                   </Card>
                 </Col>
@@ -705,6 +725,7 @@ export const ReportingTab: React.FC = () => {
                       colorFn={() => '#1677ff'}
                       isDark={isDark}
                       showEmpty={showEmptyCategories}
+                      sortByCount={sortCategoriesByCount}
                     />
                   </Card>
                 </Col>
