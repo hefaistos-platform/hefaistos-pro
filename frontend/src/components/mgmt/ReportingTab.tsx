@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { gql, useMutation, useQuery } from '@apollo/client';
 import {
   Alert,
@@ -31,7 +31,6 @@ import {
   Legend,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -163,6 +162,47 @@ function downloadBase64File(fileData: string, filename: string, contentType: str
   URL.revokeObjectURL(url);
 }
 
+function StableChart({
+  height,
+  minWidth = 0,
+  render,
+}: {
+  height: number;
+  minWidth?: number;
+  render: (size: { width: number; height: number }) => React.ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return undefined;
+
+    const updateWidth = () => {
+      const nextWidth = Math.floor(node.getBoundingClientRect().width);
+      setWidth((prev) => (prev !== nextWidth ? nextWidth : prev));
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+    window.addEventListener('resize', updateWidth);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, []);
+
+  const effectiveWidth = Math.max(width, minWidth);
+
+  return (
+    <div ref={containerRef} style={{ width: '100%', minWidth, height }}>
+      {effectiveWidth > 0 ? render({ width: effectiveWidth, height }) : null}
+    </div>
+  );
+}
+
 function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: string) => string }) {
   const chartData = data.map((d) => ({ name: d.status, count: d.count }));
   if (chartData.length === 0) {
@@ -170,19 +210,23 @@ function StatusBarChart({ data, colorFn }: { data: StatusCount[]; colorFn: (s: s
   }
 
   return (
-    <ResponsiveContainer width="100%" height={160} minWidth={280} minHeight={160}>
-      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-        <Tooltip />
-        <Bar dataKey="count">
-          {chartData.map((entry) => (
-            <Cell key={entry.name} fill={colorFn(entry.name)} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <StableChart
+      height={160}
+      minWidth={280}
+      render={({ width, height }) => (
+        <BarChart width={width} height={height} data={chartData} margin={{ top: 4, right: 8, bottom: 24, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+          <Tooltip />
+          <Bar dataKey="count">
+            {chartData.map((entry) => (
+              <Cell key={entry.name} fill={colorFn(entry.name)} />
+            ))}
+          </Bar>
+        </BarChart>
+      )}
+    />
   );
 }
 
@@ -226,32 +270,38 @@ function HistoricalTrendsPanel() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={16}>
       <Card title="Total Items by Domain (Month-over-Month)" size="small">
-        <ResponsiveContainer width="100%" height={240}>
-          <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="achTotal" name="ACH" stroke="#722ed1" strokeWidth={2} dot />
-            <Line type="monotone" dataKey="advopsTotal" name="AdvOps" stroke="#fa8c16" strokeWidth={2} dot />
-            <Line type="monotone" dataKey="wbTotal" name="Workbenches" stroke="#1677ff" strokeWidth={2} dot />
-            <Line type="monotone" dataKey="rulesTotal" name="Rules" stroke="#52c41a" strokeWidth={2} dot />
-          </LineChart>
-        </ResponsiveContainer>
+        <StableChart
+          height={240}
+          render={({ width, height }) => (
+            <LineChart width={width} height={height} data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="achTotal" name="ACH" stroke="#722ed1" strokeWidth={2} dot />
+              <Line type="monotone" dataKey="advopsTotal" name="AdvOps" stroke="#fa8c16" strokeWidth={2} dot />
+              <Line type="monotone" dataKey="wbTotal" name="Workbenches" stroke="#1677ff" strokeWidth={2} dot />
+              <Line type="monotone" dataKey="rulesTotal" name="Rules" stroke="#52c41a" strokeWidth={2} dot />
+            </LineChart>
+          )}
+        />
       </Card>
       <Card title="Active / Deployed (Month-over-Month)" size="small">
-        <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="wbActive" name="Deployed Workbenches" stroke="#389e0d" strokeWidth={2} dot />
-            <Line type="monotone" dataKey="rulesActive" name="Active Rules" stroke="#13c2c2" strokeWidth={2} dot />
-          </LineChart>
-        </ResponsiveContainer>
+        <StableChart
+          height={220}
+          render={({ width, height }) => (
+            <LineChart width={width} height={height} data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="wbActive" name="Deployed Workbenches" stroke="#389e0d" strokeWidth={2} dot />
+              <Line type="monotone" dataKey="rulesActive" name="Active Rules" stroke="#13c2c2" strokeWidth={2} dot />
+            </LineChart>
+          )}
+        />
       </Card>
     </Space>
   );
@@ -439,17 +489,21 @@ export const ReportingTab: React.FC = () => {
         <>
           <Title level={4} style={{ marginTop: 0 }}>Cross-Domain Overview</Title>
           <Card loading={loading} style={{ marginBottom: 24 }} title="Total vs Created (30d)">
-            <ResponsiveContainer width="100%" height={220} minWidth={300} minHeight={220}>
-              <LineChart data={overviewTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="total" name="Total" stroke="#1677ff" strokeWidth={2} />
-                <Line type="monotone" dataKey="createdLast30d" name="Created (30d)" stroke="#52c41a" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+            <StableChart
+              height={220}
+              minWidth={300}
+              render={({ width, height }) => (
+                <LineChart width={width} height={height} data={overviewTrend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="total" name="Total" stroke="#1677ff" strokeWidth={2} />
+                  <Line type="monotone" dataKey="createdLast30d" name="Created (30d)" stroke="#52c41a" strokeWidth={2} />
+                </LineChart>
+              )}
+            />
           </Card>
 
           {/* ACH */}
