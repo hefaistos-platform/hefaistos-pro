@@ -534,7 +534,17 @@ export const ReportingTab: React.FC = () => {
       )}
 
       {/* Toolbar */}
-      <div style={{ marginBottom: 16, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+        }}
+      >
         <Space size={8} wrap={false}>
           <Button
             type={activeView === 'current' ? 'primary' : 'default'}
@@ -556,8 +566,10 @@ export const ReportingTab: React.FC = () => {
           >
             Custom Report
           </Button>
+        </Space>
+        <Space size={12} wrap={false}>
           {activeView === 'current' && (
-            <Space size={12}>
+            <>
               <Checkbox
                 checked={showEmptyCategories}
                 onChange={(e) => setShowEmptyCategories(e.target.checked)}
@@ -570,10 +582,7 @@ export const ReportingTab: React.FC = () => {
               >
                 Sort by count (desc)
               </Checkbox>
-              <Text type="secondary">
-                Manager view: ranked categories, optional empty buckets.
-              </Text>
-            </Space>
+            </>
           )}
           <AntTooltip title="Export full report as Excel (.xlsx)">
             <Button
