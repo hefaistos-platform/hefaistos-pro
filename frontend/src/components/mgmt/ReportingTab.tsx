@@ -44,6 +44,8 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 
 const { Text, Title } = Typography;
+const SHOW_EMPTY_CATEGORIES_KEY = 'mgmt.reporting.showEmptyCategories';
+const SORT_BY_COUNT_KEY = 'mgmt.reporting.sortByCountDesc';
 
 const MGMT_CAVE_STATS_QUERY = gql`
   query MgmtCaveStats {
@@ -462,8 +464,15 @@ export const ReportingTab: React.FC = () => {
   const { data, loading, error } = useQuery<{ mgmtCaveStats: MgmtCaveStats }>(MGMT_CAVE_STATS_QUERY);
   const [exportExcel, { loading: exportingExcel }] = useMutation(EXPORT_REPORT_EXCEL);
   const [activeView, setActiveView] = useState<'current' | 'trends' | 'builder'>('current');
-  const [showEmptyCategories, setShowEmptyCategories] = useState(false);
-  const [sortCategoriesByCount, setSortCategoriesByCount] = useState(true);
+  const [showEmptyCategories, setShowEmptyCategories] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SHOW_EMPTY_CATEGORIES_KEY) === '1';
+  });
+  const [sortCategoriesByCount, setSortCategoriesByCount] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = window.localStorage.getItem(SORT_BY_COUNT_KEY);
+    return saved == null ? true : saved === '1';
+  });
   const stats = data?.mgmtCaveStats;
 
   useEffect(() => {
@@ -474,6 +483,16 @@ export const ReportingTab: React.FC = () => {
     }, 60);
     return () => window.clearTimeout(id);
   }, [activeView, loading]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SHOW_EMPTY_CATEGORIES_KEY, showEmptyCategories ? '1' : '0');
+  }, [showEmptyCategories]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SORT_BY_COUNT_KEY, sortCategoriesByCount ? '1' : '0');
+  }, [sortCategoriesByCount]);
 
   const overviewTrend = useMemo(() => ([
     { name: 'ACH', total: stats?.ach.total ?? 0, createdLast30d: stats?.ach.createdLast30d ?? 0 },
@@ -551,6 +570,9 @@ export const ReportingTab: React.FC = () => {
               >
                 Sort by count (desc)
               </Checkbox>
+              <Text type="secondary">
+                Manager view: ranked categories, optional empty buckets.
+              </Text>
             </Space>
           )}
         </Space>
