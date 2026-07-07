@@ -534,8 +534,8 @@ export const ReportingTab: React.FC = () => {
       )}
 
       {/* Toolbar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <Space>
+      <div style={{ marginBottom: 16, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+        <Space size={8} wrap={false}>
           <Button
             type={activeView === 'current' ? 'primary' : 'default'}
             onClick={() => setActiveView('current')}
@@ -575,16 +575,16 @@ export const ReportingTab: React.FC = () => {
               </Text>
             </Space>
           )}
+          <AntTooltip title="Export full report as Excel (.xlsx)">
+            <Button
+              icon={<FileExcelOutlined />}
+              onClick={handleExportAllExcel}
+              loading={exportingExcel}
+            >
+              Export Excel
+            </Button>
+          </AntTooltip>
         </Space>
-        <AntTooltip title="Export full report as Excel (.xlsx)">
-          <Button
-            icon={<FileExcelOutlined />}
-            onClick={handleExportAllExcel}
-            loading={exportingExcel}
-          >
-            Export Excel
-          </Button>
-        </AntTooltip>
       </div>
 
       {/* Historical Trends View */}
