@@ -424,7 +424,7 @@ code {
   color: var(--hef-text-primary);
 }
 
-.maieutic-modal input,
+.maieutic-modal input:not([type='checkbox']):not([type='radio']),
 .maieutic-modal textarea,
 .maieutic-modal select {
   background: var(--hef-bg-subtle);
@@ -576,17 +576,41 @@ code {
 }
 
 .maieutic-modal .maieutic-review-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-block;
+  flex-shrink: 0;
+  cursor: pointer;
   width: 1rem;
   height: 1rem;
-  accent-color: var(--hef-text-link);
+  border-radius: 0.25rem;
   border: 1px solid var(--hef-border-strong);
-  background: var(--hef-bg-subtle);
+  background-color: var(--hef-bg-subtle);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 0.7rem 0.7rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.maieutic-modal .maieutic-review-checkbox:checked {
+  border-color: #0ea5e9;
+  background-color: #0ea5e9;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M1 5l3 3 7-7'/%3E%3C/svg%3E");
+}
+
+.maieutic-modal .maieutic-review-checkbox:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #38bdf8 35%, transparent);
 }
 
 :root[data-theme='dark'] .maieutic-modal .maieutic-review-checkbox {
-  accent-color: #7dd3fc;
-  border-color: #cbd5e1;
+  border-color: #94a3b8;
   background: #0f172a;
+}
+
+:root[data-theme='dark'] .maieutic-modal .maieutic-review-checkbox:checked {
+  border-color: #38bdf8;
+  background-color: #38bdf8;
 }
 
 /* User Profile theming */
