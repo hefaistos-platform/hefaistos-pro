@@ -157,12 +157,19 @@ const humanizeMissingItem = (raw: string): string => {
 const buildKickoffPrompt = (
   step: MaieuticStep,
   contextSummary: string,
+  stageBridgeSummary: string,
 ): string => {
-  if (!contextSummary) return stepKickoffPrompts[step];
-  return `${stepKickoffPrompts[step]}
-Use this existing Workbench context:
-${contextSummary}
-Do not repeat known information. Ask one question that targets the highest-impact missing detail for this step.`;
+  const lines: string[] = [stepKickoffPrompts[step]];
+  if (contextSummary) {
+    lines.push(`Use this existing Workbench context:
+${contextSummary}`);
+  }
+  if (stageBridgeSummary) {
+    lines.push(`Build directly on prior Maieutic outputs:
+${stageBridgeSummary}`);
+  }
+  lines.push('Do not repeat known information. Ask one question that targets the highest-impact missing detail for this step.');
+  return lines.join('\n');
 };
 
 const defaultCompletion = (nextBestAction: string): MaieuticCompletionCheck => ({
@@ -205,6 +212,108 @@ const safeParseJson = (value: unknown): unknown => {
 const normalizeChallengeLevel = (level: string): ChallengeLevel => {
   if (level === 'light' || level === 'expert') return level;
   return 'standard';
+};
+
+const fieldHelpPrompts: Record<string, string> = {
+  intent:
+    'Help me draft a concise detection intent in one sentence, including adversary objective and environment scope.',
+  capability:
+    'Help me draft technical capability details with ATT&CK behavior, platform scope, and one telemetry anchor.',
+  dataQuality:
+    'Help me assess data quality and telemetry reliability for this detection, including known blind spots.',
+  falsePositiveRate:
+    'Help me estimate false positive expectations and tuning strategy with concrete benign lookalikes.',
+  coverage:
+    'Help me identify coverage gaps and blind spots based on the current hypothesis and interrogation evidence.',
+  justification:
+    'Help me write a robust justification that explains resilience against attacker variation and evasion.',
+  manualSteps:
+    'Help me draft the manual triage and investigation workflow based on prior hypothesis, interrogation, and robustness inputs.',
+  soarPlaybook:
+    'Help me draft the SOAR automation flow using outputs from all previous steps, with guardrails.',
+  detectionRule:
+    'Help me draft a starter detection rule from all previous Maieutic context.',
+  qaQuestion:
+    'Suggest one high-impact interrogation question derived from the current hypothesis.',
+  qaAnswer:
+    'Suggest a concise evidence-backed answer template for the current interrogation question.',
+};
+
+const fieldSuggestionAliases: Record<string, string[]> = {
+  intent: ['intent'],
+  capability: ['capability'],
+  dataQuality: ['data_quality', 'dataQuality'],
+  falsePositiveRate: ['false_positive_rate', 'falsePositiveRate'],
+  coverage: ['coverage_gaps', 'coverage'],
+  justification: ['justification'],
+  manualSteps: ['manual_steps', 'manualSteps'],
+  soarPlaybook: ['soar_playbook', 'soarPlaybook'],
+  detectionRule: ['detection_rule', 'rule'],
+  qaQuestion: ['qaQuestion'],
+  qaAnswer: ['qaAnswer', 'mechanism', 'data_source'],
+};
+
+const fieldSuggestionDisplayKey: Record<string, string> = {
+  intent: 'intent',
+  capability: 'capability',
+  dataQuality: 'data_quality',
+  falsePositiveRate: 'false_positive_rate',
+  coverage: 'coverage_gaps',
+  justification: 'justification',
+  manualSteps: 'manual_steps',
+  soarPlaybook: 'soar_playbook',
+  detectionRule: 'detection_rule',
+  qaQuestion: 'qaQuestion',
+  qaAnswer: 'qaAnswer',
+};
+
+const getSuggestionLookupKeys = (fieldName: string): string[] => {
+  const aliases = fieldSuggestionAliases[fieldName] || [fieldName];
+  return [...new Set([fieldName, ...aliases])];
+};
+
+const getSuggestionDisplayKey = (fieldName: string): string =>
+  fieldSuggestionDisplayKey[fieldName] || fieldName;
+
+const normalizeBinaryReply = (value: string): 'yes' | 'no' | '' => {
+  const token = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+  if (['yes', 'y', 'yeah', 'yep', 'affirmative', 'ok', 'okay', 'true'].includes(token)) return 'yes';
+  if (['no', 'n', 'nope', 'negative', 'false'].includes(token)) return 'no';
+  return '';
+};
+
+const looksLikeBinaryQuestion = (question: string): boolean => {
+  const normalized = String(question || '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('yes or no') || normalized.includes('yes/no')) return true;
+  return /^(do|will|would|can|could|should)\s+you\b/.test(normalized);
+};
+
+const extractConfirmedProposal = (question: string): string => {
+  const raw = String(question || '').replace(/^AI:\s*/i, '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const yesNoIndex = raw.search(/\b(?:yes\s*\/\s*no|yes\s+or\s+no)\b/i);
+  const body = yesNoIndex >= 0 ? raw.slice(0, yesNoIndex).trim().replace(/[,:;\-]+$/g, '').trim() : raw;
+  if (!body) return '';
+  const stripped = body
+    .replace(
+      /^(will|would|can|could|should)\s+you\s+(?:please\s+)?(?:define|treat|frame|capture|set)\s+(?:the\s+)?(?:behavior|hypothesis|detection)?\s*(?:as|to)\s*/i,
+      '',
+    )
+    .replace(/^(do you agree(?: with)?(?: defining)?(?: it)? as)\s*/i, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+  return stripped || body;
+};
+
+const toDetectionIntent = (proposal: string): string => {
+  const trimmed = String(proposal || '').trim();
+  if (!trimmed) return '';
+  if (/^detect\b/i.test(trimmed)) return trimmed;
+  return `Detect ${trimmed}`;
 };
 
 export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
@@ -297,6 +406,44 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     }
     return parts.join('\n');
   }, [workbenchContext]);
+
+  const stageBridgeSummary = useMemo(() => {
+    const lines: string[] = [];
+    if (hypothesis.intent.trim() || hypothesis.capability.trim()) {
+      lines.push(
+        `Hypothesis: intent="${hypothesis.intent.trim() || 'missing'}"; capability="${hypothesis.capability.trim() || 'missing'}"`,
+      );
+    }
+    if (qaLog.length > 0) {
+      const last = qaLog[qaLog.length - 1];
+      lines.push(`Interrogation: ${qaLog.length} Q&A entries. Last Q="${last.question.slice(0, 120)}"`);
+    }
+    if (
+      robustness.dataQuality.trim() ||
+      robustness.falsePositiveRate.trim() ||
+      robustness.coverage.trim() ||
+      robustness.justification.trim()
+    ) {
+      lines.push(
+        `Robustness: dataQuality="${robustness.dataQuality.trim() || 'missing'}"; falsePositive="${
+          robustness.falsePositiveRate.trim() || 'missing'
+        }"; coverage="${robustness.coverage.trim() || 'missing'}"; justification="${
+          robustness.justification.trim() || 'missing'
+        }"`,
+      );
+    }
+    if (playbookDesign.manualSteps.trim() || playbookDesign.soarPlaybook.trim()) {
+      lines.push(
+        `Playbook: manual="${playbookDesign.manualSteps.trim() ? 'present' : 'missing'}"; soar="${
+          playbookDesign.soarPlaybook.trim() ? 'present' : 'missing'
+        }"`,
+      );
+    }
+    if (detectionRule.rule.trim()) {
+      lines.push(`DetectionRule(${detectionRule.format}): ${detectionRule.rule.trim().slice(0, 180)}`);
+    }
+    return lines.join('\n');
+  }, [hypothesis, qaLog, robustness, playbookDesign, detectionRule]);
 
   const buildLocalCompletion = useCallback(
     (step: MaieuticStep): MaieuticCompletionCheck => {
@@ -681,6 +828,12 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
         case 'rule':
           if (text) setDetectionRule((prev) => ({ ...prev, rule: text }));
           return;
+        case 'qaQuestion':
+          if (text) setQaQuestion(text);
+          return;
+        case 'qaAnswer':
+          if (text) setQaAnswer(text);
+          return;
         case 'data_source':
           if (text) {
             if (!qaQuestion.trim()) {
@@ -726,26 +879,14 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     };
   }, []);
 
-  const requestFieldHelp = useCallback((fieldName: string) => {
-    const helpPrompts: Record<string, string> = {
-      intent: 'I need help with the detection intent field. What should I focus on?',
-      capability: 'I need help defining technical capability. What exactly should I specify?',
-      dataQuality: 'I need help assessing data quality and telemetry reliability.',
-      falsePositiveRate: 'I need help estimating false positive rate and tuning expectations.',
-      coverage: 'I need help identifying coverage gaps and blind spots.',
-      justification: 'I need help writing a strong robustness justification.',
-      manualSteps: 'I need help designing manual triage and investigation steps.',
-      soarPlaybook: 'I need help designing the automated SOAR workflow.',
-    };
-    setChatInput(helpPrompts[fieldName] || `Help me with the ${fieldName} field.`);
-  }, []);
-
   const handleAskAI = useCallback(
     async (options?: {
       prefillMessage?: string;
       autoKickoff?: boolean;
       synthesisMode?: boolean;
       persistUserMessage?: boolean;
+      targetFieldForHelp?: string;
+      autoApplyFirstSuggestion?: boolean;
     }) => {
       if (aiLoading) return;
 
@@ -755,6 +896,10 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
       const persistUserMessage = options?.persistUserMessage ?? true;
       const step = currentStep;
+      const previousAiQuestion = [...chatMessages]
+        .reverse()
+        .find((msg) => msg.role === 'ai')
+        ?.content;
 
       if (!options?.prefillMessage) {
         setChatInput('');
@@ -765,6 +910,22 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
         : [...chatMessages];
       setChatMessages(newMessages);
       setAiLoading(true);
+
+      const normalizedReply = normalizeBinaryReply(userMessage);
+      if (persistUserMessage && normalizedReply === 'yes' && looksLikeBinaryQuestion(previousAiQuestion || '')) {
+        const confirmedProposal = extractConfirmedProposal(previousAiQuestion || '');
+        if (confirmedProposal && step === 'Hypothesis') {
+          const proposalIntent = toDetectionIntent(confirmedProposal);
+          setHypothesis((prev) => ({
+            intent: prev.intent.trim() ? prev.intent : proposalIntent,
+            capability: prev.capability.trim() ? prev.capability : confirmedProposal,
+          }));
+        }
+        if (confirmedProposal && step === 'Interrogation') {
+          setQaQuestion((prev) => (prev.trim() ? prev : `Confirm scope: ${confirmedProposal}?`));
+          setQaAnswer((prev) => (prev.trim() ? prev : 'Yes.'));
+        }
+      }
 
       try {
         const history = buildHistoryPairs(newMessages);
@@ -788,12 +949,14 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
         const rawFieldSuggestions = result.data?.maieuticQuestion?.fieldSuggestions;
         const parsedFieldSuggestions = safeParseJson(rawFieldSuggestions);
+        const mergedFieldSuggestions: Record<string, string> = {};
         if (parsedFieldSuggestions && typeof parsedFieldSuggestions === 'object' && !Array.isArray(parsedFieldSuggestions)) {
           const normalized = Object.fromEntries(
             Object.entries(parsedFieldSuggestions as Record<string, unknown>)
               .filter(([, val]) => typeof val === 'string' && val.trim())
               .map(([k, val]) => [k, (val as string).trim()]),
           );
+          Object.assign(mergedFieldSuggestions, normalized);
           setFieldSuggestions((prev) => ({ ...prev, ...normalized }));
         }
 
@@ -804,6 +967,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               .filter(([, val]) => typeof val === 'string' && val.trim())
               .map(([k, val]) => [k, val.trim()]),
           );
+          Object.assign(mergedFieldSuggestions, normalized);
           setFieldSuggestions((prev) => ({ ...prev, ...normalized }));
         }
 
@@ -819,6 +983,35 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
           },
         };
         setLastAutofillCandidates(mergedAutofill);
+
+        if (options?.targetFieldForHelp && options?.autoApplyFirstSuggestion) {
+          if (options.targetFieldForHelp === 'qaQuestion' && aiResponse.socratic_question?.trim()) {
+            setQaQuestion((prev) => (prev.trim() ? prev : aiResponse.socratic_question!.trim()));
+          }
+          if (options.targetFieldForHelp === 'qaAnswer' && aiResponse.answer_template?.trim()) {
+            setQaAnswer((prev) => (prev.trim() ? prev : aiResponse.answer_template!.trim()));
+          }
+          const lookupKeys = getSuggestionLookupKeys(options.targetFieldForHelp);
+          let applied = false;
+          for (const key of lookupKeys) {
+            const candidate = mergedAutofill.proposed_text[key];
+            if (typeof candidate === 'string' && candidate.trim()) {
+              applyAutofillCandidate(key, candidate);
+              applied = true;
+              break;
+            }
+          }
+          if (!applied) {
+            for (const key of lookupKeys) {
+              const candidate = mergedFieldSuggestions[key];
+              if (typeof candidate === 'string' && candidate.trim()) {
+                applyAutofillCandidate(key, candidate);
+                applied = true;
+                break;
+              }
+            }
+          }
+        }
 
         if (options?.synthesisMode && mergedAutofill.proposed_text) {
           applySynthesisDraft(mergedAutofill.proposed_text);
@@ -872,9 +1065,25 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
       challengeLevel,
       buildFormContext,
       parseAutofillCandidates,
+      applyAutofillCandidate,
       applySynthesisDraft,
       setCompletionForStep,
     ],
+  );
+
+  const requestFieldHelp = useCallback(
+    (fieldName: string) => {
+      if (aiLoading) return;
+      const prompt = fieldHelpPrompts[fieldName] || `Help me with the ${fieldName} field.`;
+      setChatInput(prompt);
+      void handleAskAI({
+        prefillMessage: prompt,
+        persistUserMessage: true,
+        targetFieldForHelp: fieldName,
+        autoApplyFirstSuggestion: true,
+      });
+    },
+    [aiLoading, handleAskAI],
   );
 
   const handleSynthesizeReview = useCallback(async () => {
@@ -920,11 +1129,28 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
 
     setAutoKickoffDone((prev) => ({ ...prev, [currentStep]: true }));
     void handleAskAI({
-      prefillMessage: buildKickoffPrompt(currentStep, workbenchContextSummary),
+      prefillMessage: buildKickoffPrompt(currentStep, workbenchContextSummary, stageBridgeSummary),
       autoKickoff: true,
       persistUserMessage: false,
     });
-  }, [isOpen, aiLoading, currentStep, autoKickoffDone, handleAskAI, workbenchContextSummary]);
+  }, [isOpen, aiLoading, currentStep, autoKickoffDone, handleAskAI, workbenchContextSummary, stageBridgeSummary]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (currentStep !== 'Interrogation') return;
+    if (!qaQuestion.trim()) {
+      const lastAiQuestion = [...chatMessages]
+        .reverse()
+        .find((msg) => msg.role === 'ai' && msg.content.trim())
+        ?.content;
+      if (lastAiQuestion) {
+        setQaQuestion(lastAiQuestion);
+      }
+    }
+    if (!qaAnswer.trim() && answerTemplate.trim()) {
+      setQaAnswer(answerTemplate.trim());
+    }
+  }, [isOpen, currentStep, qaQuestion, qaAnswer, chatMessages, answerTemplate]);
 
   const handleNext = () => {
     if (!canProceedFromCurrentStep) return;
@@ -1022,8 +1248,15 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
   };
 
   const renderFieldSuggestion = (fieldKey: string) => {
-    const text = fieldSuggestions[fieldKey];
+    const lookupKeys = getSuggestionLookupKeys(fieldKey);
+    const matchedKey = lookupKeys.find((key) => {
+      const value = fieldSuggestions[key];
+      return typeof value === 'string' && value.trim();
+    });
+    if (!matchedKey) return null;
+    const text = fieldSuggestions[matchedKey];
     if (!text) return null;
+    const displayKey = getSuggestionDisplayKey(fieldKey);
     return (
       <div className="mt-2 p-3 bg-blue-50 border-l-4 border-blue-500 text-sm">
         <div className="flex justify-between items-start">
@@ -1033,7 +1266,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
           </div>
           <div className="flex gap-1 ml-2">
             <button
-              onClick={() => applyAutofillCandidate(fieldKey, text)}
+              onClick={() => applyAutofillCandidate(displayKey, text)}
               className="text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-800"
               title="Apply suggestion"
               type="button"
@@ -1041,7 +1274,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               Apply
             </button>
             <button
-              onClick={() => dismissFieldSuggestion(fieldKey)}
+              onClick={() => dismissFieldSuggestion(matchedKey)}
               className="text-gray-400 hover:text-gray-600"
               title="Dismiss hint"
               type="button"
@@ -1278,6 +1511,11 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               />
               {renderFieldSuggestion('capability')}
             </div>
+            {hasRequiredFields('Hypothesis') && (
+              <div className="p-2 rounded border border-green-200 bg-green-50 text-sm text-green-800">
+                Hypothesis is complete. You can move to Interrogation, or keep refining with AI coaching.
+              </div>
+            )}
             {renderAIChat()}
           </div>
         );
@@ -1290,7 +1528,17 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
             </p>
             <div className="space-y-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Question</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Question
+                  <button
+                    type="button"
+                    onClick={() => requestFieldHelp('qaQuestion')}
+                    className="ml-2 text-blue-600 hover:text-blue-800 text-xs"
+                    title="Ask AI for guidance on this field"
+                  >
+                    Get AI hint
+                  </button>
+                </label>
                 <input
                   type="text"
                   className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1298,9 +1546,20 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   value={qaQuestion}
                   onChange={(e) => setQaQuestion(e.target.value)}
                 />
+                {renderFieldSuggestion('qaQuestion')}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Answer</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Answer
+                  <button
+                    type="button"
+                    onClick={() => requestFieldHelp('qaAnswer')}
+                    className="ml-2 text-blue-600 hover:text-blue-800 text-xs"
+                    title="Ask AI for guidance on this field"
+                  >
+                    Get AI hint
+                  </button>
+                </label>
                 <textarea
                   className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={3}
@@ -1308,6 +1567,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   value={qaAnswer}
                   onChange={(e) => setQaAnswer(e.target.value)}
                 />
+                {renderFieldSuggestion('qaAnswer')}
               </div>
               <Button
                 onClick={addQAEntry}
@@ -1506,7 +1766,17 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Detection Rule</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Detection Rule
+                    <button
+                      type="button"
+                      onClick={() => requestFieldHelp('detectionRule')}
+                      className="ml-2 text-blue-600 hover:text-blue-800 text-xs"
+                      title="Ask AI for guidance on this field"
+                    >
+                      Get AI hint
+                    </button>
+                  </label>
                   <textarea
                     className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                     rows={8}
@@ -1514,6 +1784,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                     value={detectionRule.rule}
                     onChange={(e) => setDetectionRule({ ...detectionRule, rule: e.target.value })}
                   />
+                  {renderFieldSuggestion('detectionRule')}
                 </div>
               </div>
             </div>
@@ -1535,7 +1806,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importHypothesis}
                   onChange={(e) => setSelections({ ...selections, importHypothesis: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import Hypothesis</span>
               </label>
@@ -1544,7 +1815,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importQALog}
                   onChange={(e) => setSelections({ ...selections, importQALog: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import Interrogation Log ({qaLog.length} entries)</span>
               </label>
@@ -1553,7 +1824,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importRobustness}
                   onChange={(e) => setSelections({ ...selections, importRobustness: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import Robustness Analysis</span>
               </label>
@@ -1562,7 +1833,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importPlaybook}
                   onChange={(e) => setSelections({ ...selections, importPlaybook: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import Playbook Design</span>
               </label>
@@ -1571,7 +1842,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importDetectionRule}
                   onChange={(e) => setSelections({ ...selections, importDetectionRule: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import Detection Rule ({detectionRule.format})</span>
               </label>
@@ -1580,7 +1851,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
                   type="checkbox"
                   checked={selections.importSynthesis}
                   onChange={(e) => setSelections({ ...selections, importSynthesis: e.target.checked })}
-                  className="rounded"
+                  className="rounded maieutic-review-checkbox"
                 />
                 <span className="text-sm">Import AI Synthesis (SOAR/testing/triage extras)</span>
               </label>

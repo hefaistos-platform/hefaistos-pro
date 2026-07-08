@@ -575,6 +575,20 @@ code {
   border-color: var(--hef-border) !important;
 }
 
+.maieutic-modal .maieutic-review-checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--hef-text-link);
+  border: 1px solid var(--hef-border-strong);
+  background: var(--hef-bg-subtle);
+}
+
+:root[data-theme='dark'] .maieutic-modal .maieutic-review-checkbox {
+  accent-color: #7dd3fc;
+  border-color: #cbd5e1;
+  background: #0f172a;
+}
+
 /* User Profile theming */
 .profile-theme {
   color: var(--hef-text-primary);
