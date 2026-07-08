@@ -879,6 +879,77 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
     };
   }, []);
 
+  const buildStarterDetectionRuleDraft = useCallback((): string => {
+    const intent = hypothesis.intent.trim() || 'Detect suspicious credential access behavior';
+    const capability = hypothesis.capability.trim();
+    const coverage = robustness.coverage.trim();
+    const fp = robustness.falsePositiveRate.trim();
+    const lastEvidence = qaLog.slice(-1)[0];
+    const evidenceHint = lastEvidence ? `${lastEvidence.question} -> ${lastEvidence.answer}` : '';
+    const combinedText = `${intent} ${capability}`;
+    const attackTechnique = combinedText.match(/\bT\d{4}(?:\.\d{3})?\b/i)?.[0];
+    const format = detectionRule.format;
+
+    if (format === 'SPL') {
+      return `| tstats summariesonly=false allow_old_summaries=true count min(_time) as first_seen max(_time) as last_seen from datamodel=Endpoint.Processes
+where (
+  Processes.process_name="procdump.exe"
+  OR like(Processes.process, "%lsass%")
+)
+by Processes.dest Processes.user Processes.parent_process_name Processes.process_name Processes.process
+| eval first_seen=strftime(first_seen,"%Y-%m-%d %H:%M:%S"), last_seen=strftime(last_seen,"%Y-%m-%d %H:%M:%S")
+| rename Processes.* as *
+| where isnotnull(process)
+| sort - last_seen
+| eval rule_intent="${intent.replace(/"/g, '\\"')}"
+${attackTechnique ? `| eval attack_technique="${attackTechnique}"\n` : ''}| eval tuning_note="Add environment allow-list for approved admin tooling and backup software."`;
+    }
+
+    if (format === 'Pseudocode') {
+      return `RULE: Credential Access Suspicion (${attackTechnique || 'ATT&CK-mapped'})
+WHEN
+  process.image ends_with "procdump.exe"
+  OR process.command_line contains "lsass"
+AND
+  process is not in approved_admin_tool_allowlist
+THEN
+  create_alert(severity="high", reason="${intent.replace(/"/g, "'")}")
+  enrich_with(process_lineage, signer, user_context, host_role)
+  route_to_triage_queue("credential-access")
+
+TUNING:
+- Validate against benign diagnostics and backup tooling.
+- Add host role exceptions for controlled maintenance windows.
+${coverage ? `- Coverage note: ${coverage}\n` : ''}${fp ? `- False-positive expectation: ${fp}\n` : ''}${evidenceHint ? `- Evidence anchor: ${evidenceHint}` : ''}`;
+    }
+
+    if (format === 'Other') {
+      return `title: Maieutic Starter Detection Draft
+format: ${format}
+intent: ${intent}
+${attackTechnique ? `attack_technique: ${attackTechnique}\n` : ''}logic:
+  - process_name equals "procdump.exe" OR command_line contains "lsass"
+  - exclude approved administrative tools
+response:
+  - enrich with process lineage and host role
+  - escalate to analyst review when confidence >= medium
+tuning:
+  - baseline benign admin activity and add allow-lists`;
+    }
+
+    // Default: KQL
+    return `// Maieutic starter detection rule (${format})
+// Intent: ${intent}
+${capability ? `// Capability: ${capability}\n` : ''}${attackTechnique ? `// ATT&CK: ${attackTechnique}\n` : ''}let timeframe = 1h;
+DeviceProcessEvents
+| where Timestamp > ago(timeframe)
+| where tolower(FileName) == "procdump.exe" or tolower(ProcessCommandLine) has "lsass"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessCommandLine
+| order by Timestamp desc
+// Tuning: add allow-list for approved diagnostics and tighten predicates to your validated telemetry fields.
+${coverage ? `// Coverage note: ${coverage}\n` : ''}${fp ? `// FP expectation: ${fp}\n` : ''}${evidenceHint ? `// Evidence anchor: ${evidenceHint}` : ''}`;
+  }, [hypothesis, robustness, qaLog, detectionRule.format]);
+
   const handleAskAI = useCallback(
     async (options?: {
       prefillMessage?: string;
@@ -910,6 +981,7 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
         : [...chatMessages];
       setChatMessages(newMessages);
       setAiLoading(true);
+      let detectionRuleFallbackUsed = false;
 
       const normalizedReply = normalizeBinaryReply(userMessage);
       if (persistUserMessage && normalizedReply === 'yes' && looksLikeBinaryQuestion(previousAiQuestion || '')) {
@@ -1011,6 +1083,22 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
               }
             }
           }
+          if (!applied && options.targetFieldForHelp === 'detectionRule') {
+            const template = (aiResponse.answer_template || '').trim();
+            const templateLooksLikeRule = template.length > 30 && !looksLikeBinaryQuestion(template);
+            const fallbackRule = templateLooksLikeRule ? template : buildStarterDetectionRuleDraft();
+            applyAutofillCandidate('detection_rule', fallbackRule);
+            setFieldSuggestions((prev) => ({ ...prev, detection_rule: fallbackRule }));
+            setLastAutofillCandidates((prev) => ({
+              target_fields: [...new Set([...(prev.target_fields || []), 'detection_rule'])],
+              proposed_text: {
+                ...(prev.proposed_text || {}),
+                detection_rule: fallbackRule,
+              },
+            }));
+            applied = true;
+            detectionRuleFallbackUsed = true;
+          }
         }
 
         if (options?.synthesisMode && mergedAutofill.proposed_text) {
@@ -1035,8 +1123,11 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
         setAnswerTemplate((aiResponse.answer_template || '').trim());
         setCompletionForStep(step, aiResponse.completion_check);
 
-        const aiQuestion =
+        let aiQuestion =
           aiResponse.socratic_question || aiResponse.error || 'What specific behavior should we clarify next?';
+        if (detectionRuleFallbackUsed) {
+          aiQuestion = `I drafted and applied a starter ${detectionRule.format} rule to the Detection Rule field. Tune filters, thresholds, and allow-lists for your environment.`;
+        }
         setChatMessages([...newMessages, { role: 'ai' as const, content: aiQuestion }]);
 
         if (options?.autoKickoff) {
@@ -1067,6 +1158,8 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
       parseAutofillCandidates,
       applyAutofillCandidate,
       applySynthesisDraft,
+      buildStarterDetectionRuleDraft,
+      detectionRule.format,
       setCompletionForStep,
     ],
   );
@@ -1074,16 +1167,20 @@ export const MaieuticEngineModal: React.FC<MaieuticEngineModalProps> = ({
   const requestFieldHelp = useCallback(
     (fieldName: string) => {
       if (aiLoading) return;
-      const prompt = fieldHelpPrompts[fieldName] || `Help me with the ${fieldName} field.`;
+      const prompt =
+        fieldName === 'detectionRule'
+          ? `Draft a starter detection rule in ${detectionRule.format} using all previous Maieutic context. Return the draft in autofill_candidates.proposed_text.detection_rule and field_suggestions.detection_rule so it can be inserted directly into the Detection Rule field.`
+          : fieldHelpPrompts[fieldName] || `Help me with the ${fieldName} field.`;
       setChatInput(prompt);
       void handleAskAI({
         prefillMessage: prompt,
         persistUserMessage: true,
         targetFieldForHelp: fieldName,
         autoApplyFirstSuggestion: true,
+        synthesisMode: fieldName === 'detectionRule',
       });
     },
-    [aiLoading, handleAskAI],
+    [aiLoading, handleAskAI, detectionRule.format],
   );
 
   const handleSynthesizeReview = useCallback(async () => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MaieuticEngineModal } from './MaieuticEngineModal';
 
 const mockAskAI = jest.fn();
@@ -256,5 +256,88 @@ describe('MaieuticEngineModal 2.0', () => {
     });
 
     expect(screen.getByText(/Loaded Workbench context:/i)).toBeInTheDocument();
+  });
+
+  test('auto-fills detection rule hint in selected format even when AI responds with a question', async () => {
+    mockAskAI.mockImplementation(({ variables }: any) => {
+      const userInput = String(variables?.userInput || '');
+      if (userInput.includes('Draft a starter detection rule in')) {
+        return Promise.resolve({
+          data: {
+            maieuticQuestion: {
+              aiResponse: {
+                ...aiResponsePayload,
+                socratic_question:
+                  'For this behavior, what exact escalation threshold should move this to analyst containment?',
+                answer_template: '',
+                field_suggestions: {},
+                autofill_candidates: {
+                  target_fields: [],
+                  proposed_text: {},
+                },
+              },
+              providerUsed: 'GPT-5.5',
+              fieldSuggestions: JSON.stringify({}),
+              autofillCandidates: JSON.stringify({ target_fields: [], proposed_text: {} }),
+            },
+          },
+        });
+      }
+      return Promise.resolve(makeMutationResult());
+    });
+
+    render(<MaieuticEngineModal isOpen={true} onClose={mockOnClose} onSubmit={mockOnSubmit} />);
+
+    fireEvent.change(screen.getByPlaceholderText(/What adversary behavior/i), {
+      target: { value: 'Detect suspicious credential dumping behavior' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/What technical capability/i), {
+      target: { value: 'ATT&CK T1003.001 LSASS memory access and dump behavior' },
+    });
+
+    const next = () => screen.getByRole('button', { name: /Next/i });
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    fireEvent.change(screen.getByPlaceholderText(/Enter a question about the hypothesis/i), {
+      target: { value: 'Which telemetry confirms this behavior?' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Enter the answer/i), {
+      target: { value: 'Sysmon process creation and EDR process telemetry.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Add Q&A Entry/i }));
+
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    fireEvent.change(screen.getByPlaceholderText(/Assess reliability and completeness/i), {
+      target: { value: 'High quality endpoint telemetry with known blind spots on unmanaged hosts.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Expected false positive rate/i), {
+      target: { value: 'Low after allow-listing approved admin diagnostics tooling.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Coverage gaps and known blind spots/i), {
+      target: { value: 'Unmanaged endpoints and legacy hosts without Sysmon.' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Overall robustness reasoning/i), {
+      target: { value: 'Behavior-level signal remains stable across tool changes.' },
+    });
+
+    await waitFor(() => expect(next()).not.toBeDisabled());
+    fireEvent.click(next());
+
+    const detectionRuleTextarea = screen.getByPlaceholderText(/Enter your detection rule here/i) as HTMLTextAreaElement;
+    expect(detectionRuleTextarea.value).toBe('');
+
+    const detectionRuleLabel = screen.getByText(/^Detection Rule$/i);
+    const detectionLabelRow = detectionRuleLabel.closest('label');
+    expect(detectionLabelRow).toBeTruthy();
+    fireEvent.click(within(detectionLabelRow as HTMLElement).getByRole('button', { name: /Get AI hint/i }));
+
+    await waitFor(() => {
+      expect(detectionRuleTextarea.value.length).toBeGreaterThan(0);
+      expect(detectionRuleTextarea.value).toContain('DeviceProcessEvents');
+      expect(detectionRuleTextarea.value).toContain('T1003.001');
+    });
   });
 });
