@@ -1,0 +1,80 @@
+name: SHARP Version Bump
+
+on:
+  push:
+    branches:
+      - sharp
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip version bump]') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: compute
+        run: |
+          set -Eeuo pipefail
+
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+
+          if [[ "${before}" == "0000000000000000000000000000000000000000" ]]; then
+            range="${after}"
+          else
+            range="${before}..${after}"
+          fi
+
+          current="$(tr -d '[:space:]' < VERSION)"
+          bump="$(scripts/versioning.sh detect-bump --range "${range}")"
+          next="$(scripts/versioning.sh bump "${current}" "${bump}")"
+          sharp="$(scripts/versioning.sh sharp "${next}" "${GITHUB_RUN_NUMBER}")"
+
+          printf '%s\n' "${next}" > VERSION
+          NEW_BADGE="[![Platform Version](https://img.shields.io/badge/platform-${next}-0A66C2.svg)](./VERSION) <!-- hefaistos-version-badge -->" \
+            perl -0pi -e 's{\[!\[Platform Version\]\(https://img\.shields\.io/badge/platform-[0-9]+\.[0-9]+\.[0-9]+-0A66C2\.svg\)\]\(\./VERSION\) <!-- hefaistos-version-badge -->}{$ENV{NEW_BADGE}}g' README.md
+
+          {
+            echo "range=${range}"
+            echo "current=${current}"
+            echo "bump=${bump}"
+            echo "next=${next}"
+            echo "sharp=${sharp}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Commit VERSION bump
+        env:
+          NEXT_VERSION: ${{ steps.compute.outputs.next }}
+        run: |
+          set -Eeuo pipefail
+
+          if git diff --quiet VERSION README.md; then
+            echo "No version-related change detected; skipping commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION README.md
+          git commit -m "chore(version): bump to ${NEXT_VERSION} [skip version bump] [skip ci]"
+          git push
+
+      - name: Build summary
+        run: |
+          {
+            echo "## SHARP Version Update"
+            echo ""
+            echo "- Commit range: \`${{ steps.compute.outputs.range }}\`"
+            echo "- Previous base version: \`${{ steps.compute.outputs.current }}\`"
+            echo "- Applied bump: \`${{ steps.compute.outputs.bump }}\`"
+            echo "- New base version: \`${{ steps.compute.outputs.next }}\`"
+            echo "- SHARP artifact version: \`${{ steps.compute.outputs.sharp }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
