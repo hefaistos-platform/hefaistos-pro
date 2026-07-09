@@ -68,7 +68,7 @@
   "main": "index.js",
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "AGPL-3.0-only",
   "devDependencies": {
     "@tailwindcss/forms": "0.5.11",
     "@tailwindcss/postcss": "4.3.1",
