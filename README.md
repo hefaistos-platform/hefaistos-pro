@@ -935,6 +935,6 @@ For support and inquiries:
 
 </div>
 
-**(c) 2026 Jan Pohl a.k.a. M3C4N1SM0 (dev) + th30ne (managing croak) & A Collective Hallucination of AI Bots**
+**(c) 2026 th3r3d - dev + th30ne -managing croak (Both DCG420) & A Collective Hallucination of AI Bots**
 
 Provided "as is", without warranty of any kind. See `LICENSE` for details.
