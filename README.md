@@ -473,6 +473,9 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 | **REVIEWER** | Review and approve playbooks, push to Git, manage rules |
 | **ANALYST** | Create/edit playbooks and rules, submit for review |
 | **VIEWER** | Read-only access to playbooks, rules, and dashboards |
+| **ELONE** | Read-only access to L1 Portal (L1 Analysts) |
+| **BOT_AUDITOR_ORG** | Organization-scoped bot auditor role for automated auditing workflows |
+| **BOT_AUDITOR_GLOBAL** | Global bot auditor role for cross-organization automated auditing workflows |
 
 ### Setting User Roles
 
@@ -482,7 +485,7 @@ Via Django Admin:
 docker compose exec backend python manage.py shell
 >>> from identity.models import CustomUser
 >>> user = CustomUser.objects.get(username='analyst1')
->>> user.role = 'ADMIN'  # or 'ANALYST', 'REVIEWER', 'VIEWER'
+>>> user.role = 'ADMIN'  # or 'ANALYST', 'REVIEWER', 'VIEWER', 'ELONE', 'BOT_AUDITOR_ORG', 'BOT_AUDITOR_GLOBAL'
 >>> user.save()
 ```
 
