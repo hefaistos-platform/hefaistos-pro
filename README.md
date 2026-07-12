@@ -902,6 +902,40 @@ docker compose exec backend bash
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+### Dependency License Compliance (PR Gate)
+
+To reduce legal risk for SaaS/commercial deployment, this repository enforces
+dependency license checks on pull requests using GitHub's Dependency Review Action.
+
+- Workflow: `.github/workflows/dependency-review.yml`
+- Policy config: `.github/dependency-review-config.yml`
+- Status check name: `dependency-review`
+
+The check fails when a PR introduces dependencies (runtime or development scope)
+with denied licenses, currently including:
+
+- `AGPL-1.0-only`
+- `AGPL-1.0-or-later`
+- `AGPL-3.0-only`
+- `AGPL-3.0-or-later`
+- `SSPL-1.0`
+- `OSL-3.0`
+- `CC-BY-NC-4.0`
+
+#### If your PR fails on license policy
+
+1. Identify the package flagged by the `dependency-review` check.
+2. Replace it with an alternative package under a permitted license.
+3. If replacement is not feasible, open an issue describing:
+   - package name and version
+   - where it is used
+   - why no suitable alternative exists
+   - legal/compliance impact
+4. Wait for maintainer approval before requesting any policy exception.
+
+No direct bypass is allowed on protected branches when `dependency-review` is
+configured as a required status check.
+
 ---
 
 ## 📄 License
