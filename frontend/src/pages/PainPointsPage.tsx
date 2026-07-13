@@ -626,7 +626,10 @@ const PainPointsPage = () => {
                 <p><strong>Resolved by:</strong> {selectedPain.resolvedByName}</p>
                 <p><strong>Resolved at:</strong> {selectedPain.resolvedAt ? new Date(selectedPain.resolvedAt).toLocaleDateString() : 'N/A'}</p>
                 {selectedPain.resolutionNotes && (
-                  <p><strong>Notes:</strong> {selectedPain.resolutionNotes}</p>
+                  <div>
+                    <strong>Notes:</strong>
+                    <MarkdownRenderer content={selectedPain.resolutionNotes} variant="small" skipEmpty={false} />
+                  </div>
                 )}
                 {canResolve && (
                 <Button

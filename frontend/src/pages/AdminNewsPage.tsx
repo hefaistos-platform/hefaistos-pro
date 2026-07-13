@@ -29,7 +29,7 @@ import {
 import SimpleMDE from 'react-simplemde-editor';
 import dayjs from 'dayjs';
 import { createEditorOptions, MARKDOWN_PLACEHOLDERS, configureMdeInstance } from '../config/markdownConfig';
-import { MarkdownRenderer } from '../components/MarkdownRenderer';
+import { MarkdownRenderer, markdownToPlainText } from '../components/MarkdownRenderer';
 
 const { Title, Text } = Typography;
 
@@ -407,11 +407,14 @@ export const AdminNewsPage: React.FC = () => {
       key: 'content',
       ellipsis: true,
       width: 300,
-      render: (content: string) => (
-        <Text ellipsis={{ tooltip: content }} style={{ maxWidth: 280 }}>
-          {content}
-        </Text>
-      )
+      render: (content: string) => {
+        const previewText = markdownToPlainText(content);
+        return (
+          <Text ellipsis={{ tooltip: previewText }} style={{ maxWidth: 280 }}>
+            {previewText}
+          </Text>
+        );
+      }
     },
     {
       title: 'Category',

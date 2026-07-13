@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery } from '@apollo/client/react';
 import { Modal, Spin, Empty, Collapse, Tag, message } from 'antd';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 // TypeScript interfaces
 interface ArchivedPainPoint {
@@ -94,9 +95,8 @@ export const PainArchiveModal: React.FC<PainArchiveModalProps> = ({
     ),
     children: (
       <div className="archive-item-detail">
-        <p>
-          <strong>Description:</strong> {pain.description}
-        </p>
+        <p><strong>Description:</strong></p>
+        <MarkdownRenderer content={pain.description} variant="small" skipEmpty={false} />
         <p>
           <strong>Author:</strong> {pain.authorName}
         </p>
@@ -110,11 +110,10 @@ export const PainArchiveModal: React.FC<PainArchiveModalProps> = ({
           <strong>Resolved by:</strong> {pain.resolvedByName}
         </p>
         {pain.resolutionNotes && (
-          <p>
+          <div>
             <strong>Resolution Notes:</strong>
-            <br />
-            {pain.resolutionNotes}
-          </p>
+            <MarkdownRenderer content={pain.resolutionNotes} variant="small" skipEmpty={false} />
+          </div>
         )}
       </div>
     ),

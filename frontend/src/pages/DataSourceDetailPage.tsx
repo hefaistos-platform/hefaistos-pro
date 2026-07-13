@@ -5,6 +5,7 @@ import { useQuery, useMutation } from '@apollo/client/react';
 import { FieldManager } from '../components/FieldManager';
 import { Input, Button, Card, Space, Alert, Breadcrumb, Typography, Divider, App } from 'antd';
 import { PixelIcon } from '../components/ui/PixelIcon';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 import SimpleMDE from 'react-simplemde-editor';
 
 // Define the comprehensive GraphQL query
@@ -273,7 +274,7 @@ export const DataSourceDetailPage = () => {
 
             {dataSource.description ? (
               <div style={{ marginBottom: 16 }}>
-                <Typography.Text>{dataSource.description}</Typography.Text>
+                <MarkdownRenderer content={dataSource.description} variant="small" skipEmpty={false} />
               </div>
             ) : (
               <Typography.Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>

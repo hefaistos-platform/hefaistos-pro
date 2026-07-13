@@ -4,6 +4,7 @@ import { useQuery } from '@apollo/client/react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Space, Typography, Select, Empty, Tag } from 'antd';
 import { PixelIcon } from '../components/ui/PixelIcon';
+import { markdownToPlainText } from '../components/MarkdownRenderer';
 
 // Define the GraphQL query to fetch all data sources
 const GET_ALL_DATASOURCES_QUERY = gql`
@@ -133,8 +134,8 @@ export const DataCatalogPage = () => {
                   )}
                 </div>
                 {ds.description && (
-                  <Typography.Text type="secondary" ellipsis>
-                    {ds.description}
+                  <Typography.Text type="secondary" ellipsis={{ tooltip: markdownToPlainText(ds.description) }}>
+                    {markdownToPlainText(ds.description)}
                   </Typography.Text>
                 )}
               </div>

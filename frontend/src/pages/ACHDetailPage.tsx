@@ -855,7 +855,9 @@ export const ACHDetailPage: React.FC = () => {
         />
       )}
       {analysis.description && (
-        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{analysis.description}</Text>
+        <div style={{ marginBottom: 16 }}>
+          <MarkdownRenderer content={analysis.description} variant="small" skipEmpty={false} />
+        </div>
       )}
 
       {biasWarning && (

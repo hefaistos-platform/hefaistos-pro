@@ -3,6 +3,7 @@ import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Input, Form, Typography, Select, Space, Table, Tag, message, Popconfirm } from 'antd';
+import { markdownToPlainText } from '../components/MarkdownRenderer';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -174,7 +175,7 @@ export const ACHPage: React.FC<ACHPageProps> = ({ embedded = false }) => {
         render: (_: any, row: ACHAnalysisListItem) => (
           <Space direction="vertical" size={0}>
             <Link to={`/tools/ach/${row.id}`}>{row.title}</Link>
-            {row.description && <Text type="secondary">{row.description}</Text>}
+            {row.description && <Text type="secondary">{markdownToPlainText(row.description)}</Text>}
           </Space>
         )
       },

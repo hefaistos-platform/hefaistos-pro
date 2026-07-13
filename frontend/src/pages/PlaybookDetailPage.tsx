@@ -8,6 +8,7 @@ import { usePlaybookMeta } from '../context/PlaybookMetaContext';
 import { LinkManager } from '../components/LinkManager';
 import { TagManager } from '../components/TagManager';
 import { PushToGitModal } from '../components/PushToGitModal';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 interface GetPlaybookData {
   playbook: any | null;
@@ -247,6 +248,14 @@ export const PlaybookDetailPage: React.FC = () => {
 
   const handleFieldChange = (field: keyof typeof formState, value: string) => {
     setFormState(prev => ({ ...prev, [field]: value }));
+  };
+
+  const renderMarkdownValue = (value?: string | null) => {
+    if (!value) {
+      return 'N/A';
+    }
+
+    return <MarkdownRenderer content={value} variant="small" skipEmpty={false} />;
   };
 
   // Removed unused handleNumberChange to satisfy lint rule
@@ -531,7 +540,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={3}
               />
             ) : (
-              p.hypothesis || 'N/A'
+              renderMarkdownValue(p.hypothesis)
             )}
           </Descriptions.Item>
           {formState.playbookType === 'DETECTION' && (
@@ -544,9 +553,7 @@ export const PlaybookDetailPage: React.FC = () => {
                   placeholder="Enter description"
                 />
               ) : (
-                <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                  {p.description || 'N/A'}
-                </Typography.Paragraph>
+                renderMarkdownValue(p.description)
               )}
             </Descriptions.Item>
           )}
@@ -560,9 +567,7 @@ export const PlaybookDetailPage: React.FC = () => {
                   placeholder="Enter technical details"
                 />
               ) : (
-                <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>
-                  {p.technicalDetails || 'N/A'}
-                </Typography.Paragraph>
+                renderMarkdownValue(p.technicalDetails)
               )}
             </Descriptions.Item>
           )}
@@ -694,7 +699,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={3}
               />
             ) : (
-              p.knownFalsePositives || 'N/A'
+              renderMarkdownValue(p.knownFalsePositives)
             )}
           </Descriptions.Item>
           <Descriptions.Item label="Exclusion Strategy" span={2}>
@@ -705,7 +710,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={3}
               />
             ) : (
-              p.exclusionStrategy || 'N/A'
+              renderMarkdownValue(p.exclusionStrategy)
             )}
           </Descriptions.Item>
         </Descriptions>
@@ -723,7 +728,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={3}
               />
             ) : (
-              p.testingProcedures || 'N/A'
+              renderMarkdownValue(p.testingProcedures)
             )}
           </Descriptions.Item>
           <Descriptions.Item label="Triage Guidance" span={2}>
@@ -734,7 +739,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={3}
               />
             ) : (
-              p.triageGuidance || 'N/A'
+              renderMarkdownValue(p.triageGuidance)
             )}
           </Descriptions.Item>
         </Descriptions>
@@ -751,7 +756,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={2}
               />
             ) : (
-              p.soarEnrichment || 'N/A'
+              renderMarkdownValue(p.soarEnrichment)
             )}
           </Descriptions.Item>
           <Descriptions.Item label="Triage" span={2}>
@@ -762,7 +767,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={2}
               />
             ) : (
-              p.soarTriage || 'N/A'
+              renderMarkdownValue(p.soarTriage)
             )}
           </Descriptions.Item>
           <Descriptions.Item label="Containment" span={2}>
@@ -773,7 +778,7 @@ export const PlaybookDetailPage: React.FC = () => {
                 rows={2}
               />
             ) : (
-              p.soarContainment || 'N/A'
+              renderMarkdownValue(p.soarContainment)
             )}
           </Descriptions.Item>
         </Descriptions>

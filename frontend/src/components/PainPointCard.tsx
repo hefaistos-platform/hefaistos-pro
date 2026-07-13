@@ -1,6 +1,7 @@
 import React from 'react';
 import { Tag, Card } from 'antd';
 import { MessageOutlined } from '@ant-design/icons';
+import { markdownToPlainText } from './MarkdownRenderer';
 import '../styles/PainPointCard.css';
 
 interface PainPointCardProps {
@@ -14,6 +15,8 @@ export const PainPointCard: React.FC<PainPointCardProps> = ({
   onDetails,
   priorityColor,
 }) => {
+  const descriptionPreview = markdownToPlainText(pain.description || '');
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'OPEN':
@@ -48,7 +51,7 @@ export const PainPointCard: React.FC<PainPointCardProps> = ({
         <Tag color={priorityColor}>{pain.priority}</Tag>
       </div>
 
-      <p className="card-description">{pain.description.substring(0, 100)}...</p>
+      <p className="card-description">{descriptionPreview.length > 100 ? `${descriptionPreview.substring(0, 100)}...` : descriptionPreview}</p>
 
       <div className="card-footer">
         <span className="author">by {pain.authorName}</span>

@@ -18,6 +18,46 @@ interface MarkdownRendererProps {
   skipEmpty?: boolean;
 }
 
+export function normalizeMarkdownContent(content: string | undefined): string {
+  if (!content) {
+    return '';
+  }
+
+  let normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (normalizedContent.includes('\\n') || normalizedContent.includes('\\r\\n')) {
+    normalizedContent = normalizedContent.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+  }
+  if (/\\#{1,6}\s|\\\*\*[^*]+\\\*\*|\\_[^_]+\\_|\\`[^`]+\\`/m.test(normalizedContent)) {
+    normalizedContent = normalizedContent.replace(/\\([#*_`])/g, '$1');
+  }
+
+  return normalizedContent;
+}
+
+export function markdownToPlainText(content: string | undefined): string {
+  const normalizedContent = normalizeMarkdownContent(content);
+  if (!normalizedContent) {
+    return '';
+  }
+
+  return normalizedContent
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Renders markdown content with consistent styling and sanitization
  * Replaces all ad-hoc ReactMarkdown usage across the app
@@ -45,15 +85,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     return null;
   }
 
-  // Normalize common escaped payloads (e.g. "\\n", "\\#", "\\*\\*")
-  // that can appear when markdown is serialized multiple times.
-  let normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  if (normalizedContent.includes('\\n') || normalizedContent.includes('\\r\\n')) {
-    normalizedContent = normalizedContent.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
-  }
-  if (/\\#{1,6}\s|\\\*\*[^*]+\\\*\*|\\_[^_]+\\_|\\`[^`]+\\`/m.test(normalizedContent)) {
-    normalizedContent = normalizedContent.replace(/\\([#*_`])/g, '$1');
-  }
+  const normalizedContent = normalizeMarkdownContent(content);
 
   const proseClass = MARKDOWN_PROSE_CLASSES[variant] || MARKDOWN_PROSE_CLASSES.default;
   const combinedClassName = `${proseClass} ${className}`.trim();

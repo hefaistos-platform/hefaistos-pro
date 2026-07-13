@@ -4,6 +4,7 @@ import { useQuery, useMutation } from '@apollo/client/react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Modal, Input, Card, List, Typography, Space, Tag, Empty, App } from 'antd';
 import { PixelIcon } from '../components/ui/PixelIcon';
+import { MarkdownRenderer, markdownToPlainText } from '../components/MarkdownRenderer';
 
 // --- GraphQL Queries ---
 const GET_ALL_KB_DATA_QUERY = gql`
@@ -350,8 +351,8 @@ export const KnowledgeBasePage = () => {
                     {cat.name}
                   </Typography.Text>
                   {cat.description && (
-                    <Typography.Text type="secondary" ellipsis style={{ fontSize: '12px', display: 'block' }}>
-                      {cat.description}
+                    <Typography.Text type="secondary" ellipsis={{ tooltip: markdownToPlainText(cat.description) }} style={{ fontSize: '12px', display: 'block' }}>
+                      {markdownToPlainText(cat.description)}
                     </Typography.Text>
                   )}
                   {/* Bottom buttons */}
@@ -398,7 +399,7 @@ export const KnowledgeBasePage = () => {
               <Space direction="vertical" size={0}>
                 <Typography.Title level={3} style={{ margin: 0 }}>{selectedCategory?.name || 'Knowledge Base'}</Typography.Title>
                 {selectedCategory?.description && (
-                  <Typography.Text type="secondary">{selectedCategory.description}</Typography.Text>
+                  <MarkdownRenderer content={selectedCategory.description} variant="small" skipEmpty={false} />
                 )}
               </Space>
             }
