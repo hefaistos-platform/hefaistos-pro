@@ -453,15 +453,6 @@ export const PlaybooksHubPage: React.FC = () => {
             <PixelIcon name="lightbulb" className="w-4 h-4" />
             Maieutic Engine
           </CustomButton>
-          <CustomButton 
-            variant="light-blue"
-            onClick={() => window.open('https://kedalion.hefaistos.org', '_blank')}
-            className="flex items-center gap-1"
-            title="MITRE Att&ck TTP Predictor and next detection coverage crystal ball"
-          >
-            <PixelIcon name="crystal" className="w-4 h-4" />
-            Detection IDEA
-          </CustomButton>
         </Space>
       </Space>
       
