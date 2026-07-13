@@ -45,6 +45,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     return null;
   }
 
+  // Normalize common escaped payloads (e.g. "\\n", "\\#", "\\*\\*")
+  // that can appear when markdown is serialized multiple times.
+  let normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (normalizedContent.includes('\\n') || normalizedContent.includes('\\r\\n')) {
+    normalizedContent = normalizedContent.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+  }
+  if (/\\#{1,6}\s|\\\*\*[^*]+\\\*\*|\\_[^_]+\\_|\\`[^`]+\\`/m.test(normalizedContent)) {
+    normalizedContent = normalizedContent.replace(/\\([#*_`])/g, '$1');
+  }
+
   const proseClass = MARKDOWN_PROSE_CLASSES[variant] || MARKDOWN_PROSE_CLASSES.default;
   const combinedClassName = `${proseClass} ${className}`.trim();
 
@@ -129,7 +139,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           ),
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   );

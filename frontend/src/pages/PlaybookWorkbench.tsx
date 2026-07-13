@@ -46,6 +46,7 @@ import {
   positionForEntry,
 } from '../utils/capabilityAbstractionUtils';
 import CapabilityAbstractionMapModal from '../components/CapabilityAbstractionMapModal';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 // Robustness Badge Component
 const RobustnessBadge: React.FC<{ level: number }> = ({ level }) => {
@@ -2255,7 +2256,8 @@ export const PlaybookWorkbench = () => {
                                  key={idx} 
                                  className={`p-2 rounded ${msg.role === 'ai' ? 'bg-blue-50 text-blue-800' : 'bg-gray-100 text-gray-800'}`}
                                >
-                                 <strong>{msg.role === 'ai' ? '🤖 AI' : '👤 You'}:</strong> {msg.content}
+                                 <strong>{msg.role === 'ai' ? '🤖 AI' : '👤 You'}:</strong>
+                                 <MarkdownRenderer content={msg.content} variant="small" className="mt-1" skipEmpty={false} />
                                </div>
                              ))}
                            </div>

@@ -3,6 +3,7 @@ import { gql } from '@apollo/client';
 import { useMutation } from '@apollo/client/react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { MarkdownRenderer } from '../MarkdownRenderer';
 import {
   MaieuticOutput,
   MaieuticStep,
@@ -1504,7 +1505,8 @@ ${coverage ? `// Coverage note: ${coverage}\n` : ''}${fp ? `// FP expectation: $
                   msg.role === 'user' ? 'maieutic-chat-msg-user ml-4' : 'maieutic-chat-msg-ai mr-4'
                 }`}
               >
-                <span className="font-semibold">{msg.role === 'user' ? 'You' : 'AI'}:</span> {msg.content}
+                <span className="font-semibold">{msg.role === 'user' ? 'You' : 'AI'}:</span>
+                <MarkdownRenderer content={msg.content} variant="small" className="mt-1" skipEmpty={false} />
               </div>
             ))}
           </div>

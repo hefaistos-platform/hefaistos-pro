@@ -7,6 +7,7 @@ import { Modal, Input, Select, Tag, Empty, Spin, message, Tooltip } from 'antd';
 import { NewPainPointModal } from '../components/NewPainPointModal';
 import { PainPointCard } from '../components/PainPointCard';
 import { PainArchiveModal } from '../components/PainArchiveModal';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 import '../styles/PainPointsPage.css';
 
 const { TextArea } = Input;
@@ -470,7 +471,7 @@ const PainPointsPage = () => {
           <div className="pain-details-content">
             <div className="details-section">
               <h4>Description</h4>
-              <p>{selectedPain.description}</p>
+              <MarkdownRenderer content={selectedPain.description} variant="small" skipEmpty={false} />
             </div>
 
             <div className="details-section meta-info">
@@ -512,7 +513,7 @@ const PainPointsPage = () => {
                               <Tag color="blue">Admin</Tag>
                             ) : null}
                           </div>
-                          <p>{comment.content}</p>
+                          <MarkdownRenderer content={comment.content} variant="small" skipEmpty={false} />
                           <div className="comment-actions">
                             {!isElOne && (
                               <Button
@@ -542,7 +543,7 @@ const PainPointsPage = () => {
                                     <Tag color="green">Response</Tag>
                                   ) : null}
                                 </div>
-                                <p>{reply.content}</p>
+                                <MarkdownRenderer content={reply.content} variant="small" skipEmpty={false} />
                               </div>
                             ))}
                           </div>

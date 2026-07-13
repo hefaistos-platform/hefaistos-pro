@@ -4,6 +4,7 @@ import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { Card, Button, Input, Form, Select, Alert, Typography, Space, Modal, message, Popconfirm, Tag, Tooltip } from 'antd';
 import { ArrowLeftOutlined, CloudDownloadOutlined, CopyOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -918,7 +919,9 @@ export const ACHDetailPage: React.FC = () => {
                 return (
                   <th key={h.id} style={{ padding: 16, borderBottom: '1px solid var(--hef-border)', textAlign: 'left', minWidth: 200, background: categoryColor, verticalAlign: 'top', color: 'var(--hef-text-primary)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{h.content}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>
+                        <MarkdownRenderer content={h.content} variant="small" skipEmpty={false} />
+                      </div>
                       <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
                         <Button
                           type="text"
@@ -996,7 +999,9 @@ export const ACHDetailPage: React.FC = () => {
               <tr key={e.id} style={{ background: 'var(--hef-bg-surface)' }}>
                 <td style={{ padding: 16, borderBottom: '1px solid var(--hef-border)', borderRight: '1px solid var(--hef-border)', background: 'var(--hef-bg-subtle)', position: 'sticky', left: 0, zIndex: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <div style={{ fontSize: 14, flex: 1 }}>{e.content}</div>
+                    <div style={{ fontSize: 14, flex: 1 }}>
+                      <MarkdownRenderer content={e.content} variant="small" skipEmpty={false} />
+                    </div>
                     <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
                       <Button
                         type="text"
