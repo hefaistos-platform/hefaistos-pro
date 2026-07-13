@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -8,7 +8,7 @@ import { PixelIcon } from '../components/ui/PixelIcon';
 // --- GraphQL Queries ---
 const GET_ALL_KB_DATA_QUERY = gql`
   query GetAllKBData {
-    me { username role }
+    me { username role isSuperuser }
     allKbCategories {
       id
       name
@@ -48,6 +48,28 @@ const UPDATE_KB_CATEGORY = gql`
   }
 `;
 
+const EXPORT_KB_ARTICLES = gql`
+  mutation ExportKBArticles {
+    exportKbArticles {
+      ok
+      filename
+      payloadJson
+    }
+  }
+`;
+
+const IMPORT_KB_ARTICLES = gql`
+  mutation ImportKBArticles($payloadJson: String!) {
+    importKbArticles(payloadJson: $payloadJson) {
+      ok
+      categoriesCreated
+      categoriesUpdated
+      articlesCreated
+      articlesUpdated
+    }
+  }
+`;
+
 // --- TypeScript Types ---
 interface KBArticle {
   id: string;
@@ -67,10 +89,28 @@ interface CreateKBCategoryResponse {
   createKbCategory: { category: KBCategory };
 }
 
+interface ExportKBArticlesResponse {
+  exportKbArticles: {
+    ok: boolean;
+    filename: string;
+    payloadJson: string;
+  };
+}
+
+interface ImportKBArticlesResponse {
+  importKbArticles: {
+    ok: boolean;
+    categoriesCreated: number;
+    categoriesUpdated: number;
+    articlesCreated: number;
+    articlesUpdated: number;
+  };
+}
+
 export const KnowledgeBasePage = () => {
   const navigate = useNavigate();
   const { modal, message } = App.useApp();
-  const { data, loading, error, refetch } = useQuery<{ allKbCategories: KBCategory[]; me?: { username: string; role: string } | null }>(
+  const { data, loading, error, refetch } = useQuery<{ allKbCategories: KBCategory[]; me?: { username: string; role: string; isSuperuser?: boolean } | null }>(
     GET_ALL_KB_DATA_QUERY,
     {
       fetchPolicy: 'cache-and-network',
@@ -106,9 +146,17 @@ export const KnowledgeBasePage = () => {
     onError: (err) => message.error(err.message || 'Failed to update category')
   });
 
+  const [exportKbArticles, { loading: exportingKb }] = useMutation<ExportKBArticlesResponse>(EXPORT_KB_ARTICLES);
+  const [importKbArticles, { loading: importingKb }] = useMutation<ImportKBArticlesResponse>(IMPORT_KB_ARTICLES);
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+
   const categories = useMemo(() => data?.allKbCategories || [], [data]);
   const meRole = (data?.me?.role || '').toUpperCase();
   const isElOne = meRole === 'ELONE';
+  const isSuperuser = Boolean(data?.me?.isSuperuser);
+  const isAdmin = meRole === 'ADMIN';
+  const canExportKb = !isElOne && (isAdmin || isSuperuser);
+  const canImportKb = !isElOne && isSuperuser;
 
   // Ensure a category is selected when data loads
   useEffect(() => {
@@ -196,6 +244,54 @@ export const KnowledgeBasePage = () => {
       cancelText: 'Cancel',
       onOk: () => deleteCategory({ variables: { id: cat.id } })
     });
+  };
+
+  const handleExportKnowledgeBase = async () => {
+    try {
+      const res = await exportKbArticles();
+      const payload = res.data?.exportKbArticles;
+      if (!payload?.ok || !payload.payloadJson) {
+        message.error('Export failed');
+        return;
+      }
+
+      const blob = new Blob([payload.payloadJson], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = payload.filename || 'knowledge-base-export.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      message.success('Knowledge Base exported');
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to export Knowledge Base');
+    }
+  };
+
+  const handleImportFileSelection: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const payloadJson = await file.text();
+      const res = await importKbArticles({ variables: { payloadJson } });
+      const result = res.data?.importKbArticles;
+      if (!result?.ok) {
+        message.error('Import failed');
+        return;
+      }
+
+      message.success(
+        `Import completed: ${result.categoriesCreated} categories created, ${result.categoriesUpdated} categories updated, ${result.articlesCreated} articles created, ${result.articlesUpdated} articles updated.`
+      );
+      await refetch();
+    } catch (err: any) {
+      message.error(err?.message || 'Failed to import Knowledge Base');
+    } finally {
+      event.target.value = '';
+    }
   };
 
   return (
@@ -335,6 +431,16 @@ export const KnowledgeBasePage = () => {
                   <PixelIcon name="refresh" className="w-5 h-5" />
                   <span style={{ marginLeft: 8 }}>Refresh</span>
                 </Button>
+                {canExportKb && (
+                  <Button onClick={handleExportKnowledgeBase} loading={exportingKb}>
+                    Export
+                  </Button>
+                )}
+                {canImportKb && (
+                  <Button onClick={() => importFileInputRef.current?.click()} loading={importingKb}>
+                    Import
+                  </Button>
+                )}
                 <Button onClick={markAllRead}>
                   Mark all read
                 </Button>
@@ -418,6 +524,13 @@ export const KnowledgeBasePage = () => {
           </div>
         </div>
       </Modal>
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={handleImportFileSelection}
+      />
     </div>
   );
 };
