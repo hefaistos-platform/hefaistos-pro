@@ -20,6 +20,7 @@ import news.schema # Import the news schema
 import ach.schema # Import the ach schema
 import advops.schema
 import pain_points.schema  # Import the pain_points schema
+import waiting_room.schema
 import mgmt_reports.schema
 from django.conf import settings
 from identity.decorators import role_required, Roles
@@ -104,6 +105,7 @@ class Query(
     ach.schema.Query, # Add ach queries
     advops.schema.Query,
     pain_points.schema.Query,  # Add pain_points queries
+    waiting_room.schema.Query,
     mgmt_reports.schema.Query,
     knowledge.schema.Query, # Add this
     news.schema.Query,  # Add news queries
@@ -181,6 +183,7 @@ class Mutation(
     ach.schema.Mutation, # Add ach mutations
     advops.schema.Mutation,
     pain_points.schema.Mutation,  # Add pain_points mutations
+    waiting_room.schema.Mutation,
     mgmt_reports.schema.Mutation,
     identity.schema.Mutation,
     knowledge.schema.Mutation, # Add this

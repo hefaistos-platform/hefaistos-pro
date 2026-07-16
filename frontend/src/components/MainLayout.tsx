@@ -28,6 +28,7 @@ import {
   MonitorOutlined,
   MoonOutlined,
   SunOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { NotificationBell } from './NotificationBell';
 import { NewsIcon } from './NewsIcon';
@@ -88,6 +89,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
     if (location.pathname.startsWith('/coverage')) return 'coverage';
     if (location.pathname.startsWith('/catalog')) return 'catalog';
     if (location.pathname.startsWith('/playbooks')) return 'playbooks';
+    if (location.pathname.startsWith('/waiting-room')) return 'waiting-room';
     if (location.pathname.startsWith('/l1-portal')) return 'l1-portal';
     if (location.pathname.startsWith('/rules')) return 'rules';
     if (location.pathname.startsWith('/repos')) return 'config';
@@ -110,6 +112,7 @@ export const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }
       { key: 'board', icon: <RadarChartOutlined />, label: 'Lifecycle Hub', onClick: () => navigate('/') },
       { key: 'tools-ach', icon: <TableOutlined />, label: 'ACH Matrix', onClick: () => navigate('/tools/ach') },
       { key: 'playbooks', icon: <DeploymentUnitOutlined />, label: 'Workbench Hub', onClick: () => navigate('/playbooks') },
+      { key: 'waiting-room', icon: <InboxOutlined />, label: 'Waiting Room', onClick: () => navigate('/waiting-room') },
       { key: 'l1-portal', icon: <ReadOutlined />, label: 'L1 Portal', onClick: () => navigate('/l1-portal') },
       { key: 'rules', icon: <ApartmentOutlined />, label: 'Rule Hub', onClick: () => navigate('/rules') },
       { key: 'catalog', icon: <DatabaseOutlined />, label: 'Data Catalog', onClick: () => navigate('/catalog') },

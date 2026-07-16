@@ -102,6 +102,7 @@ INSTALLED_APPS = [
     'news',  # News and announcements feature
     'ach',
     'pain_points',  # Pain Points feedback board
+    'waiting_room',
     'mgmt_reports',  # Management reports and AI assistant
     'lsp_server.apps.LspServerConfig',  # SyntaxTide LSP server management
     'webhooks',     # CoreTide webhook handlers
