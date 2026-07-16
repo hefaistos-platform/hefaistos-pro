@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
 import {
@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Table,
@@ -18,6 +19,7 @@ import {
 
 type WaitingCase = {
   id: string;
+  createdBy?: { id: string } | null;
   title: string;
   shortDescription: string;
   detectionObjective: string;
@@ -52,6 +54,9 @@ const GET_WAITING_CASES = gql`
   query GetWaitingCases {
     waitingCases {
       id
+      createdBy {
+        id
+      }
       title
       shortDescription
       detectionObjective
@@ -145,6 +150,15 @@ const PROMOTE_WAITING_CASE = gql`
   }
 `;
 
+const DELETE_WAITING_CASE = gql`
+  mutation DeleteWaitingCase($id: UUID!) {
+    deleteWaitingCase(id: $id) {
+      success
+      message
+    }
+  }
+`;
+
 const STATUS_COLORS: Record<string, string> = {
   NEW: 'default',
   ENRICHING: 'processing',
@@ -159,6 +173,7 @@ export const WaitingRoomPage: React.FC = () => {
   const [mispOpen, setMispOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<WaitingCase | null>(null);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  const [deletingCaseId, setDeletingCaseId] = useState<string | null>(null);
 
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
@@ -173,6 +188,7 @@ export const WaitingRoomPage: React.FC = () => {
   const [updateWaitingCase, { loading: updating }] = useMutation(UPDATE_WAITING_CASE);
   const [importFromMisp, { loading: importing }] = useMutation(IMPORT_FROM_MISP);
   const [promoteWaitingCase, { loading: promoting }] = useMutation(PROMOTE_WAITING_CASE);
+  const [deleteWaitingCase] = useMutation(DELETE_WAITING_CASE);
 
   const role = (meData?.me?.role || '').toUpperCase();
   const isSuperuser = !!meData?.me?.isSuperuser;
@@ -180,6 +196,17 @@ export const WaitingRoomPage: React.FC = () => {
   const canPromote = role === 'ANALYST' || isSuperuser;
 
   const rows = waitingData?.waitingCases || [];
+
+  useEffect(() => {
+    if (!selectedCase) return;
+    editForm.setFieldsValue({
+      title: selectedCase.title,
+      shortDescription: selectedCase.shortDescription,
+      detectionObjective: selectedCase.detectionObjective,
+      mappedTtps: (selectedCase.mappedTtps || []).join(', '),
+      estimatedDetectionComplexity: selectedCase.estimatedDetectionComplexity,
+    });
+  }, [selectedCase, editForm]);
 
   const sourceFilters = useMemo(
     () => [
@@ -195,16 +222,7 @@ export const WaitingRoomPage: React.FC = () => {
       dataIndex: 'title',
       key: 'title',
       render: (_: string, row: WaitingCase) => (
-        <Button type="link" onClick={() => {
-          setSelectedCase(row);
-          editForm.setFieldsValue({
-            title: row.title,
-            shortDescription: row.shortDescription,
-            detectionObjective: row.detectionObjective,
-            mappedTtps: (row.mappedTtps || []).join(', '),
-            estimatedDetectionComplexity: row.estimatedDetectionComplexity,
-          });
-        }}>
+        <Button type="link" onClick={() => openCaseEditor(row)}>
           {row.title}
         </Button>
       ),
@@ -244,6 +262,44 @@ export const WaitingRoomPage: React.FC = () => {
       key: 'actions',
       render: (_: string, row: WaitingCase) => (
         <Space>
+          {canCreateEdit && (
+            <Button size="small" onClick={() => openCaseEditor(row)}>
+              Edit
+            </Button>
+          )}
+          {canDeleteCase(row) && (
+            <Popconfirm
+              title="Delete waiting case?"
+              description="This action cannot be undone."
+              onConfirm={() => {
+                void (async () => {
+                  setDeletingCaseId(row.id);
+                  try {
+                    const response = await deleteWaitingCase({ variables: { id: row.id } });
+                    const payload = response.data?.deleteWaitingCase;
+                    if (!payload?.success) {
+                      messageApi.error(payload?.message || 'Delete failed.');
+                      return;
+                    }
+                    messageApi.success(payload.message || 'Waiting case deleted.');
+                    if (selectedCase?.id === row.id) setSelectedCase(null);
+                    await refetch();
+                  } catch (err) {
+                    const error = err as Error;
+                    messageApi.error(error.message || 'Delete failed.');
+                  } finally {
+                    setDeletingCaseId(null);
+                  }
+                })();
+              }}
+              okButtonProps={{ danger: true, loading: deletingCaseId === row.id }}
+              okText="Delete"
+            >
+              <Button size="small" danger loading={deletingCaseId === row.id}>
+                Delete
+              </Button>
+            </Popconfirm>
+          )}
           {canPromote && row.status !== 'PROMOTED' && (
             <Button
               size="small"
@@ -405,7 +461,12 @@ export const WaitingRoomPage: React.FC = () => {
           <Form.Item name="estimatedDetectionComplexity" label="Estimated complexity">
             <Input placeholder="LOW / MEDIUM / HIGH" />
           </Form.Item>
-          <Form.Item name="autoEnrich" label="Run AI enrichment" valuePropName="checked">
+          <Form.Item
+            name="autoEnrich"
+            label="Run AI Enrichment"
+            valuePropName="checked"
+            extra="If enabled, HEFAISTOS uses your configured AI provider to suggest enriched description, objectives, ATT&CK TTPs, and estimated complexity."
+          >
             <Checkbox />
           </Form.Item>
         </Form>
@@ -433,7 +494,12 @@ export const WaitingRoomPage: React.FC = () => {
           <Form.Item name="limit" label="Import limit">
             <Input type="number" />
           </Form.Item>
-          <Form.Item name="runAiEnrichment" label="Run AI enrichment" valuePropName="checked">
+          <Form.Item
+            name="runAiEnrichment"
+            label="Run AI Enrichment"
+            valuePropName="checked"
+            extra="If enabled, imported cases are automatically enriched by AI right after import."
+          >
             <Checkbox />
           </Form.Item>
         </Form>
@@ -485,7 +551,12 @@ export const WaitingRoomPage: React.FC = () => {
                 <Form.Item name="estimatedDetectionComplexity" label="Estimated complexity">
                   <Input />
                 </Form.Item>
-                <Form.Item name="autoEnrich" label="Run AI enrichment" valuePropName="checked">
+                <Form.Item
+                  name="autoEnrich"
+                  label="Run AI Enrichment"
+                  valuePropName="checked"
+                  extra="If enabled, HEFAISTOS re-runs AI enrichment and refreshes the case details based on your edits."
+                >
                   <Checkbox />
                 </Form.Item>
               </Form>
@@ -514,3 +585,13 @@ export const WaitingRoomPage: React.FC = () => {
 };
 
 export default WaitingRoomPage;
+  const canDeleteCase = (row: WaitingCase) => {
+    const currentUserId = meData?.me?.id;
+    const isAuthor = !!currentUserId && row.createdBy?.id === currentUserId;
+    const isAdmin = role === 'ADMIN';
+    return isAuthor || isAdmin || isSuperuser;
+  };
+
+  const openCaseEditor = (row: WaitingCase) => {
+    setSelectedCase(row);
+  };
