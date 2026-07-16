@@ -167,6 +167,19 @@ const STATUS_COLORS: Record<string, string> = {
   FAILED: 'red',
 };
 
+const toMappedTtpsArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value as string[];
+  if (typeof value === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed as string[];
+    } catch {
+      // not JSON, ignore
+    }
+  }
+  return [];
+};
+
 export const WaitingRoomPage: React.FC = () => {
   const [messageApi, contextHolder] = message.useMessage();
   const [createOpen, setCreateOpen] = useState(false);
@@ -203,7 +216,7 @@ export const WaitingRoomPage: React.FC = () => {
       title: selectedCase.title,
       shortDescription: selectedCase.shortDescription,
       detectionObjective: selectedCase.detectionObjective,
-      mappedTtps: (selectedCase.mappedTtps || []).join(', '),
+      mappedTtps: toMappedTtpsArray(selectedCase.mappedTtps).join(', '),
       estimatedDetectionComplexity: selectedCase.estimatedDetectionComplexity,
     });
   }, [selectedCase, editForm]);
@@ -544,7 +557,7 @@ export const WaitingRoomPage: React.FC = () => {
                 <Typography.Text strong>{selectedCase.title}</Typography.Text>
                 <Typography.Paragraph>{selectedCase.shortDescription}</Typography.Paragraph>
                 <Typography.Paragraph type="secondary">{selectedCase.detectionObjective}</Typography.Paragraph>
-                <Typography.Text>Mapped TTPs: {(selectedCase.mappedTtps || []).join(', ') || 'N/A'}</Typography.Text>
+                <Typography.Text>Mapped TTPs: {toMappedTtpsArray(selectedCase.mappedTtps).join(', ') || 'N/A'}</Typography.Text>
               </Space>
             )}
             {canCreateEdit && (
