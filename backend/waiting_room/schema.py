@@ -343,9 +343,8 @@ class DeleteWaitingCase(graphene.Mutation):
         except WaitingCase.DoesNotExist:
             raise GraphQLError('Waiting case not found')
 
-        role = str(getattr(user, 'role', '')).upper()
-        is_admin = role == Roles.ADMIN
-        is_superuser = bool(getattr(user, 'is_superuser', False))
+        is_admin = user.role == Roles.ADMIN
+        is_superuser = bool(user.is_superuser)
         is_author = waiting_case.created_by_id == user.id
 
         if not (is_author or is_admin or is_superuser):

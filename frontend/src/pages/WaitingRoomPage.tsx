@@ -216,6 +216,17 @@ export const WaitingRoomPage: React.FC = () => {
     [],
   );
 
+  const canDeleteCase = (row: WaitingCase) => {
+    const currentUserId = meData?.me?.id;
+    const isAuthor = !!currentUserId && row.createdBy?.id === currentUserId;
+    const isAdmin = role === 'ADMIN';
+    return isAuthor || isAdmin || isSuperuser;
+  };
+
+  const openCaseEditor = (row: WaitingCase) => {
+    setSelectedCase(row);
+  };
+
   const columns = [
     {
       title: 'Title',
@@ -272,25 +283,7 @@ export const WaitingRoomPage: React.FC = () => {
               title="Delete waiting case?"
               description="This action cannot be undone."
               onConfirm={() => {
-                void (async () => {
-                  setDeletingCaseId(row.id);
-                  try {
-                    const response = await deleteWaitingCase({ variables: { id: row.id } });
-                    const payload = response.data?.deleteWaitingCase;
-                    if (!payload?.success) {
-                      messageApi.error(payload?.message || 'Delete failed.');
-                      return;
-                    }
-                    messageApi.success(payload.message || 'Waiting case deleted.');
-                    if (selectedCase?.id === row.id) setSelectedCase(null);
-                    await refetch();
-                  } catch (err) {
-                    const error = err as Error;
-                    messageApi.error(error.message || 'Delete failed.');
-                  } finally {
-                    setDeletingCaseId(null);
-                  }
-                })();
+                void handleDeleteCase(row);
               }}
               okButtonProps={{ danger: true, loading: deletingCaseId === row.id }}
               okText="Delete"
@@ -405,6 +398,26 @@ export const WaitingRoomPage: React.FC = () => {
       return;
     }
     messageApi.error(payload?.message || 'Promotion failed.');
+  };
+
+  const handleDeleteCase = async (row: WaitingCase) => {
+    setDeletingCaseId(row.id);
+    try {
+      const response = await deleteWaitingCase({ variables: { id: row.id } });
+      const payload = response.data?.deleteWaitingCase;
+      if (!payload?.success) {
+        messageApi.error(payload?.message || 'Delete failed.');
+        return;
+      }
+      messageApi.success(payload.message || 'Waiting case deleted.');
+      if (selectedCase?.id === row.id) setSelectedCase(null);
+      await refetch();
+    } catch (err) {
+      const error = err as Error;
+      messageApi.error(error.message || 'Delete failed.');
+    } finally {
+      setDeletingCaseId(null);
+    }
   };
 
   return (
@@ -585,13 +598,3 @@ export const WaitingRoomPage: React.FC = () => {
 };
 
 export default WaitingRoomPage;
-  const canDeleteCase = (row: WaitingCase) => {
-    const currentUserId = meData?.me?.id;
-    const isAuthor = !!currentUserId && row.createdBy?.id === currentUserId;
-    const isAdmin = role === 'ADMIN';
-    return isAuthor || isAdmin || isSuperuser;
-  };
-
-  const openCaseEditor = (row: WaitingCase) => {
-    setSelectedCase(row);
-  };
