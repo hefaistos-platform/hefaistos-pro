@@ -40,6 +40,7 @@ import { MGMTCavePage } from './pages/MGMTCavePage';
 import { LogsPage } from './pages/LogsPage';
 import { L1PortalPage } from './pages/L1PortalPage';
 import { L1PortalDetailPage } from './pages/L1PortalDetailPage';
+import { WaitingRoomPage } from './pages/WaitingRoomPage';
 
 // Layout
 import { MainLayout } from './components/MainLayout';
@@ -80,6 +81,7 @@ const AppRoutes = () => {
                 <Route path="/" element={<KanbanBoardPage />} />
                 <Route path="/playbooks/list" element={<PlaybooksHubPage />} />
                 <Route path="/playbooks" element={<PlaybooksHubPage />} />
+                <Route path="/waiting-room" element={<WaitingRoomPage />} />
                 <Route path="/playbooks/detail/:playbookId" element={<PlaybookDetailPage />} />
                 <Route path="/rules" element={<RuleHubPage />} />
                 <Route path="/rules/:ruleId" element={<RuleDetailPage />} />
