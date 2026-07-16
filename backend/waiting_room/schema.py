@@ -11,7 +11,7 @@ from organizations.models import MISPInstance
 from platform_data.models import MitreAttackTechnique
 from playbooks.models import PlaybookGraph
 
-from .misp import fetch_misp_events, normalize_misp_event
+from .misp import event_has_tag, fetch_misp_events, normalize_misp_event
 from .models import WaitingCase, queue_waiting_case_enrichment
 
 
@@ -172,6 +172,7 @@ class ImportWaitingCasesFromMISP(graphene.Mutation):
     class Arguments:
         misp_instance_id = graphene.UUID(required=True)
         event_id = graphene.String(required=False)
+        tag = graphene.String(required=False)
         limit = graphene.Int(required=False, default_value=25)
         run_ai_enrichment = graphene.Boolean(required=False, default_value=False)
 
@@ -184,7 +185,7 @@ class ImportWaitingCasesFromMISP(graphene.Mutation):
     @staticmethod
     @role_required([Roles.REVIEWER, Roles.ADMIN])
     @transaction.atomic
-    def mutate(root, info, misp_instance_id, event_id=None, limit=25, run_ai_enrichment=False):
+    def mutate(root, info, misp_instance_id, event_id=None, tag=None, limit=25, run_ai_enrichment=False):
         user = info.context.user
         try:
             instance = MISPInstance.objects.get(pk=misp_instance_id, organization=user.organization)
@@ -192,15 +193,19 @@ class ImportWaitingCasesFromMISP(graphene.Mutation):
             raise GraphQLError('MISP instance not found')
 
         try:
-            events = fetch_misp_events(instance=instance, limit=limit, event_id=event_id)
+            events = fetch_misp_events(instance=instance, limit=limit, event_id=event_id, tag=tag)
         except Exception as exc:
             raise GraphQLError(f'Failed to import from MISP: {exc}')
 
         imported = 0
         skipped = 0
         created_cases: list[WaitingCase] = []
+        normalized_tag = (tag or '').strip()
 
         for event_obj in events:
+            if normalized_tag and not event_has_tag(event_obj, normalized_tag):
+                skipped += 1
+                continue
             normalized = normalize_misp_event(event_obj)
             event_pk = str(normalized.get('event_id') or '').strip()
             if not event_pk:
@@ -249,6 +254,7 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
     success = graphene.Boolean()
     message = graphene.String()
     waiting_case = graphene.Field(WaitingCaseType)
+    workbench = graphene.Field('playbooks.schema.PlaybookGraphType')
     graph = graphene.Field('playbooks.schema.PlaybookGraphType')
 
     @staticmethod
@@ -266,6 +272,7 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
                 success=True,
                 message='Waiting case already promoted.',
                 waiting_case=waiting_case,
+                workbench=waiting_case.promoted_graph,
                 graph=waiting_case.promoted_graph,
             )
 
@@ -276,7 +283,7 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
         if not (waiting_case.short_description or '').strip():
             raise GraphQLError('short description is required before promotion')
 
-        graph = PlaybookGraph.objects.create(
+        workbench = PlaybookGraph.objects.create(
             organization=user.organization,
             author=user,
             title=final_title,
@@ -297,10 +304,10 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
         if first_ttp:
             technique = MitreAttackTechnique.objects.filter(technique_id__iexact=first_ttp).first()
             if technique:
-                graph.mitre_technique = technique
-                graph.save(update_fields=['mitre_technique', 'updated_at'])
+                workbench.mitre_technique = technique
+                workbench.save(update_fields=['mitre_technique', 'updated_at'])
 
-        waiting_case.promoted_graph = graph
+        waiting_case.promoted_graph = workbench
         waiting_case.promoted_at = timezone.now()
         waiting_case.status = WaitingCase.LifecycleStatus.PROMOTED
         waiting_case.save(update_fields=['promoted_graph', 'promoted_at', 'status', 'updated_at'])
@@ -309,7 +316,8 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
             success=True,
             message='Waiting case promoted to Workbench.',
             waiting_case=waiting_case,
-            graph=graph,
+            workbench=workbench,
+            graph=workbench,
         )
 
 

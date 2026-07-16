@@ -67,13 +67,36 @@ def normalize_misp_event(event_obj: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def fetch_misp_events(instance: MISPInstance, limit: int = 25, event_id: str | None = None) -> list[dict[str, Any]]:
+def event_has_tag(event_obj: dict[str, Any], required_tag: str) -> bool:
+    target = str(required_tag or '').strip().lower()
+    if not target:
+        return True
+
+    candidates = []
+    for key in ('Tag', 'EventTag'):
+        for tag in event_obj.get(key) or []:
+            if isinstance(tag, dict):
+                candidates.append(str(tag.get('name') or '').strip().lower())
+            else:
+                candidates.append(str(tag).strip().lower())
+    return target in {candidate for candidate in candidates if candidate}
+
+
+def fetch_misp_events(
+    instance: MISPInstance,
+    limit: int = 25,
+    event_id: str | None = None,
+    tag: str | None = None,
+) -> list[dict[str, Any]]:
     body: dict[str, Any] = {
         'returnFormat': 'json',
         'limit': max(1, min(int(limit or 25), 100)),
     }
     if event_id:
         body['eventid'] = str(event_id)
+    normalized_tag = str(tag or '').strip()
+    if normalized_tag:
+        body['tags'] = [normalized_tag]
 
     response = requests.post(
         f"{instance.url.rstrip('/')}/events/restSearch",
@@ -98,6 +121,8 @@ def fetch_misp_events(instance: MISPInstance, limit: int = 25, event_id: str | N
                 events.append(item['Event'])
             elif isinstance(item, dict):
                 events.append(item)
+        if normalized_tag:
+            return [event for event in events if event_has_tag(event, normalized_tag)]
         return events
 
     if isinstance(events_container, dict):
@@ -105,9 +130,13 @@ def fetch_misp_events(instance: MISPInstance, limit: int = 25, event_id: str | N
             for item in events_container.get('Event') or []:
                 if isinstance(item, dict):
                     events.append(item)
+            if normalized_tag:
+                return [event for event in events if event_has_tag(event, normalized_tag)]
             return events
         if isinstance(events_container.get('Event'), dict):
             events.append(events_container['Event'])
+            if normalized_tag:
+                return [event for event in events if event_has_tag(event, normalized_tag)]
             return events
 
     return events

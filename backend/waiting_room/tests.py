@@ -102,6 +102,7 @@ class WaitingRoomBusinessTests(TestCase):
             self._info(self.reviewer),
             misp_instance_id=self.misp.id,
             event_id=None,
+            tag=None,
             limit=25,
             run_ai_enrichment=False,
         )
@@ -113,6 +114,29 @@ class WaitingRoomBusinessTests(TestCase):
             WaitingCase.objects.filter(misp_instance=self.misp, misp_event_id='1001').count(),
             1,
         )
+
+    @patch('waiting_room.schema.fetch_misp_events')
+    def test_misp_import_filters_by_required_tag(self, mock_fetch):
+        mock_fetch.return_value = [
+            {'id': '2001', 'info': 'Tagged Event', 'Attribute': [], 'Tag': [{'name': 'HEFAISTOS'}]},
+            {'id': '2002', 'info': 'Not Tagged Event', 'Attribute': [], 'Tag': [{'name': 'OTHER'}]},
+        ]
+
+        result = ImportWaitingCasesFromMISP.mutate(
+            None,
+            self._info(self.reviewer),
+            misp_instance_id=self.misp.id,
+            event_id=None,
+            tag='HEFAISTOS',
+            limit=25,
+            run_ai_enrichment=False,
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.imported_count, 1)
+        self.assertEqual(result.skipped_count, 1)
+        self.assertTrue(WaitingCase.objects.filter(misp_instance=self.misp, misp_event_id='2001').exists())
+        self.assertFalse(WaitingCase.objects.filter(misp_instance=self.misp, misp_event_id='2002').exists())
 
     def test_promote_creates_workbench_and_marks_case_promoted(self):
         waiting_case = WaitingCase.objects.create(

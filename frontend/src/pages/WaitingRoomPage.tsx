@@ -114,12 +114,14 @@ const IMPORT_FROM_MISP = gql`
   mutation ImportWaitingCasesFromMisp(
     $mispInstanceId: UUID!
     $eventId: String
+    $tag: String
     $limit: Int
     $runAiEnrichment: Boolean
   ) {
     importWaitingCasesFromMisp(
       mispInstanceId: $mispInstanceId
       eventId: $eventId
+      tag: $tag
       limit: $limit
       runAiEnrichment: $runAiEnrichment
     ) {
@@ -136,7 +138,7 @@ const PROMOTE_WAITING_CASE = gql`
     promoteWaitingCaseToWorkbench(id: $id, title: $title) {
       success
       message
-      graph {
+      workbench {
         id
       }
     }
@@ -316,6 +318,7 @@ export const WaitingRoomPage: React.FC = () => {
       variables: {
         mispInstanceId: values.mispInstanceId,
         eventId: values.eventId || null,
+        tag: values.tag || null,
         limit: Number(values.limit || 25),
         runAiEnrichment: !!values.runAiEnrichment,
       },
@@ -340,8 +343,8 @@ export const WaitingRoomPage: React.FC = () => {
       messageApi.success(payload.message || 'Promoted to Workbench.');
       setPromoteOpen(false);
       await refetch();
-      if (payload.graph?.id) {
-        window.location.assign(`/playbooks/${payload.graph.id}`);
+      if (payload.workbench?.id) {
+        window.location.assign(`/playbooks/${payload.workbench.id}`);
       }
       return;
     }
@@ -423,6 +426,9 @@ export const WaitingRoomPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="eventId" label="Specific event ID (optional)">
             <Input />
+          </Form.Item>
+          <Form.Item name="tag" label="Required tag (optional)">
+            <Input placeholder="HEFAISTOS" />
           </Form.Item>
           <Form.Item name="limit" label="Import limit">
             <Input type="number" />
