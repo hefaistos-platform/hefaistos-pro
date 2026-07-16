@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes changes to the Waiting Room module introduced in **PR #1**.
+This document describes changes to the Waiting Room module.
 
 Two capabilities were added or updated:
 
