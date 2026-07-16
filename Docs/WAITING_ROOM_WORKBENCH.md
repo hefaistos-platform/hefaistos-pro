@@ -1,32 +1,126 @@
-# Waiting Room: Workbench Promotion and Tag-Gated MISP Import
+# Waiting Room Workbench: Feature Guide
 
-## Overview
+## What the Waiting Room Is
 
-This document describes changes to the Waiting Room module.
+The **Waiting Room** is HEFAISTOS’s controlled intake area for external detection intelligence before it becomes part of operational content in a Workbench.
 
-Two capabilities were added or updated:
+In practice, it is a review queue where incoming cases are collected, normalized, triaged, and either promoted to a Workbench or ignored/left pending. This separation protects production content from noisy or low-quality input and gives analysts and reviewers an auditable approval step.
 
-1. **Promotion response semantics** — `promoteWaitingCaseToWorkbench` now returns a `workbench` field as the primary result, with the previous `graph` field retained as a deprecated backward-compatibility alias.
-2. **Tag-gated MISP import** — `importWaitingCasesFromMisp` accepts an optional `tag` argument. When provided, only MISP events carrying that tag are imported; events without the tag are silently skipped and counted in `skippedCount`.
+The Waiting Room is primarily used to:
+
+- Ingest candidate detection ideas from integrations (for example, MISP).
+- Preserve imported context and metadata in a consistent internal model.
+- Let reviewers and analysts inspect and validate content before promotion.
+- Prevent duplicate imports and avoid accidental re-processing.
+- Track lifecycle state of candidates from intake to promotion.
 
 ---
 
-## Promotion Response Semantics
+## Why It Exists
 
-### Before
+Detection engineering pipelines often consume high-volume external intelligence. Directly writing that data into active Workbenches can create operational risk:
 
-The promotion mutation returned only `graph` (a `PlaybookGraph` object), which tied the API surface to the legacy `PlaybookGraph` naming convention.
+- irrelevant events,
+- duplicated entries,
+- inconsistent metadata,
+- and unreviewed low-confidence content.
 
-### After
+The Waiting Room addresses this by introducing a **staging + governance layer**:
 
-The mutation now returns both fields:
+1. **Stage** incoming cases safely.
+2. **Review** and enrich them as needed.
+3. **Promote** only approved cases to Workbench.
+
+This pattern keeps the system reliable while still enabling fast import workflows.
+
+---
+
+## Core Domain Concepts
+
+### Waiting Case
+
+A **WaitingCase** is a normalized internal record representing a candidate item under review.
+
+Typical characteristics:
+
+- Has its own UUID and lifecycle status.
+- May carry source linkage (for example, MISP instance/event identifiers).
+- Contains the metadata needed for review and eventual promotion.
+
+### Workbench
+
+A **Workbench** is the downstream operational object (typed in GraphQL as `PlaybookGraphType`) where approved detection content is managed.
+
+Promotion from Waiting Room to Workbench is explicit and role-gated.
+
+### Source Deduplication
+
+The import flow prevents creating multiple waiting cases for the same source event within the same integration scope (for example, same `misp_event_id` + instance).
+
+---
+
+## End-to-End Flow
+
+1. **Import** candidate cases (manually or via MISP integration).
+2. **Normalize** source payloads into internal WaitingCase-ready structures.
+3. **Filter** based on optional import constraints (for example, tag gating).
+4. **Deduplicate** existing source events.
+5. **Create** new waiting cases for eligible events.
+6. **Review/Update** cases in Waiting Room.
+7. **Promote** approved case to Workbench.
+
+At each step, counts and statuses provide traceability of what was imported, skipped, and promoted.
+
+---
+
+## GraphQL Surface (Waiting Room)
+
+## Mutations
+
+### `createWaitingCase`
+
+Creates a waiting case directly.
+
+**Required role:** `REVIEWER` or `ADMIN`
+
+### `updateWaitingCase`
+
+Updates an existing waiting case’s reviewable data/state.
+
+**Required role:** `REVIEWER` or `ADMIN`
+
+### `importWaitingCasesFromMisp`
+
+Imports waiting cases from a configured MISP instance, with optional event and tag filtering.
+
+**Required role:** `REVIEWER` or `ADMIN`
+
+### `promoteWaitingCaseToWorkbench`
+
+Promotes an approved waiting case into a Workbench object.
+
+**Required role:** `ANALYST`
+
+---
+
+## Promotion to Workbench
+
+The promotion mutation returns a result object containing operation status and promoted object references.
+
+### Response Semantics
+
+`promoteWaitingCaseToWorkbench` returns:
 
 | Field | Type | Status |
 |-------|------|--------|
-| `workbench` | `PlaybookGraphType` | **Primary** — use this field in all new code |
-| `graph` | `PlaybookGraphType` | **Deprecated** — retained for backward compatibility; will be removed in a future release |
+| `workbench` | `PlaybookGraphType` | **Primary field** for all current/future clients |
+| `graph` | `PlaybookGraphType` | **Deprecated alias** for backward compatibility |
 
-Both fields resolve to the same `PlaybookGraph` object. The `graph` field carries the deprecation reason `"Use workbench field instead. graph will be removed in a future release."` in the GraphQL schema.
+Both fields resolve to the same underlying Workbench object.
+
+- Prefer `workbench` in all new code.
+- `graph` remains temporarily to avoid breaking older clients.
+- Deprecation reason in schema: `Use workbench field instead. graph will be removed in a future release.`
 
 ### Example
 
@@ -37,51 +131,51 @@ mutation PromoteCase($id: UUID!) {
     message
     waitingCase { id status }
     workbench { id title }
-    graph { id title }   # deprecated alias — prefer workbench
+    graph { id title }   # deprecated alias
   }
 }
 ```
 
 ---
 
-## Tag-Gated MISP Import
+## MISP Import: Behavior and Tag Gating
+
+The Waiting Room supports MISP intake through `importWaitingCasesFromMisp`.
 
 ### Arguments
 
-`importWaitingCasesFromMisp` accepts the following arguments (all optional except `mispInstanceId`):
-
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `mispInstanceId` | `UUID!` | Yes | UUID of the MISP instance to import from |
-| `eventId` | `String` | No | Import a single event by MISP event ID |
-| `tag` | `String` | No | Only import events that carry this tag |
-| `limit` | `Int` | No | Maximum number of events to fetch (default: 25) |
-| `runAiEnrichment` | `Boolean` | No | Queue AI enrichment for imported cases (default: false) |
+| `mispInstanceId` | `UUID!` | Yes | MISP instance UUID |
+| `eventId` | `String` | No | Import one specific MISP event |
+| `tag` | `String` | No | Import only events carrying this tag |
+| `limit` | `Int` | No | Max events fetched (default: `25`) |
+| `runAiEnrichment` | `Boolean` | No | Queue AI enrichment for imported cases (default: `false`) |
 
-### Behavior
+### Import Processing Rules
 
-When `tag` is supplied:
+When `tag` is provided and non-empty:
 
-1. MISP events are fetched as usual (respecting `limit` and `eventId`).
-2. Tag presence is checked at two levels for deterministic filtering:
-   - During **fetch normalization** (`normalize_misp_event`).
-   - At **mutation level** via `event_has_tag` before any database write.
-3. Events that do not carry the required tag are **skipped** — no `WaitingCase` record is created, and the event is counted in `skippedCount`.
-4. Already-existing cases (duplicate `misp_event_id` for the same instance) are also counted in `skippedCount`.
+1. Events are fetched as usual (respecting `eventId` and `limit`).
+2. Tag matching is enforced during normalization and again before persistence.
+3. Events without the required tag are skipped (not created).
+4. Duplicate events (already imported for the same instance) are skipped.
 
-When `tag` is omitted or empty, all fetched events are eligible for import (existing deduplication behavior still applies).
+When `tag` is omitted/empty:
 
-### Response Fields
+- All fetched events are eligible (subject to existing validation/deduplication).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | `Boolean` | `true` if the operation completed without error |
-| `message` | `String` | Human-readable summary (e.g., `"Imported 3 waiting cases from MISP."`) |
-| `importedCount` | `Int` | Number of new `WaitingCase` records created |
-| `skippedCount` | `Int` | Number of events skipped (tag mismatch, duplicate, or missing event ID) |
+### Response Contract
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `success` | `Boolean` | Operation completed without error |
+| `message` | `String` | Human-readable import summary |
+| `importedCount` | `Int` | Number of new waiting cases created |
+| `skippedCount` | `Int` | Number skipped (tag mismatch, duplicate, or missing ID) |
 | `waitingCases` | `[WaitingCaseType]` | Newly created waiting cases |
 
-### Example
+### Example Mutation
 
 ```graphql
 mutation ImportWaitingCasesFromMisp($mispInstanceId: UUID!, $tag: String) {
@@ -99,7 +193,7 @@ mutation ImportWaitingCasesFromMisp($mispInstanceId: UUID!, $tag: String) {
 }
 ```
 
-**Variables (tag filter enabled):**
+**With tag filter**
 
 ```json
 {
@@ -108,7 +202,7 @@ mutation ImportWaitingCasesFromMisp($mispInstanceId: UUID!, $tag: String) {
 }
 ```
 
-**Variables (no tag filter):**
+**Without tag filter**
 
 ```json
 {
@@ -118,40 +212,61 @@ mutation ImportWaitingCasesFromMisp($mispInstanceId: UUID!, $tag: String) {
 
 ---
 
-## Frontend Changes
+## Frontend Behavior
 
-The Waiting Room MISP import modal was updated:
+The Waiting Room import and promotion UX is aligned to the API contract:
 
-- A new **"Required tag (optional)"** text input was added to the import form.
-- When filled in, the value is sent as the `tag` variable in the `importWaitingCasesFromMisp` mutation.
-- After a successful promotion, the frontend now reads **`workbench`** from the `promoteWaitingCaseToWorkbench` response instead of `graph`.
-
-No breaking UI changes were introduced — existing workflows continue to function.
-
----
-
-## Backward Compatibility and Migration
-
-### Clients reading `graph` from `promoteWaitingCaseToWorkbench`
-
-`graph` is still returned and resolves to the same object as `workbench`. No immediate action is required.  
-**Recommended migration:** update all query/mutation documents to select `workbench` instead of `graph` before the field is removed.
-
-### Clients calling `importWaitingCasesFromMisp` without `tag`
-
-No changes are required. Omitting `tag` preserves the previous behavior — all fetched events are processed.
-
-### Clients that previously relied on `importedCount`/`skippedCount`
-
-These fields were added in PR #1. If you query them on older API versions they will not exist; guard queries accordingly or ensure the backend is up to date.
+- MISP import modal includes **Required tag (optional)**.
+- If entered, UI sends `tag` in import mutation variables.
+- Post-promotion flows should consume `workbench` as canonical response field.
+- Existing consumers of `graph` continue to work during deprecation window.
 
 ---
 
-## Required Roles
+## Security and Authorization Model
 
-| Mutation | Required Role |
-|----------|--------------|
+Waiting Room operations are role-gated to preserve review discipline:
+
+| Operation | Required Role |
+|----------|----------------|
 | `createWaitingCase` | `REVIEWER`, `ADMIN` |
 | `updateWaitingCase` | `REVIEWER`, `ADMIN` |
 | `importWaitingCasesFromMisp` | `REVIEWER`, `ADMIN` |
 | `promoteWaitingCaseToWorkbench` | `ANALYST` |
+
+Recommended practice is least privilege: grant promotion rights only to analyst roles that own final approval.
+
+---
+
+## Operational Notes and Best Practices
+
+- Prefer bounded imports (`limit`) for predictable review batches.
+- Use `tag` to scope imports to campaign- or program-relevant intelligence.
+- Monitor `importedCount` vs `skippedCount` to quickly detect noisy feeds.
+- Standardize on `workbench` in GraphQL clients now to avoid future breakage.
+- Keep Waiting Room review states current so promotion queues remain actionable.
+
+---
+
+## Backward Compatibility and Migration Guidance
+
+### Promotion response migration
+
+- Legacy clients reading `graph` continue to function.
+- Migrate query documents to `workbench` as soon as possible.
+
+### MISP import callers
+
+- Existing calls without `tag` remain valid and preserve prior behavior.
+- New callers can optionally add `tag` to enforce import hygiene.
+
+### Count fields across versions
+
+- `importedCount` and `skippedCount` may not exist on older backend versions.
+- If supporting mixed deployments, guard field selection or version-pin API usage.
+
+---
+
+## Summary
+
+The Waiting Room is HEFAISTOS’s controlled intake and approval layer for detection content. It enables safe ingestion, deterministic filtering, duplicate prevention, and role-gated promotion into Workbench. With tag-gated MISP import and explicit `workbench` promotion semantics, teams can scale intake while maintaining quality and governance.
