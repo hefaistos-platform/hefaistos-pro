@@ -255,7 +255,10 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
     message = graphene.String()
     waiting_case = graphene.Field(WaitingCaseType)
     workbench = graphene.Field('playbooks.schema.PlaybookGraphType')
-    graph = graphene.Field('playbooks.schema.PlaybookGraphType')
+    graph = graphene.Field(
+        'playbooks.schema.PlaybookGraphType',
+        deprecation_reason='Use workbench field instead. graph will be removed in a future release.',
+    )
 
     @staticmethod
     @role_required([Roles.ANALYST])

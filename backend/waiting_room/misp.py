@@ -82,6 +82,10 @@ def event_has_tag(event_obj: dict[str, Any], required_tag: str) -> bool:
     return target in {candidate for candidate in candidates if candidate}
 
 
+def _filter_events_by_tag(events: list[dict[str, Any]], required_tag: str) -> list[dict[str, Any]]:
+    return [event for event in events if event_has_tag(event, required_tag)]
+
+
 def fetch_misp_events(
     instance: MISPInstance,
     limit: int = 25,
@@ -121,22 +125,14 @@ def fetch_misp_events(
                 events.append(item['Event'])
             elif isinstance(item, dict):
                 events.append(item)
-        if normalized_tag:
-            return [event for event in events if event_has_tag(event, normalized_tag)]
-        return events
-
-    if isinstance(events_container, dict):
+    elif isinstance(events_container, dict):
         if isinstance(events_container.get('Event'), list):
             for item in events_container.get('Event') or []:
                 if isinstance(item, dict):
                     events.append(item)
-            if normalized_tag:
-                return [event for event in events if event_has_tag(event, normalized_tag)]
-            return events
-        if isinstance(events_container.get('Event'), dict):
+        elif isinstance(events_container.get('Event'), dict):
             events.append(events_container['Event'])
-            if normalized_tag:
-                return [event for event in events if event_has_tag(event, normalized_tag)]
-            return events
 
+    if normalized_tag:
+        return _filter_events_by_tag(events, normalized_tag)
     return events
