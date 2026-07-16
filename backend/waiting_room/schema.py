@@ -20,6 +20,8 @@ def _normalized_ttp_list(raw_values) -> list[str]:
 
 
 class WaitingCaseType(DjangoObjectType):
+    mapped_ttps = graphene.List(graphene.String)
+
     class Meta:
         model = WaitingCase
         fields = (
@@ -42,6 +44,9 @@ class WaitingCaseType(DjangoObjectType):
             'created_at',
             'updated_at',
         )
+
+    def resolve_mapped_ttps(self, info):
+        return self.mapped_ttps or []
 
 
 class WaitingCaseInput(graphene.InputObjectType):
