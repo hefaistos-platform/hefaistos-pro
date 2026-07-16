@@ -34,6 +34,7 @@ describe('WaitingRoomPage', () => {
           waitingCases: [
             {
               id: 'wc-1',
+              createdBy: { id: 'u1' },
               title: 'Suspicious command line',
               shortDescription: 'Investigate encoded command execution',
               detectionObjective: 'Detect powershell abuse',
@@ -63,6 +64,8 @@ describe('WaitingRoomPage', () => {
     expect(screen.getByText(/suspicious command line/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create case/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /import from misp/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument();
 
   });
 

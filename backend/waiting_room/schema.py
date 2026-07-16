@@ -324,8 +324,39 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
         )
 
 
+class DeleteWaitingCase(graphene.Mutation):
+    class Arguments:
+        id = graphene.UUID(required=True)
+
+    success = graphene.Boolean()
+    message = graphene.String()
+
+    @staticmethod
+    @transaction.atomic
+    def mutate(root, info, id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+
+        try:
+            waiting_case = WaitingCase.objects.select_related('created_by').get(pk=id, organization=user.organization)
+        except WaitingCase.DoesNotExist:
+            raise GraphQLError('Waiting case not found')
+
+        is_admin = user.role == Roles.ADMIN
+        is_superuser = bool(user.is_superuser)
+        is_author = waiting_case.created_by_id == user.id
+
+        if not (is_author or is_admin or is_superuser):
+            raise GraphQLError('Only the case author or an admin can delete this waiting case.')
+
+        waiting_case.delete()
+        return DeleteWaitingCase(success=True, message='Waiting case deleted.')
+
+
 class Mutation(graphene.ObjectType):
     create_waiting_case = CreateWaitingCase.Field()
     update_waiting_case = UpdateWaitingCase.Field()
     import_waiting_cases_from_misp = ImportWaitingCasesFromMISP.Field()
     promote_waiting_case_to_workbench = PromoteWaitingCaseToWorkbench.Field()
+    delete_waiting_case = DeleteWaitingCase.Field()

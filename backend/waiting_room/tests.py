@@ -10,6 +10,7 @@ from organizations.models import MISPInstance, Organization
 from waiting_room.models import WaitingCase
 from waiting_room.schema import (
     CreateWaitingCase,
+    DeleteWaitingCase,
     ImportWaitingCasesFromMISP,
     PromoteWaitingCaseToWorkbench,
 )
@@ -61,6 +62,18 @@ class WaitingRoomBusinessTests(TestCase):
             password='pw',
             organization=self.org,
             role=Roles.ANALYST,
+        )
+        self.admin = user_model.objects.create_user(
+            username='admin',
+            password='pw',
+            organization=self.org,
+            role=Roles.ADMIN,
+        )
+        self.other_reviewer = user_model.objects.create_user(
+            username='reviewer2',
+            password='pw',
+            organization=self.org,
+            role=Roles.REVIEWER,
         )
         self.misp = MISPInstance.objects.create(
             organization=self.org,
@@ -162,3 +175,41 @@ class WaitingRoomBusinessTests(TestCase):
         self.assertIsNotNone(waiting_case.promoted_graph_id)
         self.assertEqual(waiting_case.promoted_graph.goal, waiting_case.short_description)
         self.assertEqual(waiting_case.promoted_graph.technical_context, waiting_case.detection_objective)
+
+    def test_delete_waiting_case_allowed_for_author(self):
+        waiting_case = WaitingCase.objects.create(
+            organization=self.org,
+            created_by=self.reviewer,
+            title='Delete Me',
+            short_description='desc',
+            status=WaitingCase.LifecycleStatus.NEW,
+        )
+
+        result = DeleteWaitingCase.mutate(None, self._info(self.reviewer), id=waiting_case.id)
+        self.assertTrue(result.success)
+        self.assertFalse(WaitingCase.objects.filter(id=waiting_case.id).exists())
+
+    def test_delete_waiting_case_allowed_for_admin(self):
+        waiting_case = WaitingCase.objects.create(
+            organization=self.org,
+            created_by=self.reviewer,
+            title='Delete Me Admin',
+            short_description='desc',
+            status=WaitingCase.LifecycleStatus.NEW,
+        )
+
+        result = DeleteWaitingCase.mutate(None, self._info(self.admin), id=waiting_case.id)
+        self.assertTrue(result.success)
+        self.assertFalse(WaitingCase.objects.filter(id=waiting_case.id).exists())
+
+    def test_delete_waiting_case_denied_for_non_author_non_admin(self):
+        waiting_case = WaitingCase.objects.create(
+            organization=self.org,
+            created_by=self.reviewer,
+            title='Cannot Delete',
+            short_description='desc',
+            status=WaitingCase.LifecycleStatus.NEW,
+        )
+
+        with self.assertRaises(GraphQLError):
+            DeleteWaitingCase.mutate(None, self._info(self.other_reviewer), id=waiting_case.id)
