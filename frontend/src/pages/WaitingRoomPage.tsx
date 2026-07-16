@@ -168,11 +168,11 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const toMappedTtpsArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value as string[];
+  if (Array.isArray(value)) return value.map(String);
   if (typeof value === 'string') {
     try {
       const parsed: unknown = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed as string[];
+      if (Array.isArray(parsed)) return parsed.map(String);
     } catch {
       // not JSON, ignore
     }
