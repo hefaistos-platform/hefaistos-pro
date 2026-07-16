@@ -3,6 +3,7 @@ import { gql } from '@apollo/client';
 import { useMutation, useQuery } from '@apollo/client/react';
 import {
   Button,
+  Checkbox,
   Drawer,
   Form,
   Input,
@@ -219,7 +220,7 @@ export const WaitingRoomPage: React.FC = () => {
       filters: sourceFilters,
       onFilter: (value: boolean | React.Key, record: WaitingCase) => record.sourceType === value,
       render: (value: string, row: WaitingCase) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Typography.Text>{value}</Typography.Text>
           {row.mispEventId && <Typography.Text type="secondary">event: {row.mispEventId}</Typography.Text>}
         </Space>
@@ -402,7 +403,7 @@ export const WaitingRoomPage: React.FC = () => {
             <Input placeholder="LOW / MEDIUM / HIGH" />
           </Form.Item>
           <Form.Item name="autoEnrich" label="Run AI enrichment" valuePropName="checked">
-            <input type="checkbox" />
+            <Checkbox />
           </Form.Item>
         </Form>
       </Modal>
@@ -427,14 +428,14 @@ export const WaitingRoomPage: React.FC = () => {
             <Input type="number" />
           </Form.Item>
           <Form.Item name="runAiEnrichment" label="Run AI enrichment" valuePropName="checked">
-            <input type="checkbox" />
+            <Checkbox />
           </Form.Item>
         </Form>
       </Modal>
 
       <Drawer
         open={!!selectedCase}
-        width={520}
+        size="large"
         title={selectedCase?.title || 'Waiting case'}
         onClose={() => setSelectedCase(null)}
         extra={
@@ -454,7 +455,7 @@ export const WaitingRoomPage: React.FC = () => {
         {selectedCase && (
           <>
             {!canCreateEdit && (
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={12} style={{ width: '100%' }}>
                 <Typography.Text strong>{selectedCase.title}</Typography.Text>
                 <Typography.Paragraph>{selectedCase.shortDescription}</Typography.Paragraph>
                 <Typography.Paragraph type="secondary">{selectedCase.detectionObjective}</Typography.Paragraph>
@@ -479,7 +480,7 @@ export const WaitingRoomPage: React.FC = () => {
                   <Input />
                 </Form.Item>
                 <Form.Item name="autoEnrich" label="Run AI enrichment" valuePropName="checked">
-                  <input type="checkbox" />
+                  <Checkbox />
                 </Form.Item>
               </Form>
             )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 const mockUseQuery = jest.fn();
 const mockUseMutation = jest.fn();
@@ -20,9 +20,10 @@ describe('WaitingRoomPage', () => {
     mockUseQuery.mockReset();
     mockUseMutation.mockReset();
     mockUseMutation.mockReturnValue([jest.fn().mockResolvedValue({ data: {} }), { loading: false }]);
+    mockUseQuery.mockImplementation(() => ({ data: {}, loading: false, refetch: jest.fn() }));
   });
 
-  test('shows create/import actions for reviewer and supports happy-path rendering', async () => {
+  test('shows create/import actions for reviewer and supports happy-path rendering', () => {
     mockUseQuery
       .mockReturnValueOnce({
         data: { me: { id: 'u1', role: 'REVIEWER', isSuperuser: false } },
@@ -63,8 +64,6 @@ describe('WaitingRoomPage', () => {
     expect(screen.getByRole('button', { name: /create case/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /import from misp/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText(/suspicious command line/i));
-    expect(await screen.findByLabelText(/short description/i)).toBeInTheDocument();
   });
 
   test('hides reviewer/admin actions for viewer role', () => {

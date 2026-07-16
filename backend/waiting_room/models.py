@@ -155,6 +155,14 @@ def _normalize_ttps(value) -> list[str]:
     return normalized
 
 
+def _sanitize_prompt_text(value: Any, max_len: int = 4000) -> str:
+    text = str(value or '')
+    text = text.replace('\x00', '').strip()
+    if len(text) > max_len:
+        text = text[:max_len]
+    return text
+
+
 def _run_enrichment(task_id: str) -> None:
     close_old_connections()
     try:
@@ -177,18 +185,22 @@ def _run_enrichment(task_id: str) -> None:
         from ai_assistant.schema import _get_effective_ai_settings
         from ai_assistant.engine import run_custom_prompt
 
-        settings_obj = UserAISettings.objects.get(user=task.requested_by)
+        try:
+            settings_obj = UserAISettings.objects.get(user=task.requested_by)
+        except UserAISettings.DoesNotExist as exc:
+            raise RuntimeError('AI settings are not configured for this user.') from exc
         effective = _get_effective_ai_settings(settings_obj)
 
+        sanitized_payload = _sanitize_prompt_text(case.raw_payload)
         prompt = (
             "Return ONLY JSON with keys: short_description, detection_objective, mapped_ttps, "
             "estimated_detection_complexity. Keep short_description <= 400 chars. "
             "mapped_ttps must be an array of ATT&CK IDs.\n\n"
-            f"Title: {case.title}\n"
-            f"Short description: {case.short_description}\n"
-            f"Detection objective: {case.detection_objective}\n"
-            f"Mapped TTPs: {case.mapped_ttps}\n"
-            f"Raw payload: {case.raw_payload}"
+            f"Title: {_sanitize_prompt_text(case.title, 300)}\n"
+            f"Short description: {_sanitize_prompt_text(case.short_description, 1200)}\n"
+            f"Detection objective: {_sanitize_prompt_text(case.detection_objective, 1200)}\n"
+            f"Mapped TTPs: {_sanitize_prompt_text(case.mapped_ttps, 600)}\n"
+            f"Raw payload: {sanitized_payload}"
         )
         raw_response, provider = run_custom_prompt(
             effective,

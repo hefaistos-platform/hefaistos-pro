@@ -15,6 +15,10 @@ from .misp import fetch_misp_events, normalize_misp_event
 from .models import WaitingCase, queue_waiting_case_enrichment
 
 
+def _normalized_ttp_list(raw_values) -> list[str]:
+    return [str(t).strip().upper() for t in (raw_values or []) if str(t).strip()]
+
+
 class WaitingCaseType(DjangoObjectType):
     class Meta:
         model = WaitingCase
@@ -99,7 +103,7 @@ class CreateWaitingCase(graphene.Mutation):
             title=title,
             short_description=short_description,
             detection_objective=(getattr(input, 'detection_objective', None) or '').strip(),
-            mapped_ttps=[str(t).strip().upper() for t in (getattr(input, 'mapped_ttps', None) or []) if str(t).strip()],
+            mapped_ttps=_normalized_ttp_list(getattr(input, 'mapped_ttps', None)),
             estimated_detection_complexity=(getattr(input, 'estimated_detection_complexity', None) or '').strip(),
             status=WaitingCase.LifecycleStatus.NEW,
         )
@@ -138,9 +142,7 @@ class UpdateWaitingCase(graphene.Mutation):
         waiting_case.title = title
         waiting_case.short_description = short_description
         waiting_case.detection_objective = (getattr(input, 'detection_objective', None) or '').strip()
-        waiting_case.mapped_ttps = [
-            str(t).strip().upper() for t in (getattr(input, 'mapped_ttps', None) or []) if str(t).strip()
-        ]
+        waiting_case.mapped_ttps = _normalized_ttp_list(getattr(input, 'mapped_ttps', None))
         waiting_case.estimated_detection_complexity = (
             getattr(input, 'estimated_detection_complexity', None) or ''
         ).strip()
