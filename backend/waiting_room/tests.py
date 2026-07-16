@@ -175,6 +175,34 @@ class WaitingRoomBusinessTests(TestCase):
         self.assertIsNotNone(waiting_case.promoted_graph_id)
         self.assertEqual(waiting_case.promoted_graph.goal, waiting_case.short_description)
         self.assertEqual(waiting_case.promoted_graph.technical_context, waiting_case.detection_objective)
+        self.assertRegex(waiting_case.promoted_graph.custom_id or '', r'^DE\d{6}$')
+        self.assertEqual(
+            waiting_case.promoted_graph.title,
+            f"[{waiting_case.promoted_graph.custom_id}]Promoted PowerShell Case",
+        )
+
+    def test_promote_normalizes_overridden_de_prefix_in_title(self):
+        waiting_case = WaitingCase.objects.create(
+            organization=self.org,
+            created_by=self.reviewer,
+            title='Suspicious PowerShell',
+            short_description='Detect suspicious powershell with encoded command',
+            status=WaitingCase.LifecycleStatus.READY,
+        )
+
+        result = PromoteWaitingCaseToWorkbench.mutate(
+            None,
+            self._info(self.analyst),
+            id=waiting_case.id,
+            title='[DE999999]Promoted PowerShell Case',
+        )
+
+        self.assertTrue(result.success)
+        waiting_case.refresh_from_db()
+        self.assertEqual(
+            waiting_case.promoted_graph.title,
+            f"[{waiting_case.promoted_graph.custom_id}]Promoted PowerShell Case",
+        )
 
     def test_delete_waiting_case_allowed_for_author(self):
         waiting_case = WaitingCase.objects.create(

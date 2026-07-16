@@ -301,6 +301,8 @@ class PromoteWaitingCaseToWorkbench(graphene.Mutation):
             false_positives='',
             status='IDEA',
         )
+        workbench.title = PlaybookGraph.compose_title_with_custom_id(final_title, workbench.custom_id)
+        workbench.save(update_fields=['title', 'updated_at'])
 
         first_ttp = None
         for ttp in waiting_case.mapped_ttps or []:
