@@ -4,6 +4,7 @@ from django.core.exceptions import PermissionDenied
 from organizations.models import Organization
 from unittest.mock import MagicMock, patch
 import pyotp
+import json
 
 from identity.models import AccountSetupToken, UserMfaSettings
 from identity.schema import (
@@ -383,6 +384,74 @@ class UpdateProfileSessionTimeoutTests(TestCase):
 
         self.assertIsNone(result.errors)
         self.assertEqual(result.data['me']['sessionTimeoutHours'], 8)
+
+
+class WorkbenchVisibilityDefaultsGraphQLTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="Workbench Defaults Org")
+        self.user = User.objects.create_user(
+            username="workbench_defaults_user",
+            email="workbench-defaults@example.com",
+            role=Roles.ANALYST,
+            organization=self.org,
+        )
+        self.user.set_password("Pass12345!")
+        self.user.save(update_fields=["password"])
+
+    def _make_request(self):
+        req = RequestFactory().post('/graphql')
+        req.user = self.user
+        return req
+
+    def test_update_workbench_visibility_defaults_persists_and_returns_on_me(self):
+        mutation = '''
+            mutation UpdateWorkbenchDefaults($payload: JSONString) {
+                updateWorkbenchVisibilityDefaults(workbenchVisibilityDefaults: $payload) {
+                    user {
+                        workbenchVisibilityDefaults
+                    }
+                }
+            }
+        '''
+        payload = '{"sectionVisibility":{"part4":false,"part5":true}}'
+        result = schema.execute(
+            mutation,
+            variable_values={"payload": payload},
+            context_value=self._make_request(),
+        )
+        self.assertIsNone(result.errors)
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.workbench_visibility_defaults,
+            {"sectionVisibility": {"part4": False, "part5": True}},
+        )
+
+        query_result = schema.execute('{ me { workbenchVisibilityDefaults } }', context_value=self._make_request())
+        self.assertIsNone(query_result.errors)
+        self.assertEqual(
+            json.loads(query_result.data['me']['workbenchVisibilityDefaults']),
+            {"sectionVisibility": {"part4": False, "part5": True}},
+        )
+
+    def test_reset_workbench_visibility_defaults_clears_payload(self):
+        self.user.workbench_visibility_defaults = {"sectionVisibility": {"part4": False}}
+        self.user.save(update_fields=["workbench_visibility_defaults"])
+
+        mutation = '''
+            mutation {
+                updateWorkbenchVisibilityDefaults(reset: true) {
+                    user {
+                        workbenchVisibilityDefaults
+                    }
+                }
+            }
+        '''
+        result = schema.execute(mutation, context_value=self._make_request())
+        self.assertIsNone(result.errors)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.workbench_visibility_defaults, {})
 
 
 class SubmitRegistrationRequestTests(TestCase):

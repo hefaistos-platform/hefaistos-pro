@@ -18,6 +18,7 @@ import { TestingGuidance } from '../components/playbook/TestingGuidance';
 import { ReviewWorkflow } from '../components/playbook/ReviewWorkflow';
 import { ActivityOverview } from '../components/playbook/ActivityOverview';
 import { PlaybookSidebar } from '../components/playbook/PlaybookSidebar';
+import { WorkbenchSectionControls } from '../components/playbook/WorkbenchSectionControls';
 import { Button } from '../components/ui/Button';
 import { PixelIcon } from '../components/ui/PixelIcon';
 import { useRef } from 'react';
@@ -45,6 +46,13 @@ import {
   computeLayerLayout,
   positionForEntry,
 } from '../utils/capabilityAbstractionUtils';
+import {
+  WORKBENCH_PRESETS,
+  WorkbenchSectionKey,
+  WorkbenchSectionVisibilityMap,
+  normalizeVisibilityLayer,
+  resolveWorkbenchSections,
+} from '../utils/workbenchVisibility';
 import CapabilityAbstractionMapModal from '../components/CapabilityAbstractionMapModal';
 import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
@@ -182,7 +190,17 @@ const GET_PLAYBOOK_GRAPH_QUERY = gql`
         target
       }
     }
-    me { id username role }
+    me {
+      id
+      username
+      role
+      workbenchVisibilityDefaults
+    }
+    myOrganization {
+      id
+      workbenchVisibilityPolicy
+    }
+    workbenchVisibilitySystemPolicy
   }
 `;
 
@@ -335,6 +353,17 @@ const UPDATE_PLAYBOOK_TAGS_MUTATION = gql`
   mutation UpdatePlaybookTags($graphId: UUID!, $tags: [String]!) {
     updatePlaybookDetails(graphId: $graphId, tags: $tags) {
       graph { id tags }
+    }
+  }
+`;
+
+const UPDATE_WORKBENCH_VISIBILITY_DEFAULTS_MUTATION = gql`
+  mutation UpdateWorkbenchVisibilityDefaults($workbenchVisibilityDefaults: JSONString, $reset: Boolean) {
+    updateWorkbenchVisibilityDefaults(workbenchVisibilityDefaults: $workbenchVisibilityDefaults, reset: $reset) {
+      user {
+        id
+        workbenchVisibilityDefaults
+      }
     }
   }
 `;
@@ -687,7 +716,17 @@ interface PlaybookGraphData {
       target: string;
     }>;
   };
-  me?: { id: string; username: string; role: string } | null;
+  me?: {
+    id: string;
+    username: string;
+    role: string;
+    workbenchVisibilityDefaults?: string | Record<string, unknown> | null;
+  } | null;
+  myOrganization?: {
+    id: string;
+    workbenchVisibilityPolicy?: string | Record<string, unknown> | null;
+  } | null;
+  workbenchVisibilitySystemPolicy?: string | Record<string, unknown> | null;
 }
 
 interface CreateNodeData {
@@ -742,6 +781,9 @@ export const PlaybookWorkbench = () => {
   const [createGraph] = useMutation<CreateGraphResponse>(CREATE_PLAYBOOK_GRAPH_MUTATION);
   const [updatePlaybookDetails] = useMutation(UPDATE_PLAYBOOK_DETAILS_MUTATION);
   const [updatePlaybookTags] = useMutation(UPDATE_PLAYBOOK_TAGS_MUTATION);
+  const [updateWorkbenchVisibilityDefaults, { loading: savingWorkbenchDefaults }] = useMutation(
+    UPDATE_WORKBENCH_VISIBILITY_DEFAULTS_MUTATION,
+  );
   interface StartTaskResult { taskId: string; success: boolean; message: string }
   interface AITaskStatusResult {
     aiGenerationTaskStatus: {
@@ -895,6 +937,34 @@ export const PlaybookWorkbench = () => {
 
   // OpenTIDE Preview Modal State (Phase 2)
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [localSectionVisibility, setLocalSectionVisibility] = useState<WorkbenchSectionVisibilityMap>({});
+
+  useEffect(() => {
+    setLocalSectionVisibility({});
+  }, [playbookId]);
+
+  const systemVisibilityLayer = useMemo(
+    () => normalizeVisibilityLayer(data?.workbenchVisibilitySystemPolicy),
+    [data?.workbenchVisibilitySystemPolicy],
+  );
+  const organizationVisibilityLayer = useMemo(
+    () => normalizeVisibilityLayer(data?.myOrganization?.workbenchVisibilityPolicy),
+    [data?.myOrganization?.workbenchVisibilityPolicy],
+  );
+  const userVisibilityLayer = useMemo(
+    () => normalizeVisibilityLayer(data?.me?.workbenchVisibilityDefaults),
+    [data?.me?.workbenchVisibilityDefaults],
+  );
+  const resolvedWorkbenchSections = useMemo(
+    () =>
+      resolveWorkbenchSections({
+        system: systemVisibilityLayer,
+        organization: organizationVisibilityLayer,
+        userDefaults: userVisibilityLayer,
+        localState: localSectionVisibility,
+      }),
+    [localSectionVisibility, organizationVisibilityLayer, systemVisibilityLayer, userVisibilityLayer],
+  );
 
   const coverageSummary = useMemo(() => {
     const entries = data?.playbookGraph?.selectedCapabilityAbstractions ?? [];
@@ -1961,6 +2031,31 @@ export const PlaybookWorkbench = () => {
     }
   };
 
+  const handleToggleSectionVisibility = (section: WorkbenchSectionKey, visible: boolean) => {
+    setLocalSectionVisibility((previous) => ({ ...previous, [section]: visible }));
+  };
+
+  const handleApplySectionPreset = (preset: keyof typeof WORKBENCH_PRESETS) => {
+    setLocalSectionVisibility({ ...WORKBENCH_PRESETS[preset] });
+  };
+
+  const handleSaveVisibilityDefaults = async () => {
+    try {
+      await updateWorkbenchVisibilityDefaults({
+        variables: {
+          workbenchVisibilityDefaults: JSON.stringify({
+            sectionVisibility: resolvedWorkbenchSections.visibility,
+          }),
+          reset: false,
+        },
+      });
+      message.success('Workbench layout defaults saved');
+      await refetch();
+    } catch (error: any) {
+      message.error(error?.message || 'Failed to save workbench layout defaults');
+    }
+  };
+
   return (
     <div className="workbench-theme flex flex-col h-screen bg-white">
       {/* --- Header --- */}
@@ -2237,6 +2332,14 @@ export const PlaybookWorkbench = () => {
                          </h2>
                        </div>
 
+                       <WorkbenchSectionControls
+                         sections={resolvedWorkbenchSections.sections}
+                         onToggleSection={handleToggleSectionVisibility}
+                         onApplyPreset={handleApplySectionPreset}
+                         onSaveDefaults={handleSaveVisibilityDefaults}
+                         savingDefaults={savingWorkbenchDefaults}
+                       />
+
                        {/* Robustness Level Badge */}
                        {data.playbookGraph.robustnessLevel && data.playbookGraph.robustnessLevel > 0 && (
                          <div className="mb-4">
@@ -2265,45 +2368,52 @@ export const PlaybookWorkbench = () => {
                        )}
 
                        {/* Part 1: Detection Strategy */}
-                        <DetectionStrategy 
-                           selectedTechniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
-                           onTechniqueChange={handleTechniqueChange}
-                           onStrategyChange={handleStrategyChange}
-                           ruleFormat={aiFormat}
-                        />
+                       {resolvedWorkbenchSections.sections.part1.visible && (
+                         <>
+                           <DetectionStrategy 
+                             selectedTechniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
+                             onTechniqueChange={handleTechniqueChange}
+                             onStrategyChange={handleStrategyChange}
+                             ruleFormat={aiFormat}
+                           />
 
-                         <CapabilityAbstractionPanel
-                           techniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
-                           selectedIds={data.playbookGraph.selectedCapabilityAbstractions?.map((entry) => entry.id) || []}
-                           selectedEntryObjects={data.playbookGraph.selectedCapabilityAbstractions || []}
-                           detectionFocusLayer={data.playbookGraph.detectionFocusLayer || ''}
-                           userRole={data.me?.role || 'VIEWER'}
-                           onSelectionChange={handleCapabilitySelectionChange}
-                           highlightedEntryId={highlightedEntryId}
-                           onEntryHighlight={setHighlightedEntryId}
+                           <CapabilityAbstractionPanel
+                             techniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
+                             selectedIds={data.playbookGraph.selectedCapabilityAbstractions?.map((entry) => entry.id) || []}
+                             selectedEntryObjects={data.playbookGraph.selectedCapabilityAbstractions || []}
+                             detectionFocusLayer={data.playbookGraph.detectionFocusLayer || ''}
+                             userRole={data.me?.role || 'VIEWER'}
+                             onSelectionChange={handleCapabilitySelectionChange}
+                             highlightedEntryId={highlightedEntryId}
+                             onEntryHighlight={setHighlightedEntryId}
+                           />
+                         </>
+                       )}
+                         
+                       {/* Part 2: Deep Dive */}
+                       {resolvedWorkbenchSections.sections.part2.visible && (
+                         <DeepDive 
+                           playbookId={playbookId || ''}
+                           data={{
+                             goal: data.playbookGraph.goal || '',
+                             technicalContext: data.playbookGraph.technicalContext || '',
+                             blindSpots: data.playbookGraph.blindSpots || '',
+                             response: data.playbookGraph.responsePlaybook || '',
+                             falsePositives: data.playbookGraph.falsePositives || ''
+                           }}
+                           onChange={handleDeepDiveChange}
+                           onLinkRules={(ruleIds) => {
+                             // Persist linked rule IDs inside selectedStrategy JSON
+                             const existing = data.playbookGraph.selectedStrategy ? JSON.parse(data.playbookGraph.selectedStrategy) : {};
+                             const next = { ...existing, linkedRuleIds: ruleIds };
+                             updatePlaybookDetails({ variables: { graphId: playbookId, selectedStrategy: JSON.stringify(next) } });
+                           }}
                          />
-                        
-                        {/* Part 2: Deep Dive */}
-                       <DeepDive 
-                          playbookId={playbookId || ''}
-                          data={{
-                            goal: data.playbookGraph.goal || '',
-                            technicalContext: data.playbookGraph.technicalContext || '',
-                            blindSpots: data.playbookGraph.blindSpots || '',
-                            response: data.playbookGraph.responsePlaybook || '',
-                            falsePositives: data.playbookGraph.falsePositives || ''
-                          }}
-                          onChange={handleDeepDiveChange}
-                          onLinkRules={(ruleIds) => {
-                            // Persist linked rule IDs inside selectedStrategy JSON
-                            const existing = data.playbookGraph.selectedStrategy ? JSON.parse(data.playbookGraph.selectedStrategy) : {};
-                            const next = { ...existing, linkedRuleIds: ruleIds };
-                            updatePlaybookDetails({ variables: { graphId: playbookId, selectedStrategy: JSON.stringify(next) } });
-                          }}
-                       />
+                       )}
 
                         {/* Part 3: Detection Rule */}
-                        <div className="p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6 space-y-4" id="detection-rule-editor">
+                        {resolvedWorkbenchSections.sections.part3.visible && (
+                         <div className="p-6 bg-white border-2 border-hefaistos-border rounded-lg shadow-sm mt-6 space-y-4" id="detection-rule-editor">
                           {/* Header Row */}
                           <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-3 flex-wrap">
@@ -2459,48 +2569,55 @@ export const PlaybookWorkbench = () => {
                             />
                           </div>
                        </div>
+                       )}
 
                     {/* Part 4: SOAR Configuration */}
-                    <SoarConfiguration 
-                      data={{
-                        trigger: data.playbookGraph.alertTrigger || '',
-                        severity: data.playbookGraph.defaultSeverity || 'MEDIUM',
-                        enrichment: data.playbookGraph.enrichmentSteps ? JSON.parse(data.playbookGraph.enrichmentSteps) : [],
-                        containment: data.playbookGraph.containmentSteps ? JSON.parse(data.playbookGraph.containmentSteps) : [],
-                        notifications: data.playbookGraph.notificationSteps ? JSON.parse(data.playbookGraph.notificationSteps) : [],
-                        downstreamCorrelationRequirements: data.playbookGraph.downstreamCorrelationRequirements
-                          ? (typeof data.playbookGraph.downstreamCorrelationRequirements === 'string'
-                              ? JSON.parse(data.playbookGraph.downstreamCorrelationRequirements)
-                              : data.playbookGraph.downstreamCorrelationRequirements)
-                          : {},
-                        tlpClassification: data.playbookGraph.tlpClassification || 'AMBER',
-                        publicReferences: data.playbookGraph.publicReferences ? JSON.parse(data.playbookGraph.publicReferences) : [],
-                        internalReferences: data.playbookGraph.internalReferences ? JSON.parse(data.playbookGraph.internalReferences) : [],
-                         threatActors: data.playbookGraph.threatActors ? JSON.parse(data.playbookGraph.threatActors) : [],
-                         threatSurface: data.playbookGraph.threatSurface ? JSON.parse(data.playbookGraph.threatSurface) : [],
-                      }}
-                      onSave={handleSoarSave}
-                    />
+                    {resolvedWorkbenchSections.sections.part4.visible && (
+                      <SoarConfiguration 
+                        data={{
+                          trigger: data.playbookGraph.alertTrigger || '',
+                          severity: data.playbookGraph.defaultSeverity || 'MEDIUM',
+                          enrichment: data.playbookGraph.enrichmentSteps ? JSON.parse(data.playbookGraph.enrichmentSteps) : [],
+                          containment: data.playbookGraph.containmentSteps ? JSON.parse(data.playbookGraph.containmentSteps) : [],
+                          notifications: data.playbookGraph.notificationSteps ? JSON.parse(data.playbookGraph.notificationSteps) : [],
+                          downstreamCorrelationRequirements: data.playbookGraph.downstreamCorrelationRequirements
+                            ? (typeof data.playbookGraph.downstreamCorrelationRequirements === 'string'
+                                ? JSON.parse(data.playbookGraph.downstreamCorrelationRequirements)
+                                : data.playbookGraph.downstreamCorrelationRequirements)
+                            : {},
+                          tlpClassification: data.playbookGraph.tlpClassification || 'AMBER',
+                          publicReferences: data.playbookGraph.publicReferences ? JSON.parse(data.playbookGraph.publicReferences) : [],
+                          internalReferences: data.playbookGraph.internalReferences ? JSON.parse(data.playbookGraph.internalReferences) : [],
+                          threatActors: data.playbookGraph.threatActors ? JSON.parse(data.playbookGraph.threatActors) : [],
+                          threatSurface: data.playbookGraph.threatSurface ? JSON.parse(data.playbookGraph.threatSurface) : [],
+                        }}
+                        onSave={handleSoarSave}
+                      />
+                    )}
 
                     {/* Part 5: Testing & Validation */}
-                    <TestingGuidance
-                      data={{
-                        testScenario: data.playbookGraph.testScenario || '',
-                        expectedOutput: data.playbookGraph.testExpectedOutput || '',
-                        techniqueId: data.playbookGraph.mitreTechnique?.techniqueId || undefined
-                      }}
-                      onChange={(field, val) => handleSidebarUpdate(field, val)}
-                    />
+                    {resolvedWorkbenchSections.sections.part5.visible && (
+                      <TestingGuidance
+                        data={{
+                          testScenario: data.playbookGraph.testScenario || '',
+                          expectedOutput: data.playbookGraph.testExpectedOutput || '',
+                          techniqueId: data.playbookGraph.mitreTechnique?.techniqueId || undefined
+                        }}
+                        onChange={(field, val) => handleSidebarUpdate(field, val)}
+                      />
+                    )}
 
                     {/* Part 6: Review Workflow (label fixed below in component) */}
-                    <ReviewWorkflow 
-                      playbookId={data.playbookGraph.id}
-                      status={data.playbookGraph.status}
-                      activeReview={data.playbookGraph.activeReview}
-                      userRole={data.me?.role || 'VIEWER'}
-                      isAuthor={isAuthor}
-                      refetch={refetch}
-                    />
+                    {resolvedWorkbenchSections.sections.part6.visible && (
+                      <ReviewWorkflow 
+                        playbookId={data.playbookGraph.id}
+                        status={data.playbookGraph.status}
+                        activeReview={data.playbookGraph.activeReview}
+                        userRole={data.me?.role || 'VIEWER'}
+                        isAuthor={isAuthor}
+                        refetch={refetch}
+                      />
+                    )}
 
                     {/* OpenTide YAML Preview */}
                     {openTideRule && (

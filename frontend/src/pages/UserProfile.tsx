@@ -6,6 +6,11 @@ import { Link } from 'react-router-dom';
 import { credentialToJSON, parseRegistrationOptions } from '../utils/webauthn';
 import { useAuth } from '../context/AuthContext';
 import {
+  WORKBENCH_PRESETS,
+  WorkbenchSectionVisibilityMap,
+  normalizeVisibilityLayer,
+} from '../utils/workbenchVisibility';
+import {
   normalizeSessionTimeoutHours,
   SESSION_TIMEOUT_HOURS_OPTIONS,
 } from '../utils/authSession';
@@ -34,6 +39,7 @@ interface UserProfileData {
   emailNotifyChatMessage?: boolean;
   emailNotifyWorkbenchEdited?: boolean;
   emailNotifyNewsDigest?: boolean;
+  workbenchVisibilityDefaults?: string | Record<string, unknown>;
   createdPlaybooks: CreatedPlaybookLite[];
   achAnalyses: AchAnalysisLite[];
   advopsReports: AdvOpsReportLite[];
@@ -114,6 +120,7 @@ const GET_MY_PROFILE = gql`
       emailNotifyChatMessage
       emailNotifyWorkbenchEdited
       emailNotifyNewsDigest
+      workbenchVisibilityDefaults
       createdPlaybooks {
         id
         title
@@ -202,6 +209,26 @@ const UPDATE_NOTIFICATION_PREFS = gql`
     }
   }
 `;
+
+const UPDATE_WORKBENCH_VISIBILITY_DEFAULTS = gql`
+  mutation UpdateWorkbenchVisibilityDefaults($workbenchVisibilityDefaults: JSONString, $reset: Boolean) {
+    updateWorkbenchVisibilityDefaults(workbenchVisibilityDefaults: $workbenchVisibilityDefaults, reset: $reset) {
+      user {
+        id
+        workbenchVisibilityDefaults
+      }
+    }
+  }
+`;
+
+interface UpdateWorkbenchVisibilityDefaultsResult {
+  updateWorkbenchVisibilityDefaults: {
+    user: {
+      id: string;
+      workbenchVisibilityDefaults?: string | Record<string, unknown> | null;
+    };
+  };
+}
 
 const UPLOAD_AVATAR = gql`
   mutation UploadAvatar($file: Upload!) {
@@ -396,6 +423,15 @@ const normalizePreferredModel = (value?: string | null) => {
   return value.trim();
 };
 
+const parseWorkbenchDefaults = (raw: unknown): WorkbenchSectionVisibilityMap => {
+  const advancedDefaults = { ...WORKBENCH_PRESETS.ADVANCED };
+  const normalizedLayer = normalizeVisibilityLayer(raw);
+  return {
+    ...advancedDefaults,
+    ...(normalizedLayer.sectionVisibility || {}),
+  };
+};
+
 // Query: myProfileSummary for ACH Analyses
 const GET_MY_PROFILE_SUMMARY = gql`
   query MyProfileSummary {
@@ -430,6 +466,9 @@ export const UserProfile: React.FC = () => {
   const { data: summaryData } = useQuery<MyProfileSummaryData>(GET_MY_PROFILE_SUMMARY);
   const [updateProfile] = useMutation<UpdateProfileResult, UpdateProfileVars>(UPDATE_PROFILE_MUTATION);
   const [updateNotificationPrefs] = useMutation<UpdateNotificationPrefsResult, UpdateNotificationPrefsVars>(UPDATE_NOTIFICATION_PREFS);
+  const [updateWorkbenchVisibilityDefaults, { loading: savingWorkbenchDefaults }] = useMutation<
+    UpdateWorkbenchVisibilityDefaultsResult
+  >(UPDATE_WORKBENCH_VISIBILITY_DEFAULTS);
   const [uploadAvatar] = useMutation(UPLOAD_AVATAR);
   const [changePassword, { loading: changingPassword }] = useMutation(CHANGE_PASSWORD);
   const [isEditing, setIsEditing] = useState(false);
@@ -453,6 +492,7 @@ export const UserProfile: React.FC = () => {
     buildNotificationPreferences(data?.me),
   );
   const [savingNotificationKey, setSavingNotificationKey] = useState<NotificationPreferenceKey | null>(null);
+  const [workbenchDefaults, setWorkbenchDefaults] = useState<WorkbenchSectionVisibilityMap>({ ...WORKBENCH_PRESETS.ADVANCED });
   // AI settings state (typed)
   const { data: aiData, refetch: refetchAI } = useQuery<AiSettingsShape>(GET_AI_SETTINGS, { fetchPolicy: 'cache-and-network' });
   const { data: orgAiData } = useQuery<OrgAiSettingsShape>(GET_ORG_AI_SETTINGS, { errorPolicy: 'ignore' });
@@ -492,6 +532,10 @@ export const UserProfile: React.FC = () => {
     data?.me?.emailNotifyWorkbenchEdited,
     data?.me?.emailNotifyNewsDigest,
   ]);
+
+  useEffect(() => {
+    setWorkbenchDefaults(parseWorkbenchDefaults(data?.me?.workbenchVisibilityDefaults));
+  }, [data?.me?.workbenchVisibilityDefaults]);
 
   if (loading) return <div className="profile-theme p-8">Loading Profile...</div>;
   const user = data?.me;
@@ -1177,6 +1221,82 @@ export const UserProfile: React.FC = () => {
             }}
           >
             {savingAI ? 'Saving...' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border p-6 mt-8">
+        <h2 className="text-lg font-bold text-gray-800 mb-2">Workbench Layout Defaults</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Configure which optional sections are visible by default when you open a workbench.
+        </p>
+        <div className="flex gap-2 mb-4">
+          <button
+            className="px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            onClick={() => setWorkbenchDefaults({ ...WORKBENCH_PRESETS.SIMPLE })}
+          >
+            Simple Mode
+          </button>
+          <button
+            className="px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            onClick={() => setWorkbenchDefaults({ ...WORKBENCH_PRESETS.ADVANCED })}
+          >
+            Advanced Mode
+          </button>
+        </div>
+        <div className="space-y-2 text-sm mb-4">
+          <label className="flex items-center justify-between">
+            <span>Part 4: SOAR Configuration</span>
+            <input
+              type="checkbox"
+              checked={Boolean(workbenchDefaults.part4)}
+              onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, part4: e.target.checked }))}
+            />
+          </label>
+          <label className="flex items-center justify-between">
+            <span>Part 5: Testing & Validation</span>
+            <input
+              type="checkbox"
+              checked={Boolean(workbenchDefaults.part5)}
+              onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, part5: e.target.checked }))}
+            />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            className="px-3 py-2 text-xs font-semibold rounded border bg-white hover:bg-gray-50"
+            disabled={savingWorkbenchDefaults}
+            onClick={async () => {
+              try {
+                await updateWorkbenchVisibilityDefaults({ variables: { reset: true } });
+                await refetch();
+                message.success('Workbench defaults reset');
+              } catch (error: any) {
+                message.error(error?.message || 'Failed to reset workbench defaults');
+              }
+            }}
+          >
+            Reset
+          </button>
+          <button
+            className="px-3 py-2 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+            disabled={savingWorkbenchDefaults}
+            onClick={async () => {
+              try {
+                await updateWorkbenchVisibilityDefaults({
+                  variables: {
+                    workbenchVisibilityDefaults: JSON.stringify({ sectionVisibility: workbenchDefaults }),
+                    reset: false,
+                  },
+                });
+                await refetch();
+                message.success('Workbench defaults saved');
+              } catch (error: any) {
+                message.error(error?.message || 'Failed to save workbench defaults');
+              }
+            }}
+          >
+            {savingWorkbenchDefaults ? 'Saving...' : 'Save Defaults'}
           </button>
         </div>
       </div>

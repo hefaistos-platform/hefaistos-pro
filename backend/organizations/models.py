@@ -79,6 +79,11 @@ class Organization(models.Model):
         blank=True,
         related_name="organizations",
     )
+    workbench_visibility_policy = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Organization-level workbench visibility policy overrides.",
+    )
 
     def __str__(self):
         return self.name
