@@ -786,7 +786,33 @@ code {
   width: 1rem;
   height: 1rem;
   cursor: pointer;
-  accent-color: var(--hef-info-text);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--hef-border-strong);
+  border-radius: 0.25rem;
+  background: var(--hef-bg-surface);
+  display: inline-grid;
+  place-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.profile-theme .workbench-defaults-checkbox::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  transform: scale(0);
+  transition: transform 0.12s ease-in-out;
+  clip-path: polygon(14% 44%, 0 57%, 42% 100%, 100% 20%, 86% 7%, 41% 72%);
+  background: var(--hef-bg-surface);
+}
+
+.profile-theme .workbench-defaults-checkbox:checked {
+  background: var(--hef-info-text);
+  border-color: var(--hef-info-text);
+}
+
+.profile-theme .workbench-defaults-checkbox:checked::before {
+  transform: scale(1);
 }
 
 .profile-theme .workbench-defaults-checkbox:focus-visible {
@@ -813,6 +839,16 @@ code {
 .profile-theme .workbench-defaults-primary-button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--hef-info-text) 45%, transparent);
   outline-offset: 2px;
+}
+
+.profile-theme .workbench-defaults-button-active {
+  background: var(--hef-info-bg) !important;
+  border-color: var(--hef-info-border) !important;
+  color: var(--hef-info-text) !important;
+}
+
+.profile-theme .workbench-defaults-button.workbench-defaults-button-active:hover {
+  background: color-mix(in srgb, var(--hef-info-bg) 82%, var(--hef-bg-surface)) !important;
 }
 
 /* Workbench detail theming */

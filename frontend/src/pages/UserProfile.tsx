@@ -7,6 +7,7 @@ import { credentialToJSON, parseRegistrationOptions } from '../utils/webauthn';
 import { useAuth } from '../context/AuthContext';
 import {
   WORKBENCH_PRESETS,
+  WORKBENCH_SECTION_KEYS,
   WorkbenchSectionVisibilityMap,
   normalizeVisibilityLayer,
 } from '../utils/workbenchVisibility';
@@ -543,6 +544,11 @@ export const UserProfile: React.FC = () => {
   const currentSessionTimeoutHours = normalizeSessionTimeoutHours(
     user.sessionTimeoutHours ?? authSessionTimeoutHours,
   );
+  const isWorkbenchPresetSelected = (preset: keyof typeof WORKBENCH_PRESETS) => WORKBENCH_SECTION_KEYS.every(
+    (key) => Boolean(workbenchDefaults[key]) === Boolean(WORKBENCH_PRESETS[preset][key]),
+  );
+  const isSimpleWorkbenchPresetSelected = isWorkbenchPresetSelected('SIMPLE');
+  const isAdvancedWorkbenchPresetSelected = isWorkbenchPresetSelected('ADVANCED');
 
   const handleNotificationPreferenceChange = async (key: NotificationPreferenceKey, checked: boolean) => {
     const previousValue = notificationPrefs[key];
@@ -1232,7 +1238,8 @@ export const UserProfile: React.FC = () => {
         </p>
         <div className="flex gap-2 mb-4">
           <button
-            className="workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            className={`workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100 ${isSimpleWorkbenchPresetSelected ? 'workbench-defaults-button-active' : ''}`}
+            aria-pressed={isSimpleWorkbenchPresetSelected}
             onClick={() => {
               setWorkbenchDefaults({ ...WORKBENCH_PRESETS.SIMPLE });
               message.success('Simple mode deployed successfully');
@@ -1241,7 +1248,8 @@ export const UserProfile: React.FC = () => {
             Simple Mode
           </button>
           <button
-            className="workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            className={`workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100 ${isAdvancedWorkbenchPresetSelected ? 'workbench-defaults-button-active' : ''}`}
+            aria-pressed={isAdvancedWorkbenchPresetSelected}
             onClick={() => {
               setWorkbenchDefaults({ ...WORKBENCH_PRESETS.ADVANCED });
               message.success('Advanced mode deployed successfully');
