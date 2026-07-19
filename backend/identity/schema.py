@@ -70,7 +70,8 @@ def _normalize_workbench_visibility_defaults(raw_defaults):
     if isinstance(raw_defaults, str):
         try:
             payload = json.loads(raw_defaults)
-        except Exception:
+        except json.JSONDecodeError:
+            logger.warning("Invalid workbench visibility defaults JSON payload; falling back to empty defaults.")
             return {}
 
     if not isinstance(payload, dict):
@@ -82,7 +83,7 @@ def _normalize_workbench_visibility_defaults(raw_defaults):
 
     normalized_visibility = {}
     for key, value in section_visibility.items():
-        normalized_key = str(key or '').strip()
+        normalized_key = str(key).strip() if key else ''
         if normalized_key not in WORKBENCH_SECTION_KEYS:
             continue
         normalized_visibility[normalized_key] = bool(value)
@@ -857,6 +858,9 @@ class UpdateWorkbenchVisibilityDefaults(graphene.Mutation):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Not logged in")
+
+        if not reset and workbench_visibility_defaults is None:
+            raise Exception("workbenchVisibilityDefaults must be provided when reset is false")
 
         normalized_defaults = {} if reset else _normalize_workbench_visibility_defaults(workbench_visibility_defaults)
         user.workbench_visibility_defaults = normalized_defaults

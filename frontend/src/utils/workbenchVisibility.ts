@@ -75,7 +75,7 @@ export const normalizeVisibilityLayer = (raw: unknown): WorkbenchVisibilityLayer
   };
 };
 
-const layerValueFor = (layer: WorkbenchVisibilityLayer | undefined, key: WorkbenchSectionKey): boolean | undefined =>
+const getSectionVisibilityFromLayer = (layer: WorkbenchVisibilityLayer | undefined, key: WorkbenchSectionKey): boolean | undefined =>
   layer?.sectionVisibility && key in layer.sectionVisibility ? Boolean(layer.sectionVisibility[key]) : undefined;
 
 export const resolveWorkbenchSections = (input: {
@@ -108,9 +108,9 @@ export const resolveWorkbenchSections = (input: {
 
   WORKBENCH_SECTION_KEYS.forEach((key) => {
     const resolvedValue =
-      layerValueFor(system, key)
-      ?? layerValueFor(organization, key)
-      ?? layerValueFor(userDefaults, key)
+      getSectionVisibilityFromLayer(system, key)
+      ?? getSectionVisibilityFromLayer(organization, key)
+      ?? getSectionVisibilityFromLayer(userDefaults, key)
       ?? (key in localState ? Boolean(localState[key]) : undefined)
       ?? true;
 

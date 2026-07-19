@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   WORKBENCH_PRESETS,
   WorkbenchSectionVisibilityMap,
+  normalizeVisibilityLayer,
 } from '../utils/workbenchVisibility';
 import {
   normalizeSessionTimeoutHours,
@@ -423,24 +424,11 @@ const normalizePreferredModel = (value?: string | null) => {
 };
 
 const parseWorkbenchDefaults = (raw: unknown): WorkbenchSectionVisibilityMap => {
-  if (!raw) return { ...WORKBENCH_PRESETS.ADVANCED };
-  let payload: unknown = raw;
-  if (typeof raw === 'string') {
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      return { ...WORKBENCH_PRESETS.ADVANCED };
-    }
-  }
-  if (!payload || typeof payload !== 'object') return { ...WORKBENCH_PRESETS.ADVANCED };
-  const sectionVisibility = (payload as Record<string, unknown>).sectionVisibility;
-  if (!sectionVisibility || typeof sectionVisibility !== 'object') return { ...WORKBENCH_PRESETS.ADVANCED };
-
+  const advancedDefaults = { ...WORKBENCH_PRESETS.ADVANCED };
+  const normalizedLayer = normalizeVisibilityLayer(raw);
   return {
-    ...WORKBENCH_PRESETS.ADVANCED,
-    ...Object.fromEntries(
-      Object.entries(sectionVisibility as Record<string, unknown>).map(([key, value]) => [key, Boolean(value)]),
-    ),
+    ...advancedDefaults,
+    ...(normalizedLayer.sectionVisibility || {}),
   };
 };
 
