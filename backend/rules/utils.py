@@ -9,6 +9,7 @@ import posixpath
 # <repo-root>/<targetFolder?>/{kql|splunk|sigma|wazuh|qradar}/<sanitized_title>.<ext>
 PLATFORM_DIR_MAP = {
     'kql': 'kql',
+    'elastic': 'elastic',
     'spl': 'splunk',
     'sigma': 'sigma',
     'wazuh': 'wazuh',
@@ -17,6 +18,7 @@ PLATFORM_DIR_MAP = {
 
 PLATFORM_EXT_MAP = {
     'kql': '.kql',
+    'elastic': '.eql',
     'spl': '.spl',
     'sigma': '.yml',
     'wazuh': '.xml',
@@ -40,7 +42,7 @@ def extract_platform_rules_from_opentide(
     If not provided the function falls back to the snake_case ``name`` field.
 
     Files are placed under <base_folder>/<platform_dir>/<sanitized_title>.<ext>
-    Platforms: kql, spl, sigma, wazuh, qradar
+    Platforms: kql, elastic, spl, sigma, wazuh, qradar
     """
     if not isinstance(mdr_data, dict):
         return {}
@@ -78,6 +80,10 @@ def extract_platform_rules_from_opentide(
     spl_content = _pick_query(platforms.get('spl'), configurations.get('splunk'))
     if spl_content:
         files[_rule_file_path('spl')] = spl_content
+
+    elastic_content = _pick_query(platforms.get('elastic'), configurations.get('elastic'))
+    if elastic_content:
+        files[_rule_file_path('elastic')] = elastic_content
 
     qradar_content = _pick_query(platforms.get('qradar'), configurations.get('qradar'))
     if qradar_content:
@@ -208,6 +214,28 @@ def parse_rule_by_format(content: str, fmt: str, fallback_author: str = ''):
             'raw_content': content,
         }
 
+    if fmt == 'EQL':
+        text = content.strip()
+        if not text:
+            raise ValueError("Empty EQL content")
+        meta = _extract_comment_metadata(text, comment_prefixes=('//', '#'))
+        title = meta.get('title')
+        if not title:
+            seed_line = next(
+                (ln.strip() for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith('//') and not ln.strip().startswith('#')),
+                '',
+            )
+            seed = re.split(r"[|;]", seed_line)[0].strip()
+            title = seed[:80] or 'Untitled EQL Rule'
+        return {
+            'title': title,
+            'status': 'experimental',
+            'description': meta.get('description', ''),
+            'author': meta.get('author', fallback_author or ''),
+            'raw_content': content,
+        }
+
     if fmt == 'AQL':
         text = content.strip()
         if not text:
@@ -295,7 +323,7 @@ def parse_rule_by_format(content: str, fmt: str, fallback_author: str = ''):
 def detect_rule_format(content: str) -> str:
     """
     Best-effort heuristic to detect rule format from content.
-    Returns one of: KQL, WAZUH, SPL, OTHER.
+    Returns one of: KQL, EQL, WAZUH, SPL, AQL, OTHER.
     """
     text = (content or '').strip()
     if not text:
@@ -310,6 +338,15 @@ def detect_rule_format(content: str) -> str:
             return 'WAZUH'
     # KQL heuristic: presence of operators like '| project' or 'datatable'
     lowered = text.lower()
+    # EQL heuristic: sequence/where event-category syntax
+    if (
+        lowered.startswith('sequence')
+        or lowered.startswith('any where')
+        or lowered.startswith('process where')
+        or lowered.startswith('file where')
+        or '\nsequence ' in lowered
+    ):
+        return 'EQL'
     if '| project' in lowered or '| where' in lowered or 'datatable' in lowered:
         return 'KQL'
     # AQL heuristic: SQL-like query style used by QRadar

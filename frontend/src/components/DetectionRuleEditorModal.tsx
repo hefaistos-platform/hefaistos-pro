@@ -411,7 +411,7 @@ interface DetectionRuleEditorModalProps {
   onClose: () => void;
   playbookId: string;
   initialRule: string;
-  initialFormat: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
+  initialFormat: 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
   initialMode: DetectionMode;
   onSave: (rule: string, format: string, mode: DetectionMode, dataSourceId?: string, openTideRule?: OpenTideRule) => void | Promise<void>;
   onGenerateAI?: (format: string) => Promise<string | null>;
@@ -424,7 +424,7 @@ interface DetectionRuleEditorModalProps {
   playbookData?: PlaybookDataForMetadata;
 }
 
-function platformToFormat(tab: MainPlatformTab): 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER' {
+function platformToFormat(tab: MainPlatformTab): 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER' {
   if (tab === 'metadata' || tab === 'insights') return 'OTHER';
   return getFormatByTab(tab).format;
 }
@@ -461,7 +461,7 @@ export function buildGenerateAllPlan(
 export function buildOpenTideState(
   initial: OpenTideRule | undefined,
   legacyRule: string,
-  legacyFormat: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER',
+  legacyFormat: 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER',
   playbook?: PlaybookDataForMetadata,
 ): OpenTideRule {
   const metadata = playbook ? compileMetadataFromWorkbench(playbook) : (initial?.metadata ?? {
@@ -486,6 +486,7 @@ export function buildOpenTideState(
 
   if (legacyRule.trim() && !hasExistingPlatformContent) {
     if (legacyFormat === 'KQL' && !platforms.kql) platforms.kql = { query: legacyRule };
+    else if (legacyFormat === 'EQL' && !platforms.elastic) platforms.elastic = { query: legacyRule };
     else if (legacyFormat === 'SPL' && !platforms.spl) platforms.spl = { query: legacyRule };
     else if (legacyFormat === 'WAZUH' && !platforms.wazuh) platforms.wazuh = { rule: legacyRule };
     else if (legacyFormat === 'AQL' && !platforms.qradar) platforms.qradar = { query: legacyRule };
@@ -542,17 +543,19 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
   // Multi-platform (OpenTide) state
   const [activePlatformTab, setActivePlatformTab] = useState<MainPlatformTab>(() => {
     if (initialOpenTideRule?.platforms?.kql) return 'kql';
+    if (initialOpenTideRule?.platforms?.elastic) return 'eql';
     if (initialOpenTideRule?.platforms?.spl) return 'spl';
     if (initialOpenTideRule?.platforms?.wazuh) return 'wazuh';
     if (initialOpenTideRule?.platforms?.qradar) return 'qradar';
     if (initialFormat === 'KQL') return 'kql';
+    if (initialFormat === 'EQL') return 'eql';
     if (initialFormat === 'SPL') return 'spl';
     if (initialFormat === 'WAZUH') return 'wazuh';
     if (initialFormat === 'AQL') return 'qradar';
     return 'kql';
   });
   // Derive format from the active platform tab so it is always in sync with what the user sees
-  const format = useMemo<'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER'>(
+  const format = useMemo<'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER'>(
     () => platformToFormat(activePlatformTab),
     [activePlatformTab]
   );
@@ -781,10 +784,13 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
       // Derive active platform
       let tab: PlatformTab = 'kql';
       if (initialOpenTideRule?.platforms?.kql) tab = 'kql';
+      else if (initialOpenTideRule?.platforms?.elastic) tab = 'eql';
       else if (initialOpenTideRule?.platforms?.spl) tab = 'spl';
       else if (initialOpenTideRule?.platforms?.wazuh) tab = 'wazuh';
       else if (initialOpenTideRule?.platforms?.qradar) tab = 'qradar';
       else if (initialFormat === 'KQL') tab = 'kql';
+      else if (initialFormat === 'EQL') tab = 'eql';
+      else if (initialFormat === 'SPL') tab = 'spl';
       else if (initialFormat === 'WAZUH') tab = 'wazuh';
       else if (initialFormat === 'AQL') tab = 'qradar';
       setActivePlatformTab(tab);
@@ -1957,7 +1963,7 @@ export const DetectionRuleEditorModal: React.FC<DetectionRuleEditorModalProps> =
                   setLastEditedPlatform(activePlatformTab as PlatformTab);
                   if (mode !== 'manual') setMode('manual');
                 }}
-                format={format as 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER'}
+                format={format as 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER'}
                 height="100%"
                 dataSourceId={selectedDataSource?.id}
               />

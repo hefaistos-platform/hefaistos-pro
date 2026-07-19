@@ -89,6 +89,7 @@ The visual workbench provides a complete detection engineering environment:
 - **Activity Tracking** - Persistent markdown investigation notes (formatting toolbar included) and activity log per workbench; note clearing is restricted to workbench author/admin
 - **Adaptive Workspace Layout** - Right-side metadata/notes panel is collapsible and draggable (up to one-third of the page width), and the Multi-Platform Editor opens fullscreen for maximum editing space
 - **Detection Editor Multi-Format Actions** - `GENERATE ALL` supports all registry formats with skip-by-default for non-empty targets, plus an optional **Overwrite all content** toggle; per-format `SAVE {FORMAT}` and `SAVE ALL` are also available in the modal
+- **Query Editor Behavior Guide** - Language-specific autocomplete/validation behavior and troubleshooting: `Docs/WORKBENCH_QUERY_EDITOR.md`
 
 ### 🤖 AI-Powered Detection Engineering
 
@@ -106,7 +107,7 @@ Model selection is now **free-text** in user and organization settings, so no fr
 **AI Capabilities:**
 
 - **Logic Deconstruction** - 5-step analysis (capabilities, atomics, evasions)
-- **Rule Generation** - Create KQL, SPL, or Wazuh rules from workbench context
+- **Rule Generation** - Create KQL, Elastic EQL, SPL, Wazuh, or QRadar AQL rules from workbench context
 - **Improvement Suggestions** - AI-powered rule optimization recommendations
 - **ACH Generation** - Generate hypotheses and evidence from scenarios
 - **Bias Detection** - Analyze ACH matrices for cognitive biases

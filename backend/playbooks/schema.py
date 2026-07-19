@@ -4973,8 +4973,10 @@ def deserialize_playbook_graph_from_opentide(
     _CONFIG_TO_FORMAT = {
         'defender_for_endpoint': ('KQL', 'query'),
         'microsoft_sentinel': ('KQL', 'query'),
+        'elastic': ('EQL', 'query'),
         'splunk': ('SPL', 'query'),
         'wazuh': ('WAZUH', 'rule'),
+        'qradar': ('AQL', 'query'),
     }
 
     configurations = mdr.get('configurations') or {}

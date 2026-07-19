@@ -9,5 +9,10 @@ describe('detection format registry', () => {
     const dummy = { displayName: 'DummyX' };
     expect(buildSaveButtonLabel(dummy)).toBe('SAVE DUMMYX');
   });
-});
 
+  it('includes Elastic EQL in the platform registry', () => {
+    const eql = DETECTION_FORMAT_REGISTRY.find((entry) => entry.format === 'EQL');
+    expect(eql).toBeDefined();
+    expect(eql?.fileExtension).toBe('eql');
+  });
+});

@@ -667,6 +667,7 @@ def import_per_platform_rules(graph, bundle_files: Dict[str, Any]) -> None:
 
     _FORMAT_MAP = {
         'kql': 'KQL',
+        'elastic': 'EQL',
         'splunk': 'SPL',
         'sigma': 'SIGMA',
         'wazuh': 'WAZUH',

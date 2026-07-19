@@ -52,9 +52,11 @@ describe('DetectionRuleEditorModal generate-all overwrite behavior', () => {
     const plan = buildGenerateAllPlan(BASE_RULE, 'spl', false);
 
     expect(plan.targetFormats).toEqual(expect.arrayContaining(['WAZUH', 'AQL']));
+    expect(plan.targetFormats).toContain('EQL');
     expect(plan.targetFormats).not.toContain('KQL');
     expect(plan.statuses).toMatchObject({
       KQL: 'skipped (non-empty)',
+      EQL: 'pending',
       WAZUH: 'pending',
       AQL: 'pending',
     });
@@ -63,9 +65,10 @@ describe('DetectionRuleEditorModal generate-all overwrite behavior', () => {
   test('buildGenerateAllPlan overwrites all non-source targets when overwrite is ON', () => {
     const plan = buildGenerateAllPlan(BASE_RULE, 'spl', true);
 
-    expect(plan.targetFormats).toEqual(expect.arrayContaining(['KQL', 'WAZUH', 'AQL']));
+    expect(plan.targetFormats).toEqual(expect.arrayContaining(['KQL', 'EQL', 'WAZUH', 'AQL']));
     expect(plan.statuses).toMatchObject({
       KQL: 'pending',
+      EQL: 'pending',
       WAZUH: 'pending',
       AQL: 'pending',
     });

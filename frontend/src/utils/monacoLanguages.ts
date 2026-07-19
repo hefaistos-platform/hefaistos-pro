@@ -4,6 +4,7 @@
  * Register custom Monaco Editor language definitions for the detection query
  * languages used by HEFAISTOS that are not natively supported by Monaco:
  *   - KQL  (Kusto Query Language)
+ *   - EQL  (Elastic Event Query Language)
  *   - SPL  (Splunk Processing Language)
  *   - AQL  (QRadar Ariel Query Language)
  *
@@ -48,6 +49,36 @@ export function registerCustomLanguages(): void {
         [/"([^"\\]|\\.)*"/, 'string'],
         [/'([^'\\]|\\.)*'/, 'string'],
         [/\d+(\.\d+)?([eE][+-]?\d+)?/, 'number'],
+        [/[|,;.()\[\]{}]/, 'delimiter'],
+      ],
+      whitespace: [
+        [/[ \t\r\n]+/, ''],
+      ],
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // EQL – Elastic Event Query Language
+  // ---------------------------------------------------------------------------
+  monaco.languages.register({ id: 'eql' });
+  monaco.languages.setMonarchTokensProvider('eql', {
+    keywords: [
+      'sequence', 'where', 'by', 'with', 'maxspan', 'any', 'until',
+      'and', 'or', 'not', 'in', 'true', 'false',
+    ],
+    tokenizer: {
+      root: [
+        { include: '@whitespace' },
+        [/\/\/.*$/, 'comment'],
+        [/[a-zA-Z_]\w*/, {
+          cases: {
+            '@keywords': 'keyword',
+            '@default': 'identifier',
+          },
+        }],
+        [/"([^"\\]|\\.)*"/, 'string'],
+        [/'([^'\\]|\\.)*'/, 'string'],
+        [/\d+(\.\d+)?([smhdw])?/, 'number'],
         [/[|,;.()\[\]{}]/, 'delimiter'],
       ],
       whitespace: [
