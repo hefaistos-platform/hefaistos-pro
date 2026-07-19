@@ -544,12 +544,11 @@ export const UserProfile: React.FC = () => {
   const currentSessionTimeoutHours = normalizeSessionTimeoutHours(
     user.sessionTimeoutHours ?? authSessionTimeoutHours,
   );
-  const isSimpleWorkbenchPresetSelected = WORKBENCH_SECTION_KEYS.every(
-    (key) => Boolean(workbenchDefaults[key]) === Boolean(WORKBENCH_PRESETS.SIMPLE[key]),
+  const isWorkbenchPresetSelected = (preset: keyof typeof WORKBENCH_PRESETS) => WORKBENCH_SECTION_KEYS.every(
+    (key) => Boolean(workbenchDefaults[key]) === Boolean(WORKBENCH_PRESETS[preset][key]),
   );
-  const isAdvancedWorkbenchPresetSelected = WORKBENCH_SECTION_KEYS.every(
-    (key) => Boolean(workbenchDefaults[key]) === Boolean(WORKBENCH_PRESETS.ADVANCED[key]),
-  );
+  const isSimpleWorkbenchPresetSelected = isWorkbenchPresetSelected('SIMPLE');
+  const isAdvancedWorkbenchPresetSelected = isWorkbenchPresetSelected('ADVANCED');
 
   const handleNotificationPreferenceChange = async (key: NotificationPreferenceKey, checked: boolean) => {
     const previousValue = notificationPrefs[key];

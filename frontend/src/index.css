@@ -803,7 +803,7 @@ code {
   transform: scale(0);
   transition: transform 0.12s ease-in-out;
   clip-path: polygon(14% 44%, 0 57%, 42% 100%, 100% 20%, 86% 7%, 41% 72%);
-  background: #ffffff;
+  background: var(--hef-bg-surface);
 }
 
 .profile-theme .workbench-defaults-checkbox:checked {
