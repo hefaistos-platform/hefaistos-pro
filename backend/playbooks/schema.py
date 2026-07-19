@@ -31,6 +31,7 @@ from .models import (
     PlaybookComment,
     CapabilityAbstraction,
     L1PortalEntry,
+    WorkbenchIdCounter,
     MveDraft,
     MveNode,
     MveEdge,
@@ -993,6 +994,9 @@ class Query(graphene.ObjectType):
         PlaybookGraphType,
         description="Retrieves all v2 playbook graphs for the user's organization."
     )
+    workbench_visibility_system_policy = graphene.JSONString(
+        description="System-level workbench visibility policy overrides.",
+    )
     l1_portal_entries = graphene.List(
         L1PortalEntryType,
         search=graphene.String(),
@@ -1208,6 +1212,12 @@ class Query(graphene.ObjectType):
         return PlaybookGraph.objects.filter(
             my_org_graphs | shared_graphs
         ).distinct().select_related('organization')
+
+    @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER])
+    def resolve_workbench_visibility_system_policy(self, info):
+        policy_row, _ = WorkbenchIdCounter.objects.get_or_create(singleton_key=1, defaults={"next_value": 1})
+        value = getattr(policy_row, 'workbench_visibility_policy', None)
+        return value if isinstance(value, dict) else {}
 
     @role_required([Roles.ADMIN, Roles.ANALYST, Roles.VIEWER, Roles.REVIEWER, Roles.ELONE])
     def resolve_l1_portal_entries(self, info, search=None, limit=50, offset=0):

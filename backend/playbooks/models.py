@@ -320,6 +320,11 @@ class WorkbenchIdCounter(models.Model):
     """
     singleton_key = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
     next_value = models.PositiveIntegerField(default=1)
+    workbench_visibility_policy = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="System-level workbench visibility policy overrides.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

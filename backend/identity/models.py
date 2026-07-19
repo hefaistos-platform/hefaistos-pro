@@ -129,6 +129,11 @@ class CustomUser(AbstractUser):
         default=False,
         help_text="Email me when there is a news digest"
     )
+    workbench_visibility_defaults = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-user workbench section visibility defaults.",
+    )
 
     def __str__(self):
         return self.username

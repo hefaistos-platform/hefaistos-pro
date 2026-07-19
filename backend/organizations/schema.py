@@ -130,6 +130,7 @@ class OrganizationType(DjangoObjectType):
     entity = graphene.Field(EntityType)
     smtp_shared_enabled = graphene.Boolean()
     ai_shared_enabled = graphene.Boolean()
+    workbench_visibility_policy = graphene.JSONString()
 
     class Meta:
         model = Organization
@@ -157,6 +158,10 @@ class OrganizationType(DjangoObjectType):
         except OrgAISettings.DoesNotExist:
             return False
         return bool(getattr(settings_obj, 'shared_profile_locked', False))
+
+    def resolve_workbench_visibility_policy(self, info):
+        value = getattr(self, 'workbench_visibility_policy', None)
+        return value if isinstance(value, dict) else {}
 
 
 class MISPInstanceType(DjangoObjectType):

@@ -59,6 +59,35 @@ from identity.oidc import (
 
 logger = logging.getLogger(__name__)
 SESSION_TIMEOUT_HOURS_ALLOWED = {2, 4, 8, 12, 24}
+WORKBENCH_SECTION_KEYS = {'part1', 'part2', 'part3', 'part4', 'part5', 'part6'}
+
+
+def _normalize_workbench_visibility_defaults(raw_defaults):
+    if raw_defaults is None:
+        return {}
+
+    payload = raw_defaults
+    if isinstance(raw_defaults, str):
+        try:
+            payload = json.loads(raw_defaults)
+        except Exception:
+            return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    section_visibility = payload.get('sectionVisibility')
+    if not isinstance(section_visibility, dict):
+        return {}
+
+    normalized_visibility = {}
+    for key, value in section_visibility.items():
+        normalized_key = str(key or '').strip()
+        if normalized_key not in WORKBENCH_SECTION_KEYS:
+            continue
+        normalized_visibility[normalized_key] = bool(value)
+
+    return {'sectionVisibility': normalized_visibility}
 
 class UserPlaybookGraphLiteType(DjangoObjectType):
     """A lightweight PlaybookGraph representation for embedding in UserType without importing playbooks.schema (avoids circular import)."""
@@ -103,6 +132,7 @@ class UserType(DjangoObjectType):
             'email_notify_chat_message',
             'email_notify_workbench_edited',
             'email_notify_news_digest',
+            'workbench_visibility_defaults',
         )
 
     def resolve_avatar_url(self, info):
@@ -813,6 +843,25 @@ class UpdateProfile(graphene.Mutation):
                 raise Exception("Failed to persist sessionTimeoutHours. Please try again.")
 
         return UpdateProfile(user=user)
+
+
+class UpdateWorkbenchVisibilityDefaults(graphene.Mutation):
+    class Arguments:
+        workbench_visibility_defaults = graphene.JSONString(name='workbenchVisibilityDefaults')
+        reset = graphene.Boolean(default_value=False)
+
+    user = graphene.Field(UserType)
+
+    @staticmethod
+    def mutate(root, info, workbench_visibility_defaults=None, reset=False):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Not logged in")
+
+        normalized_defaults = {} if reset else _normalize_workbench_visibility_defaults(workbench_visibility_defaults)
+        user.workbench_visibility_defaults = normalized_defaults
+        user.save(update_fields=['workbench_visibility_defaults'])
+        return UpdateWorkbenchVisibilityDefaults(user=user)
 
 
 class ChangePassword(graphene.Mutation):
@@ -2788,6 +2837,7 @@ class Mutation(graphene.ObjectType):
     invite_user = InviteUser.Field()
     delete_user = DeleteUser.Field()
     update_profile = UpdateProfile.Field()
+    update_workbench_visibility_defaults = UpdateWorkbenchVisibilityDefaults.Field()
     upload_avatar = UploadAvatar.Field()
     change_password = ChangePassword.Field()
     # Admin edit user mutation

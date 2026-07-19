@@ -5,6 +5,7 @@ from django.test import TestCase
 from unittest.mock import MagicMock
 from .models import Organization, MISPInstance, MISP_INSTANCE_LIMIT
 from .schema import UpdateOrganization
+from playbooks.models import WorkbenchIdCounter
 
 class OrganizationModelTests(TestCase):
 
@@ -146,3 +147,64 @@ class OrganizationUserLimitMutationTests(TestCase):
         self.assertIn("Cannot set max users below current member count", result.message)
         self.org.refresh_from_db()
         self.assertEqual(self.org.max_users, 5)
+
+
+class WorkbenchVisibilityPolicyGraphQLTests(GraphQLTestCase):
+    def setUp(self):
+        super().setUp()
+        User = get_user_model()
+        self.org = Organization.objects.create(
+            name="Visibility Policy Org",
+            workbench_visibility_policy={
+                "sectionVisibility": {"part4": False, "part5": True},
+                "lockedSections": ["part4"],
+            },
+        )
+        self.user = User.objects.create_user(
+            username="visibility_user",
+            email="visibility@example.com",
+            organization=self.org,
+        )
+        WorkbenchIdCounter.objects.update_or_create(
+            singleton_key=1,
+            defaults={
+                "next_value": 1,
+                "workbench_visibility_policy": {
+                    "mandatorySections": ["part1", "part2", "part3", "part6"],
+                    "lockedSections": ["part5"],
+                },
+            },
+        )
+
+    def test_my_organization_exposes_workbench_visibility_policy(self):
+        self.client.force_login(self.user)
+        response = self.query(
+            '''
+            query {
+                myOrganization {
+                    workbenchVisibilityPolicy
+                }
+            }
+            '''
+        )
+        self.assertResponseNoErrors(response)
+        content = json.loads(response.content)
+        policy_payload = content["data"]["myOrganization"]["workbenchVisibilityPolicy"]
+        policy = json.loads(policy_payload)
+        self.assertEqual(policy["sectionVisibility"]["part4"], False)
+        self.assertEqual(policy["lockedSections"], ["part4"])
+
+    def test_system_policy_query_keeps_mandatory_sections_declared(self):
+        self.client.force_login(self.user)
+        response = self.query(
+            '''
+            query {
+                workbenchVisibilitySystemPolicy
+            }
+            '''
+        )
+        self.assertResponseNoErrors(response)
+        content = json.loads(response.content)
+        system_policy = json.loads(content["data"]["workbenchVisibilitySystemPolicy"])
+        self.assertIn("part1", system_policy.get("mandatorySections", []))
+        self.assertIn("part6", system_policy.get("mandatorySections", []))
