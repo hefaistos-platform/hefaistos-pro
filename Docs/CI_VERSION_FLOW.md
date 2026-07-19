@@ -1,9 +1,10 @@
 # Automatic Versioning Setup (GitHub Actions)
 
-This repository is configured with two workflows:
+This repository is configured with three workflows:
 
 - `.github/workflows/sharp-version.yml`
 - `.github/workflows/release-tag.yml`
+- `.github/workflows/version-changelog.yml`
 
 ## 1) Set repository defaults
 
@@ -69,7 +70,19 @@ Use conventional commit subjects for predictable bumps:
 
 If conventions are not followed, workflow defaults to `PATCH` unless breaking markers are present.
 
-## 7) Operational notes
+## 7) Version changelog generation (`Versions/`)
+
+When a stable tag `v*` is pushed:
+
+1. Workflow `Generate Version Changelog` runs.
+2. It creates `Versions/vX.Y.Z.md`.
+3. Sections are filled from commit subjects between previous tag and current tag:
+   - `Fixes`: commits starting with `fix:`
+   - `Removals`: commits indicating deletion/removal or breaking `!`
+   - `Changes`: all remaining commits
+4. The file is committed to branch `sharp` by `github-actions[bot]` using skip markers.
+
+## 8) Operational notes
 
 - First release tag in this repo will be based on current root `VERSION`.
 - If rerunning the same SHARP workflow run, `GITHUB_RUN_NUMBER` remains tied to that run.

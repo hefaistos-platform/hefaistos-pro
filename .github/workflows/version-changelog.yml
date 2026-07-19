@@ -1,0 +1,110 @@
+name: Generate Version Changelog
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog file
+        id: changelog
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+
+          git fetch origin sharp --no-tags
+          git checkout -B sharp origin/sharp
+
+          mkdir -p Versions
+          output_file="Versions/${TAG_NAME}.md"
+          if [[ -f "${output_file}" ]]; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          previous_tag="$(git tag --list 'v*' --sort=-version:refname | awk -v current="${TAG_NAME}" '$0 != current { print; exit }')"
+
+          if [[ -n "${previous_tag}" ]]; then
+            commit_range="${previous_tag}..${TAG_NAME}"
+          else
+            commit_range="${TAG_NAME}"
+          fi
+
+          mapfile -t subjects < <(git log --no-merges --format='%s' "${commit_range}")
+
+          changes=()
+          fixes=()
+          removals=()
+
+          for subject in "${subjects[@]}"; do
+            lower_subject="$(printf '%s' "${subject}" | tr '[:upper:]' '[:lower:]')"
+
+            if [[ "${lower_subject}" =~ ^fix(\([^)]+\))?: ]]; then
+              fixes+=("${subject}")
+            elif [[ "${lower_subject}" =~ ^(remove|removal|delete|drop)(\([^)]+\))?: ]] || [[ "${lower_subject}" =~ (^|[[:space:]])(remove|removed|removes|delete|deleted|drop|dropped)([[:space:]]|$) ]] || [[ "${subject}" =~ !: ]]; then
+              removals+=("${subject}")
+            else
+              changes+=("${subject}")
+            fi
+          done
+
+          {
+            echo "# ${TAG_NAME}"
+            echo
+            echo "_Generated on $(date -u +'%Y-%m-%d')_"
+            echo
+            echo "## Changes"
+            if [[ ${#changes[@]} -eq 0 ]]; then
+              echo "- None"
+            else
+              for item in "${changes[@]}"; do
+                printf -- '- %s\n' "${item}"
+              done
+            fi
+            echo
+            echo "## Fixes"
+            if [[ ${#fixes[@]} -eq 0 ]]; then
+              echo "- None"
+            else
+              for item in "${fixes[@]}"; do
+                printf -- '- %s\n' "${item}"
+              done
+            fi
+            echo
+            echo "## Removals"
+            if [[ ${#removals[@]} -eq 0 ]]; then
+              echo "- None"
+            else
+              for item in "${removals[@]}"; do
+                printf -- '- %s\n' "${item}"
+              done
+            fi
+          } > "${output_file}"
+
+          echo "exists=false" >> "${GITHUB_OUTPUT}"
+
+      - name: Commit changelog
+        if: steps.changelog.outputs.exists == 'false'
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Versions/${TAG_NAME}.md"
+          git commit -m "docs(versions): add changelog for ${TAG_NAME} [skip version bump] [skip ci]"
+          git push origin sharp
