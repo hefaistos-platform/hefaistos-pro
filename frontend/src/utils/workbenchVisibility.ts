@@ -1,4 +1,14 @@
-export const WORKBENCH_SECTION_KEYS = ['part1', 'part2', 'part3', 'part4', 'part5', 'part6'] as const;
+export const WORKBENCH_SECTION_KEYS = [
+  'part1',
+  'part2',
+  'part3',
+  'part4',
+  'part5',
+  'part6',
+  'capabilityMap',
+  'capabilityLibrary',
+  'activityOverview',
+] as const;
 export type WorkbenchSectionKey = (typeof WORKBENCH_SECTION_KEYS)[number];
 
 export type WorkbenchSectionVisibilityMap = Partial<Record<WorkbenchSectionKey, boolean>>;
@@ -26,6 +36,9 @@ export const WORKBENCH_PRESETS: Record<'SIMPLE' | 'ADVANCED', WorkbenchSectionVi
     part4: false,
     part5: false,
     part6: true,
+    capabilityMap: false,
+    capabilityLibrary: false,
+    activityOverview: false,
   },
   ADVANCED: {
     part1: true,
@@ -34,6 +47,9 @@ export const WORKBENCH_PRESETS: Record<'SIMPLE' | 'ADVANCED', WorkbenchSectionVi
     part4: true,
     part5: true,
     part6: true,
+    capabilityMap: true,
+    capabilityLibrary: true,
+    activityOverview: true,
   },
 };
 
@@ -104,14 +120,17 @@ export const resolveWorkbenchSections = (input: {
     part4: { key: 'part4', visible: true, locked: false },
     part5: { key: 'part5', visible: true, locked: false },
     part6: { key: 'part6', visible: true, locked: false },
+    capabilityMap: { key: 'capabilityMap', visible: true, locked: false },
+    capabilityLibrary: { key: 'capabilityLibrary', visible: true, locked: false },
+    activityOverview: { key: 'activityOverview', visible: true, locked: false },
   };
 
   WORKBENCH_SECTION_KEYS.forEach((key) => {
     const resolvedValue =
       getSectionVisibilityFromLayer(system, key)
       ?? getSectionVisibilityFromLayer(organization, key)
-      ?? getSectionVisibilityFromLayer(userDefaults, key)
       ?? (key in localState ? Boolean(localState[key]) : undefined)
+      ?? getSectionVisibilityFromLayer(userDefaults, key)
       ?? true;
 
     let visible = resolvedValue;

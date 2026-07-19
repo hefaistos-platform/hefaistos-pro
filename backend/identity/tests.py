@@ -434,6 +434,57 @@ class WorkbenchVisibilityDefaultsGraphQLTests(TestCase):
             {"sectionVisibility": {"part4": False, "part5": True}},
         )
 
+    def test_update_workbench_visibility_defaults_supports_new_section_keys(self):
+        """New section keys capabilityMap, capabilityLibrary, activityOverview are accepted and persisted."""
+        mutation = '''
+            mutation UpdateWorkbenchDefaults($payload: JSONString) {
+                updateWorkbenchVisibilityDefaults(workbenchVisibilityDefaults: $payload) {
+                    user {
+                        workbenchVisibilityDefaults
+                    }
+                }
+            }
+        '''
+        payload = '{"sectionVisibility":{"capabilityMap":false,"capabilityLibrary":true,"activityOverview":false}}'
+        result = schema.execute(
+            mutation,
+            variable_values={"payload": payload},
+            context_value=self._make_request(),
+        )
+        self.assertIsNone(result.errors)
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.workbench_visibility_defaults,
+            {"sectionVisibility": {"capabilityMap": False, "capabilityLibrary": True, "activityOverview": False}},
+        )
+
+    def test_update_workbench_visibility_defaults_rejects_unknown_section_keys(self):
+        """Unknown section keys are silently dropped during normalization."""
+        mutation = '''
+            mutation UpdateWorkbenchDefaults($payload: JSONString) {
+                updateWorkbenchVisibilityDefaults(workbenchVisibilityDefaults: $payload) {
+                    user {
+                        workbenchVisibilityDefaults
+                    }
+                }
+            }
+        '''
+        payload = '{"sectionVisibility":{"part4":true,"unknownSection":true}}'
+        result = schema.execute(
+            mutation,
+            variable_values={"payload": payload},
+            context_value=self._make_request(),
+        )
+        self.assertIsNone(result.errors)
+
+        self.user.refresh_from_db()
+        # unknownSection should be silently dropped
+        self.assertEqual(
+            self.user.workbench_visibility_defaults,
+            {"sectionVisibility": {"part4": True}},
+        )
+
     def test_reset_workbench_visibility_defaults_clears_payload(self):
         self.user.workbench_visibility_defaults = {"sectionVisibility": {"part4": False}}
         self.user.save(update_fields=["workbench_visibility_defaults"])

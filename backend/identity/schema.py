@@ -59,7 +59,7 @@ from identity.oidc import (
 
 logger = logging.getLogger(__name__)
 SESSION_TIMEOUT_HOURS_ALLOWED = {2, 4, 8, 12, 24}
-WORKBENCH_SECTION_KEYS = {'part1', 'part2', 'part3', 'part4', 'part5', 'part6'}
+WORKBENCH_SECTION_KEYS = {'part1', 'part2', 'part3', 'part4', 'part5', 'part6', 'capabilityMap', 'capabilityLibrary', 'activityOverview'}
 
 
 def _normalize_workbench_visibility_defaults(raw_defaults):

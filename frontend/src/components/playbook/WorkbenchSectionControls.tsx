@@ -15,6 +15,9 @@ const SECTION_LABELS: Record<WorkbenchSectionKey, string> = {
   part4: 'Part 4: SOAR Configuration',
   part5: 'Part 5: Testing & Validation',
   part6: 'Part 6: Review Workflow',
+  capabilityMap: 'Capability Abstraction Map',
+  capabilityLibrary: 'Capability Abstraction Library',
+  activityOverview: 'Activity Overview',
 };
 
 interface WorkbenchSectionControlsProps {

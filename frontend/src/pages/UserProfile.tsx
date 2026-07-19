@@ -1246,6 +1246,30 @@ export const UserProfile: React.FC = () => {
         </div>
         <div className="space-y-2 text-sm mb-4">
           <label className="flex items-center justify-between">
+            <span>Capability Abstraction Map</span>
+            <input
+              type="checkbox"
+              checked={Boolean(workbenchDefaults.capabilityMap)}
+              onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, capabilityMap: e.target.checked }))}
+            />
+          </label>
+          <label className="flex items-center justify-between">
+            <span>Capability Abstraction Library</span>
+            <input
+              type="checkbox"
+              checked={Boolean(workbenchDefaults.capabilityLibrary)}
+              onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, capabilityLibrary: e.target.checked }))}
+            />
+          </label>
+          <label className="flex items-center justify-between">
+            <span>Activity Overview</span>
+            <input
+              type="checkbox"
+              checked={Boolean(workbenchDefaults.activityOverview)}
+              onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, activityOverview: e.target.checked }))}
+            />
+          </label>
+          <label className="flex items-center justify-between">
             <span>Part 4: SOAR Configuration</span>
             <input
               type="checkbox"
