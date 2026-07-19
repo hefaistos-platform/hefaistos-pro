@@ -59,17 +59,26 @@ class GetAutocompleteOptions(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, format, context, position, dataSourceId=None):
-        from rules.autocomplete import KQLAutocompleteEngine, WazuhAutocompleteEngine, SPLAutocompleteEngine
+        from rules.autocomplete import (
+            AQLAutocompleteEngine,
+            EQLAutocompleteEngine,
+            KQLAutocompleteEngine,
+            SPLAutocompleteEngine,
+            WazuhAutocompleteEngine,
+        )
 
         fmt = (format or '').upper()
-        if fmt == 'KQL':
-            engine = KQLAutocompleteEngine()
-        elif fmt == 'WAZUH':
-            engine = WazuhAutocompleteEngine()
-        elif fmt == 'SPL':
-            engine = SPLAutocompleteEngine()
-        else:
+        engine_map = {
+            'KQL': KQLAutocompleteEngine,
+            'WAZUH': WazuhAutocompleteEngine,
+            'SPL': SPLAutocompleteEngine,
+            'AQL': AQLAutocompleteEngine,
+            'EQL': EQLAutocompleteEngine,
+        }
+        engine_cls = engine_map.get(fmt)
+        if engine_cls is None:
             return GetAutocompleteOptions(result=AutocompleteResultType(suggestions=[], isComplete=True))
+        engine = engine_cls()
 
         try:
             res = engine.get_autocomplete(text=context or '', position=position or 0, data_source_id=dataSourceId)
@@ -121,17 +130,26 @@ class ValidateRuleContent(graphene.Mutation):
 
     @staticmethod
     def mutate(root, info, format, context, position, dataSourceId=None):
-        from rules.autocomplete import KQLAutocompleteEngine, WazuhAutocompleteEngine, SPLAutocompleteEngine
+        from rules.autocomplete import (
+            AQLAutocompleteEngine,
+            EQLAutocompleteEngine,
+            KQLAutocompleteEngine,
+            SPLAutocompleteEngine,
+            WazuhAutocompleteEngine,
+        )
 
         fmt = (format or '').upper()
-        if fmt == 'KQL':
-            engine = KQLAutocompleteEngine()
-        elif fmt == 'WAZUH':
-            engine = WazuhAutocompleteEngine()
-        elif fmt == 'SPL':
-            engine = SPLAutocompleteEngine()
-        else:
+        engine_map = {
+            'KQL': KQLAutocompleteEngine,
+            'WAZUH': WazuhAutocompleteEngine,
+            'SPL': SPLAutocompleteEngine,
+            'AQL': AQLAutocompleteEngine,
+            'EQL': EQLAutocompleteEngine,
+        }
+        engine_cls = engine_map.get(fmt)
+        if engine_cls is None:
             return ValidateRuleContent(result=ValidationResultType(issues=[]))
+        engine = engine_cls()
 
         try:
             validator = getattr(engine, 'validate_content', None)
@@ -371,7 +389,7 @@ class Query(graphene.ObjectType):
     search_all_rules = graphene.List(
         RuleType,
         query=graphene.String(required=True),
-        format=graphene.String(description="Filter by format: KQL, WAZUH, SPL, OTHER"),
+        format=graphene.String(description="Filter by format: KQL, EQL, WAZUH, SPL, AQL, OTHER"),
         limit=graphene.Int(default_value=15),
         description="Search rules by title for autocomplete in rule picker."
     )
@@ -960,8 +978,8 @@ class PullRuleRepository(graphene.Mutation):
 class SaveDetectionRule(graphene.Mutation):
     class Arguments:
         playbook_id = graphene.UUID(required=True)
-        raw_yaml = graphene.String(required=True, description="Rule content (Sigma YAML, KQL, Wazuh XML, or Splunk SPL)")
-        format = graphene.String(required=False, description="KQL (default), WAZUH, SPL, or OTHER")
+        raw_yaml = graphene.String(required=True, description="Rule content (KQL, EQL, Wazuh XML, Splunk SPL, or AQL)")
+        format = graphene.String(required=False, description="KQL (default), EQL, WAZUH, SPL, AQL, or OTHER")
         title = graphene.String(required=False, description="Optional rule title used for file naming and persistence")
         description = graphene.String(required=False, description="Optional rule description for metadata header")
         author = graphene.String(required=False, description="Optional rule author for metadata header")
@@ -993,7 +1011,7 @@ class SaveDetectionRule(graphene.Mutation):
         # Determine format: prefer explicit arg, but auto-correct if content suggests otherwise
         fmt_arg = normalize_rule_format(format)
         detected = detect_rule_format(raw_yaml)
-        fmt = fmt_arg if fmt_arg in ('KQL', 'WAZUH', 'SPL', 'AQL', 'OTHER', 'OPENTIDE') else detected
+        fmt = fmt_arg if fmt_arg in ('KQL', 'EQL', 'WAZUH', 'SPL', 'AQL', 'OTHER', 'OPENTIDE') else detected
         # Auto-detect OpenTide format by checking YAML structure (must have both 'metadata' and
         # 'platforms' as top-level dict keys) rather than string matching, to avoid false positives.
         if fmt != 'OPENTIDE':
@@ -1058,7 +1076,7 @@ class SaveDetectionRule(graphene.Mutation):
             )
 
         # 4) Upsert rule linked to this graph
-        fmt_norm = fmt if fmt in ('KQL', 'WAZUH', 'SPL', 'AQL', 'OTHER', 'OPENTIDE') else 'OTHER'
+        fmt_norm = fmt if fmt in ('KQL', 'EQL', 'WAZUH', 'SPL', 'AQL', 'OTHER', 'OPENTIDE') else 'OTHER'
 
         # Rule title uses the format: "{playbook title}-{format}" (e.g. "mshta-spl")
         extracted_title = (title or '').strip()
@@ -1370,7 +1388,7 @@ class UpsertRule(graphene.Mutation):
         level = graphene.String()
         tags = graphene.List(graphene.String)
         rawContent = graphene.String(description="Original rule content (YAML, KQL, etc.)")
-        format = graphene.String(description="Rule format: KQL, WAZUH, SPL, or OTHER")
+        format = graphene.String(description="Rule format: KQL, EQL, WAZUH, SPL, AQL, or OTHER")
 
     rule = graphene.Field(RuleType)
 
@@ -1406,7 +1424,7 @@ class UpsertRule(graphene.Mutation):
 
         # Validate and set format
         rule_format = kwargs.get('format', 'OTHER').upper()
-        if rule_format not in ['KQL', 'WAZUH', 'SPL', 'AQL', 'OTHER']:
+        if rule_format not in ['KQL', 'EQL', 'WAZUH', 'SPL', 'AQL', 'OTHER']:
             rule_format = 'OTHER'
 
         defaults = {
@@ -1573,7 +1591,7 @@ class UpdateDetectionRule(graphene.Mutation):
 
         # Re-detect format and re-parse metadata from updated content
         detected_fmt = detect_rule_format(raw_content)
-        fmt = detected_fmt if detected_fmt in ('KQL', 'WAZUH', 'SPL', 'AQL', 'OTHER') else rule.format
+        fmt = detected_fmt if detected_fmt in ('KQL', 'EQL', 'WAZUH', 'SPL', 'AQL', 'OTHER') else rule.format
         try:
             extracted = parse_rule_by_format(raw_content, fmt, fallback_author=rule.author or '')
         except ValueError:

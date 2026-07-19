@@ -62,6 +62,11 @@ class SPLPlatform(BaseModel):
     sourcetype: Optional[str] = Field(None, description="Splunk sourcetype")
 
 
+class ElasticPlatform(BaseModel):
+    """Elastic EQL schema."""
+    query: str = Field(..., min_length=1, description="Elastic Event Query Language query")
+
+
 class WazuhPlatform(BaseModel):
     """Wazuh XML rule schema."""
     rule: str = Field(..., min_length=1, description="XML rule content")
@@ -78,15 +83,16 @@ class QRadarPlatform(BaseModel):
 class OpenTidePlatforms(BaseModel):
     """Platform-specific subschemas. At least one platform must be configured."""
     kql: Optional[KQLPlatform] = None
+    elastic: Optional[ElasticPlatform] = None
     spl: Optional[SPLPlatform] = None
     wazuh: Optional[WazuhPlatform] = None
     qradar: Optional[QRadarPlatform] = None
 
     def model_post_init(self, _context: Any) -> None:
         """Validate that at least one platform is configured."""
-        platforms = [self.kql, self.spl, self.wazuh, self.qradar]
+        platforms = [self.kql, self.elastic, self.spl, self.wazuh, self.qradar]
         if not any(platforms):
-            raise ValueError("At least one platform (kql, spl, wazuh, qradar) must be configured")
+            raise ValueError("At least one platform (kql, elastic, spl, wazuh, qradar) must be configured")
 
 
 class OpenTideRule(BaseModel):

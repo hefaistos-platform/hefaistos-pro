@@ -38,11 +38,12 @@ interface RulePickerProps {
   onRuleSelected?: (rule: RuleOption) => void;
   placeholder?: string;
   style?: React.CSSProperties;
-  formatFilter?: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
+  formatFilter?: 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
 }
 
 const formatColors: Record<string, string> = {
   KQL: 'blue',
+  EQL: 'gold',
   WAZUH: 'orange',
   SPL: 'cyan',
   AQL: 'magenta',

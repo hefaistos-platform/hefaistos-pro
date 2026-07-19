@@ -510,7 +510,7 @@ def _import_rules(
         repository.git_url = peer.remote_url
         repository.save(update_fields=['git_url'])
 
-    valid_formats = {'KQL', 'WAZUH', 'SPL', 'AQL', 'OPENTIDE', 'OTHER'}
+    valid_formats = {'KQL', 'EQL', 'WAZUH', 'SPL', 'AQL', 'OPENTIDE', 'OTHER'}
     for idx, rule_data in enumerate(rules_payload or []):
         try:
             if not isinstance(rule_data, dict):

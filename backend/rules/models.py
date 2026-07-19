@@ -123,6 +123,7 @@ class DetectionRule(models.Model):
     status = models.CharField(max_length=50, null=True, blank=True)
     FORMAT_CHOICES = (
         ('KQL', 'Kusto Query Language'),
+        ('EQL', 'Elastic EQL'),
         ('WAZUH', 'Wazuh XML'),
         ('SPL', 'Splunk SPL'),
         ('AQL', 'IBM QRadar AQL'),

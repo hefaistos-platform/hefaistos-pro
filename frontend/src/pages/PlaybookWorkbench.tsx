@@ -711,9 +711,9 @@ interface CreateEdgeData {
   };
 }
 
-type WorkbenchRuleFormat = 'KQL' | 'WAZUH' | 'SPL' | 'AQL';
+type WorkbenchRuleFormat = 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL';
 const isWorkbenchRuleFormat = (format: string): format is WorkbenchRuleFormat =>
-  format === 'KQL' || format === 'WAZUH' || format === 'SPL' || format === 'AQL';
+  format === 'KQL' || format === 'EQL' || format === 'WAZUH' || format === 'SPL' || format === 'AQL';
 
 export const PlaybookWorkbench = () => {
   const SIDEBAR_DEFAULT_WIDTH = 320;

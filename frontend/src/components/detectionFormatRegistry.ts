@@ -1,7 +1,7 @@
 import { OpenTideRule } from '../types/opentide';
 
-export type PlatformTab = 'kql' | 'spl' | 'wazuh' | 'qradar';
-export type RuleFormat = 'KQL' | 'SPL' | 'WAZUH' | 'AQL';
+export type PlatformTab = 'kql' | 'eql' | 'spl' | 'wazuh' | 'qradar';
+export type RuleFormat = 'KQL' | 'EQL' | 'SPL' | 'WAZUH' | 'AQL';
 
 export interface DetectionFormatDefinition {
   id: PlatformTab;
@@ -36,6 +36,28 @@ export const DETECTION_FORMAT_REGISTRY: DetectionFormatDefinition[] = [
         platforms: {
           ...rule.platforms,
           kql: hasContent ? { query: content, data_source: rule.platforms.kql?.data_source } : undefined,
+        },
+      };
+    },
+  },
+  {
+    id: 'eql',
+    format: 'EQL',
+    displayName: 'Elastic EQL',
+    fileExtension: 'eql',
+    commentSyntax: 'line',
+    commentPrefix: '//',
+    tabLabel: '🟡 Elastic EQL',
+    tabColor: 'bg-yellow-50 text-yellow-800 border border-yellow-200',
+    tabActiveColor: 'bg-yellow-500 text-white',
+    getContent: (rule) => rule.platforms.elastic?.query ?? '',
+    setContent: (rule, content) => {
+      const hasContent = Boolean(content.trim());
+      return {
+        ...rule,
+        platforms: {
+          ...rule.platforms,
+          elastic: hasContent ? { query: content } : undefined,
         },
       };
     },

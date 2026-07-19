@@ -71,7 +71,7 @@ const VALIDATE_RULE_CONTENT = `
 interface DetectionRuleEditorProps {
   value: string;
   onChange: (value: string) => void;
-  format: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
+  format: 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER';
   height?: string;
   dataSourceId?: string;
   readOnly?: boolean;
@@ -164,9 +164,10 @@ function extractPrefix(text: string, position: number): string {
 function getMonacoLanguage(format: string): string {
   switch (format) {
     case 'KQL': return 'kql';
+    case 'EQL': return 'eql';
     case 'WAZUH': return 'xml';
     case 'SPL': return 'spl';
-    case 'AQL': return 'sql';
+    case 'AQL': return 'aql';
     default: return 'plaintext';
   }
 }
@@ -196,7 +197,8 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const themeName = visualStyle === 'terminal' ? 'hef-terminal' : (isDark ? 'vs-dark' : 'vs');
-  const supportsSemanticValidation = format === 'KQL' || format === 'WAZUH';
+  const supportsSemanticValidation = format !== 'OTHER';
+  const hasLspProvider = Boolean(FORMAT_TO_LSP_LANGUAGE[format]);
 
   // Register custom Monaco language definitions once on mount
   useEffect(() => {
@@ -293,14 +295,15 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
     // KQL: '|' (pipe operator), '.' (member access), ',' (argument separator)
     // SPL: '|' (pipe operator), '.' (member access), ',' (argument separator)
     // WAZUH: '<' (XML opening tags)
+    // AQL/EQL: '.', ',', '(' for SQL/EQL expressions
     // NOTE: Space is intentionally excluded from trigger characters to avoid
     // interfering with normal typing (space key would behave unexpectedly).
     const triggerCharacters =
-      format === 'KQL'
+      format === 'KQL' || format === 'SPL'
         ? ['|', '.', ',']
-        : format === 'SPL'
-        ? ['|', '.', ',']
-        : ['<']; // WAZUH/XML
+        : format === 'WAZUH'
+        ? ['<']
+        : ['.', ',', '(']; // AQL/EQL
 
     const provider = monaco.languages.registerCompletionItemProvider(
       languageId,
@@ -521,6 +524,22 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
               ✗ LSP unavailable
             </span>
           )}
+        </div>
+      )}
+      {enableLSP && !hasLspProvider && (
+        <div className="absolute top-2 right-2 z-10 pointer-events-none">
+          <span
+            style={{
+              fontSize: 12,
+              color: isDark ? '#fcd34d' : '#92400e',
+              background: isDark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(254, 252, 232, 0.95)',
+              padding: '2px 8px',
+              borderRadius: 8,
+              border: `1px solid ${isDark ? '#854d0e' : '#fde68a'}`,
+            }}
+          >
+            Autocomplete + syntax checks (no LSP)
+          </span>
         </div>
       )}
 

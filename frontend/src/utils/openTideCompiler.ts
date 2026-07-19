@@ -79,7 +79,7 @@ export function compileMetadataFromWorkbench(playbook: PlaybookGraphSnapshot): O
 export function buildInitialOpenTideRule(
   playbookData: PlaybookGraphSnapshot,
   legacyRule: string,
-  legacyFormat: 'KQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER' | 'OPENTIDE',
+  legacyFormat: 'KQL' | 'EQL' | 'WAZUH' | 'SPL' | 'AQL' | 'OTHER' | 'OPENTIDE',
 ): OpenTideRule {
   const metadata = compileMetadataFromWorkbench(playbookData);
 
@@ -93,6 +93,8 @@ export function buildInitialOpenTideRule(
 
   if (legacyFormat === 'KQL' && legacyRule.trim()) {
     platforms.kql = { query: legacyRule };
+  } else if (legacyFormat === 'EQL' && legacyRule.trim()) {
+    platforms.elastic = { query: legacyRule };
   } else if (legacyFormat === 'SPL' && legacyRule.trim()) {
     platforms.spl = { query: legacyRule };
   } else if (legacyFormat === 'WAZUH' && legacyRule.trim()) {
@@ -108,6 +110,7 @@ export function buildInitialOpenTideRule(
 export function getConfiguredPlatforms(rule: OpenTideRule): string[] {
   const configured: string[] = [];
   if (rule.platforms.kql?.query?.trim()) configured.push('kql');
+  if (rule.platforms.elastic?.query?.trim()) configured.push('elastic');
   if (rule.platforms.spl?.query?.trim()) configured.push('spl');
   if (rule.platforms.wazuh?.rule?.trim()) configured.push('wazuh');
   if (rule.platforms.qradar?.query?.trim()) configured.push('qradar');

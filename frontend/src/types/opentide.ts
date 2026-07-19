@@ -39,6 +39,9 @@ export interface OpenTidePlatforms {
     query: string;
     data_source?: string;
   };
+  elastic?: {
+    query: string;
+  };
   spl?: {
     query: string;
     index?: string;
