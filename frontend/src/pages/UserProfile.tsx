@@ -1232,14 +1232,20 @@ export const UserProfile: React.FC = () => {
         </p>
         <div className="flex gap-2 mb-4">
           <button
-            className="px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
-            onClick={() => setWorkbenchDefaults({ ...WORKBENCH_PRESETS.SIMPLE })}
+            className="workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            onClick={() => {
+              setWorkbenchDefaults({ ...WORKBENCH_PRESETS.SIMPLE });
+              message.success('Simple mode deployed successfully');
+            }}
           >
             Simple Mode
           </button>
           <button
-            className="px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
-            onClick={() => setWorkbenchDefaults({ ...WORKBENCH_PRESETS.ADVANCED })}
+            className="workbench-defaults-button px-3 py-1.5 text-xs font-semibold rounded border bg-gray-50 hover:bg-gray-100"
+            onClick={() => {
+              setWorkbenchDefaults({ ...WORKBENCH_PRESETS.ADVANCED });
+              message.success('Advanced mode deployed successfully');
+            }}
           >
             Advanced Mode
           </button>
@@ -1249,6 +1255,7 @@ export const UserProfile: React.FC = () => {
             <span>Capability Abstraction Map</span>
             <input
               type="checkbox"
+              className="workbench-defaults-checkbox"
               checked={Boolean(workbenchDefaults.capabilityMap)}
               onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, capabilityMap: e.target.checked }))}
             />
@@ -1257,6 +1264,7 @@ export const UserProfile: React.FC = () => {
             <span>Capability Abstraction Library</span>
             <input
               type="checkbox"
+              className="workbench-defaults-checkbox"
               checked={Boolean(workbenchDefaults.capabilityLibrary)}
               onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, capabilityLibrary: e.target.checked }))}
             />
@@ -1265,6 +1273,7 @@ export const UserProfile: React.FC = () => {
             <span>Activity Overview</span>
             <input
               type="checkbox"
+              className="workbench-defaults-checkbox"
               checked={Boolean(workbenchDefaults.activityOverview)}
               onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, activityOverview: e.target.checked }))}
             />
@@ -1273,6 +1282,7 @@ export const UserProfile: React.FC = () => {
             <span>Part 4: SOAR Configuration</span>
             <input
               type="checkbox"
+              className="workbench-defaults-checkbox"
               checked={Boolean(workbenchDefaults.part4)}
               onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, part4: e.target.checked }))}
             />
@@ -1281,6 +1291,7 @@ export const UserProfile: React.FC = () => {
             <span>Part 5: Testing & Validation</span>
             <input
               type="checkbox"
+              className="workbench-defaults-checkbox"
               checked={Boolean(workbenchDefaults.part5)}
               onChange={(e) => setWorkbenchDefaults((prev) => ({ ...prev, part5: e.target.checked }))}
             />
@@ -1288,7 +1299,7 @@ export const UserProfile: React.FC = () => {
         </div>
         <div className="flex justify-end gap-2">
           <button
-            className="px-3 py-2 text-xs font-semibold rounded border bg-white hover:bg-gray-50"
+            className="workbench-defaults-button px-3 py-2 text-xs font-semibold rounded border bg-white hover:bg-gray-50"
             disabled={savingWorkbenchDefaults}
             onClick={async () => {
               try {
@@ -1303,7 +1314,7 @@ export const UserProfile: React.FC = () => {
             Reset
           </button>
           <button
-            className="px-3 py-2 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+            className="workbench-defaults-primary-button px-3 py-2 text-xs font-semibold rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
             disabled={savingWorkbenchDefaults}
             onClick={async () => {
               try {
