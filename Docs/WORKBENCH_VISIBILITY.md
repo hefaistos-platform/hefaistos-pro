@@ -1,4 +1,4 @@
-# PR #7 — Layered Workbench Visibility (Feature Documentation)
+# Layered Workbench Visibility (Feature Documentation)
 
 ## Overview
 
