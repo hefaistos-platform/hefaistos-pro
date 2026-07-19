@@ -2037,6 +2037,7 @@ export const PlaybookWorkbench = () => {
 
   const handleApplySectionPreset = (preset: keyof typeof WORKBENCH_PRESETS) => {
     setLocalSectionVisibility({ ...WORKBENCH_PRESETS[preset] });
+    message.success(preset === 'SIMPLE' ? 'Simple mode deployed successfully' : 'Advanced mode deployed successfully');
   };
 
   const handleSaveVisibilityDefaults = async () => {

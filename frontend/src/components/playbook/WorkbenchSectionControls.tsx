@@ -37,15 +37,30 @@ export const WorkbenchSectionControls: React.FC<WorkbenchSectionControlsProps> =
 }) => {
   const optionalSections = WORKBENCH_SECTION_KEYS.filter((key) => !MANDATORY_WORKBENCH_SECTIONS.includes(key));
   const lockedSections = WORKBENCH_SECTION_KEYS.filter((key) => sections[key].locked && sections[key].reason);
+  const isPresetSelected = (preset: keyof typeof WORKBENCH_PRESETS) => optionalSections.every(
+    (key) => sections[key].locked || Boolean(sections[key].visible) === Boolean(WORKBENCH_PRESETS[preset][key]),
+  );
+  const isSimplePresetSelected = isPresetSelected('SIMPLE');
+  const isAdvancedPresetSelected = isPresetSelected('ADVANCED');
 
   return (
     <div className="mb-6 p-4 rounded-lg border border-gray-200 bg-white space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => onApplyPreset('SIMPLE')}>
+          <Button
+            variant="secondary"
+            className={`workbench-defaults-button ${isSimplePresetSelected ? 'workbench-defaults-button-active' : ''}`}
+            aria-pressed={isSimplePresetSelected}
+            onClick={() => onApplyPreset('SIMPLE')}
+          >
             Simple Mode
           </Button>
-          <Button variant="secondary" onClick={() => onApplyPreset('ADVANCED')}>
+          <Button
+            variant="secondary"
+            className={`workbench-defaults-button ${isAdvancedPresetSelected ? 'workbench-defaults-button-active' : ''}`}
+            aria-pressed={isAdvancedPresetSelected}
+            onClick={() => onApplyPreset('ADVANCED')}
+          >
             Advanced Mode
           </Button>
         </div>
@@ -64,6 +79,7 @@ export const WorkbenchSectionControls: React.FC<WorkbenchSectionControlsProps> =
               )}
               <input
                 type="checkbox"
+                className="workbench-defaults-checkbox"
                 checked={sections[key].visible}
                 onChange={(event) => onToggleSection(key, event.target.checked)}
                 disabled={sections[key].locked}
