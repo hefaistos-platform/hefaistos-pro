@@ -2225,6 +2225,7 @@ export const PlaybookWorkbench = () => {
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
              
              {/* 2. Visual Layer Header */}
+             {resolvedWorkbenchSections.sections.capabilityMap.visible && (
              <div className="w-full flex justify-center bg-gray-50 pt-6 px-8 shrink-0">
                  <div className="w-full max-w-7xl border-2 border-hefaistos-border rounded-lg shadow-sm bg-white overflow-hidden flex flex-col">
                      
@@ -2279,6 +2280,7 @@ export const PlaybookWorkbench = () => {
                      </div>
                   </div>
               </div>
+             )}
 
              {/* Maieutic Review Panel - Shows when there's pending data */}
              {pendingMaieuticData && (
@@ -2377,16 +2379,18 @@ export const PlaybookWorkbench = () => {
                              ruleFormat={aiFormat}
                            />
 
-                           <CapabilityAbstractionPanel
-                             techniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
-                             selectedIds={data.playbookGraph.selectedCapabilityAbstractions?.map((entry) => entry.id) || []}
-                             selectedEntryObjects={data.playbookGraph.selectedCapabilityAbstractions || []}
-                             detectionFocusLayer={data.playbookGraph.detectionFocusLayer || ''}
-                             userRole={data.me?.role || 'VIEWER'}
-                             onSelectionChange={handleCapabilitySelectionChange}
-                             highlightedEntryId={highlightedEntryId}
-                             onEntryHighlight={setHighlightedEntryId}
-                           />
+                           {resolvedWorkbenchSections.sections.capabilityLibrary.visible && (
+                             <CapabilityAbstractionPanel
+                               techniqueId={data.playbookGraph.mitreTechnique?.techniqueId || null}
+                               selectedIds={data.playbookGraph.selectedCapabilityAbstractions?.map((entry) => entry.id) || []}
+                               selectedEntryObjects={data.playbookGraph.selectedCapabilityAbstractions || []}
+                               detectionFocusLayer={data.playbookGraph.detectionFocusLayer || ''}
+                               userRole={data.me?.role || 'VIEWER'}
+                               onSelectionChange={handleCapabilitySelectionChange}
+                               highlightedEntryId={highlightedEntryId}
+                               onEntryHighlight={setHighlightedEntryId}
+                             />
+                           )}
                          </>
                        )}
                          
@@ -2640,7 +2644,9 @@ export const PlaybookWorkbench = () => {
                     )}
 
                     {/* Activity Overview */}
-                    <ActivityOverview activities={data.playbookGraph.activities || []} />
+                    {resolvedWorkbenchSections.sections.activityOverview.visible && (
+                      <ActivityOverview activities={data.playbookGraph.activities || []} />
+                    )}
              </div>
         </div>
       </div>
