@@ -782,6 +782,39 @@ code {
   border-color: #ffffff;
 }
 
+.profile-theme .workbench-defaults-checkbox {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--hef-info-text);
+}
+
+.profile-theme .workbench-defaults-checkbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hef-info-text) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.profile-theme .workbench-defaults-button,
+.profile-theme .workbench-defaults-primary-button {
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+}
+
+.profile-theme .workbench-defaults-button:hover {
+  border-color: var(--hef-border-strong);
+}
+
+.profile-theme .workbench-defaults-button:active,
+.profile-theme .workbench-defaults-primary-button:active {
+  transform: translateY(1px);
+}
+
+.profile-theme .workbench-defaults-button:focus-visible,
+.profile-theme .workbench-defaults-primary-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hef-info-text) 45%, transparent);
+  outline-offset: 2px;
+}
+
 /* Workbench detail theming */
 .workbench-theme {
   color: var(--hef-text-primary);
