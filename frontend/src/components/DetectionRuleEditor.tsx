@@ -112,6 +112,7 @@ const FORMAT_TO_LSP_LANGUAGE: Record<string, string> = {
   KQL: 'kql',
   SPL: 'spl',
   WAZUH: 'wazuh',
+  AQL: 'aql',
 };
 
 /**
@@ -538,7 +539,9 @@ export const DetectionRuleEditor: React.FC<DetectionRuleEditorProps> = ({
               border: `1px solid ${isDark ? '#854d0e' : '#fde68a'}`,
             }}
           >
-            Autocomplete + syntax checks (no LSP)
+            {format === 'EQL'
+              ? 'Autocomplete + syntax checks (EQL LSP not yet supported)'
+              : 'Autocomplete + syntax checks (no LSP)'}
           </span>
         </div>
       )}

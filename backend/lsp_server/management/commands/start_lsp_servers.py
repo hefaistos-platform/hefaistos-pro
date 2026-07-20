@@ -13,7 +13,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--language',
             type=str,
-            choices=['kql', 'spl', 'all'],
+            choices=['kql', 'spl', 'wazuh', 'aql', 'all'],
             default='all',
             help='Language server to start (default: all)',
         )
