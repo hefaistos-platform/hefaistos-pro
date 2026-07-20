@@ -87,9 +87,9 @@ GraphQL schema/exposure was updated to include the new visibility data and mutat
 
 ---
 
-## Testing coverage included in PR #7
+## Testing coverage
 
-PR #7 included tests for:
+Included tests for:
 
 - Frontend resolver logic and Workbench UI behavior
 - Backend GraphQL persistence/reset behavior
