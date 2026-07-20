@@ -62,7 +62,7 @@ export const WorkbenchSectionControls: React.FC<WorkbenchSectionControlsProps> =
         onClick={() => setIsCollapsed((value) => !value)}
         aria-expanded={!isCollapsed}
       >
-        <span className="text-base font-semibold text-gray-800">## Workbench Layout Defaults</span>
+        <span className="text-base font-semibold text-gray-800">Workbench Layout Defaults</span>
         <span className="text-xs font-medium text-gray-600">{isCollapsed ? 'Show' : 'Hide'}</span>
       </button>
 
