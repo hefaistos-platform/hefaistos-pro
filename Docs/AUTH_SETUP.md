@@ -224,7 +224,105 @@ This means:
 
 ---
 
-## 11. Multi-Organization OIDC Behavior (How Org Choice Works)
+## 11. Redirect URI Configuration
+
+### What is the Redirect URI?
+
+The redirect URI (also called callback URI) is the URL that your Identity Provider (IdP) sends the
+user back to after successful authentication. HEFAISTOS processes the authorization code on the same
+`/login` page by reading `code` and `state` parameters from the URL.
+
+**Both Entra and Generic OIDC use the same callback path:**
+
+```
+<your-platform-base-url>/login
+```
+
+This URI **must be registered exactly** (character-for-character, including scheme and path) in your
+IdP's application/client configuration. Any mismatch will cause a redirect_uri_mismatch error and
+the login will fail.
+
+---
+
+### Recommended URI Patterns
+
+| Environment | Example Redirect URI |
+|-------------|----------------------|
+| Production | `https://hefaistos.company.com/login` |
+| Staging | `https://hefaistos-staging.company.com/login` |
+| Internal / air-gapped (`.loc` domain) | `https://hefaistos.company.loc/login` |
+| Local development (HTTP exception) | `http://localhost:3000/login` |
+
+The `Configuration → Authentication` form auto-populates the Redirect URI field with
+`<detected-origin>/login` when the field is blank. You can always override it manually.
+
+---
+
+### Registering the Redirect URI in Microsoft Entra
+
+1. Go to **Azure Portal → App registrations → \<your app\> → Authentication**.
+2. Under **Web → Redirect URIs**, add `https://<your-platform-domain>/login`.
+3. Ensure the URI uses HTTPS (required by Entra for production; HTTP is only accepted for
+   `localhost`).
+4. Save. The URI must match character-for-character what is set in HEFAISTOS
+   `Configuration → Authentication → Entra OIDC → Redirect URI`.
+
+---
+
+### Registering the Redirect URI for Generic OIDC
+
+Register the same `https://<your-platform-domain>/login` URI in your provider's client
+configuration (Okta, Auth0, Keycloak, authentik, or any other OIDC-compliant IdP).
+
+The exact location varies by provider:
+
+- **Okta**: Application → Sign-in redirect URIs
+- **Auth0**: Application → Allowed Callback URLs
+- **Keycloak**: Client → Valid Redirect URIs
+- **authentik**: Provider → Redirect URIs/Origins
+
+---
+
+### Internal-Only Domains (`.loc`, `.internal`, etc.)
+
+HEFAISTOS supports non-public/internal-only domains such as `.loc`, `.internal`, or custom TLDs
+as long as:
+
+1. **DNS resolution** — the domain resolves from the user's network context (workstation, VPN, etc.).
+2. **TLS trust** — the domain has a valid certificate that is trusted by the user's browser
+   (self-signed CA or internal CA pinned to browser/OS trust store is acceptable).
+3. **IdP reachability** — the IdP (Entra, Keycloak, etc.) can redirect to that domain from the
+   user's context; for cloud IdPs like Microsoft Entra, the redirect target must be reachable from
+   the user's browser, not necessarily from the internet.
+4. **Exact URI match** — the URI registered in the IdP matches character-for-character what is
+   configured in HEFAISTOS.
+
+Example for an internal deployment:
+
+```
+Redirect URI in IdP:   https://hefaistos.corp.loc/login
+Redirect URI in HEFAISTOS:  https://hefaistos.corp.loc/login
+```
+
+**Note on HTTPS for internal environments:** Most production-grade IdPs (including Microsoft Entra)
+require HTTPS even for non-public domains. Use an internal CA to issue a certificate for your
+internal domain. HTTP-only is generally acceptable only for local development (`localhost`).
+
+---
+
+### Troubleshooting Redirect URI Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `AADSTS50011: The redirect URI … does not match` | URI in Entra registration doesn't match what HEFAISTOS sends | Ensure both URIs are identical (scheme, hostname, port, path, no trailing slash difference) |
+| `redirect_uri_mismatch` | Generic OIDC provider rejects the URI | Register the exact URI in the IdP application settings |
+| `invalid_request: redirect_uri is required` | HEFAISTOS redirect URI field is empty | Open Configuration → Authentication, fill in the Redirect URI and save |
+| Login redirects to `/login` but no session is created | State/nonce mismatch after redirect | Check that your reverse proxy (NGINX) preserves query parameters (`?code=…&state=…`) |
+| URI accepted but login fails with "OIDC nonce validation failed" | Proxy strips or rewrites query parameters | Verify NGINX `proxy_pass` preserves the full query string on the `/login` location |
+
+---
+
+## 12. Multi-Organization OIDC Behavior (How Org Choice Works)
 
 Authentication settings are organization-scoped.
 

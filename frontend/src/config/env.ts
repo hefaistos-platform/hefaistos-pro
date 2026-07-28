@@ -31,3 +31,19 @@ export const getNavigatorBaseUrl = (): string | undefined => {
   }
   return undefined;
 };
+
+/**
+ * Returns the default redirect URI to pre-populate in the Authentication
+ * configuration form when no value has been saved yet.
+ *
+ * Both Entra and Generic OIDC use the same callback path: <origin>/login.
+ * The origin is derived from VITE_API_URL / REACT_APP_API_URL when set, or
+ * falls back to window.location.origin at runtime.
+ *
+ * This value must be registered exactly (scheme + host + path) in the IdP
+ * application settings (Entra App Registration / OIDC client config).
+ */
+export const computeDefaultRedirectUri = (): string => {
+  const base = getApiBaseUrl();
+  return base ? `${base}/login` : '';
+};

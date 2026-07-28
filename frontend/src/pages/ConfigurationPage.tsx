@@ -38,6 +38,7 @@ import PlatformCredentials from './settings/PlatformCredentials';
 import HefPublishTargets from './settings/HefPublishTargets';
 import AITasksTab from './settings/AITasks';
 import InstanceSharing from './settings/InstanceSharing';
+import { computeDefaultRedirectUri } from '../config/env';
 
 // ---------------------------------------------------------------------------
 // GraphQL – Users & Org AI (from UserManagementPage)
@@ -2014,7 +2015,7 @@ export const ConfigurationPage: React.FC = () => {
       entraTenantId: s.entraTenantId || '',
       entraClientId: s.entraClientId || '',
       entraClientSecret: '',
-      entraRedirectUri: s.entraRedirectUri || '',
+      entraRedirectUri: s.entraRedirectUri || computeDefaultRedirectUri(),
       entraScopes: s.entraScopes || 'openid profile email',
       entraEmailClaim: s.entraEmailClaim || 'preferred_username',
       entraUsernameClaim: s.entraUsernameClaim || 'preferred_username',
@@ -2022,7 +2023,7 @@ export const ConfigurationPage: React.FC = () => {
       oidcIssuerUrl: s.oidcIssuerUrl || '',
       oidcClientId: s.oidcClientId || '',
       oidcClientSecret: '',
-      oidcRedirectUri: s.oidcRedirectUri || '',
+      oidcRedirectUri: s.oidcRedirectUri || computeDefaultRedirectUri(),
       oidcScopes: s.oidcScopes || 'openid profile email',
       oidcEmailClaim: s.oidcEmailClaim || 'email',
       oidcUsernameClaim: s.oidcUsernameClaim || 'preferred_username',
@@ -2357,6 +2358,7 @@ export const ConfigurationPage: React.FC = () => {
                 <div>
                   <label className="block text-xs font-semibold mb-1">Redirect URI</label>
                   <input className="w-full p-2 border rounded text-sm" value={authForm.entraRedirectUri} onChange={(e) => setAuthForm({ ...authForm, entraRedirectUri: e.target.value })} disabled={!canAdminConfig} />
+                  <p className="text-xs text-gray-500 mt-1">Must match exactly the URI registered in the Entra App Registration (Web → Redirect URIs). Default: <code className="bg-gray-100 px-1 rounded">{'<your-domain>/login'}</code></p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold mb-1">Scopes</label>
@@ -2395,6 +2397,7 @@ export const ConfigurationPage: React.FC = () => {
                 <div>
                   <label className="block text-xs font-semibold mb-1">Redirect URI</label>
                   <input className="w-full p-2 border rounded text-sm" value={authForm.oidcRedirectUri} onChange={(e) => setAuthForm({ ...authForm, oidcRedirectUri: e.target.value })} disabled={!canAdminConfig} />
+                  <p className="text-xs text-gray-500 mt-1">Must match exactly the URI registered in your OIDC provider (Allowed Callback URLs / Valid Redirect URIs). Default: <code className="bg-gray-100 px-1 rounded">{'<your-domain>/login'}</code></p>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold mb-1">Scopes</label>
