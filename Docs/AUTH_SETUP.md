@@ -300,8 +300,8 @@ as long as:
 Example for an internal deployment:
 
 ```
-Redirect URI in IdP:   https://hefaistos.corp.loc/login
-Redirect URI in HEFAISTOS:  https://hefaistos.corp.loc/login
+Redirect URI in IdP:       https://hefaistos.corp.loc/login
+Redirect URI in HEFAISTOS: https://hefaistos.corp.loc/login
 ```
 
 **Note on HTTPS for internal environments:** Most production-grade IdPs (including Microsoft Entra)

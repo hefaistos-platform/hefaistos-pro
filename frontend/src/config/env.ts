@@ -45,5 +45,8 @@ export const getNavigatorBaseUrl = (): string | undefined => {
  */
 export const computeDefaultRedirectUri = (): string => {
   const base = getApiBaseUrl();
-  return base ? `${base}/login` : '';
+  if (!base) return '';
+  // getApiBaseUrl() already strips trailing slashes, but strip defensively
+  // here too so callers that bypass getApiBaseUrl() still get a clean URI.
+  return `${base.replace(/\/+$/, '')}/login`;
 };
