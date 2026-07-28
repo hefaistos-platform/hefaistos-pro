@@ -2449,6 +2449,7 @@ export const ConfigurationPage: React.FC = () => {
             <div className="border border-gray-200 rounded-lg p-4 mb-6">
               <h4 className="font-semibold text-base mb-3">Local Break-glass</h4>
               <label className="block text-xs font-semibold mb-1">Allowed Usernames (CSV)</label>
+              <p className="text-xs text-gray-500 mb-1">Separate multiple usernames with commas (e.g., admin,operator).</p>
               <input className="w-full p-2 border rounded text-sm" value={authForm.breakglassUsernames} onChange={(e) => setAuthForm({ ...authForm, breakglassUsernames: e.target.value })} disabled={!canAdminConfig} />
               <p className="text-xs text-gray-500 mt-1">Only these usernames can use local login when break-glass is enabled.</p>
             </div>
