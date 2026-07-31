@@ -288,6 +288,7 @@ const GET_AUTH_SETTINGS = gql`
       oidcEmailClaim
       oidcUsernameClaim
       oidcRoleClaim
+      oidcVerifySsl
       roleAdminValues
       roleAnalystValues
       roleReviewerValues
@@ -324,6 +325,7 @@ const UPDATE_AUTH_SETTINGS = gql`
     $oidcEmailClaim: String
     $oidcUsernameClaim: String
     $oidcRoleClaim: String
+    $oidcVerifySsl: Boolean
     $roleAdminValues: String
     $roleAnalystValues: String
     $roleReviewerValues: String
@@ -355,6 +357,7 @@ const UPDATE_AUTH_SETTINGS = gql`
       oidcEmailClaim: $oidcEmailClaim
       oidcUsernameClaim: $oidcUsernameClaim
       oidcRoleClaim: $oidcRoleClaim
+      oidcVerifySsl: $oidcVerifySsl
       roleAdminValues: $roleAdminValues
       roleAnalystValues: $roleAnalystValues
       roleReviewerValues: $roleReviewerValues
@@ -388,6 +391,7 @@ const UPDATE_AUTH_SETTINGS = gql`
         oidcEmailClaim
         oidcUsernameClaim
         oidcRoleClaim
+        oidcVerifySsl
         roleAdminValues
         roleAnalystValues
         roleReviewerValues
@@ -786,6 +790,7 @@ interface AuthSettingsShape {
   oidcEmailClaim: string;
   oidcUsernameClaim: string;
   oidcRoleClaim: string;
+  oidcVerifySsl: boolean;
   roleAdminValues: string;
   roleAnalystValues: string;
   roleReviewerValues: string;
@@ -1957,6 +1962,7 @@ export const ConfigurationPage: React.FC = () => {
     oidcEmailClaim: 'email',
     oidcUsernameClaim: 'preferred_username',
     oidcRoleClaim: 'roles',
+    oidcVerifySsl: true,
     roleAdminValues: 'HEF-Admins,Admin,ADMIN',
     roleAnalystValues: 'HEF-Analysts,Analyst,ANALYST',
     roleReviewerValues: 'HEF-Reviewers,Reviewer,REVIEWER',
@@ -2028,6 +2034,7 @@ export const ConfigurationPage: React.FC = () => {
       oidcEmailClaim: s.oidcEmailClaim || 'email',
       oidcUsernameClaim: s.oidcUsernameClaim || 'preferred_username',
       oidcRoleClaim: s.oidcRoleClaim || 'roles',
+      oidcVerifySsl: s.oidcVerifySsl ?? true,
       roleAdminValues: s.roleAdminValues || '',
       roleAnalystValues: s.roleAnalystValues || '',
       roleReviewerValues: s.roleReviewerValues || '',
@@ -2171,6 +2178,7 @@ export const ConfigurationPage: React.FC = () => {
         oidcEmailClaim: authForm.oidcEmailClaim || null,
         oidcUsernameClaim: authForm.oidcUsernameClaim || null,
         oidcRoleClaim: authForm.oidcRoleClaim || null,
+        oidcVerifySsl: authForm.oidcVerifySsl,
         roleAdminValues: authForm.roleAdminValues || null,
         roleAnalystValues: authForm.roleAnalystValues || null,
         roleReviewerValues: authForm.roleReviewerValues || null,
@@ -2415,7 +2423,12 @@ export const ConfigurationPage: React.FC = () => {
                   <label className="block text-xs font-semibold mb-1">Role Claim</label>
                   <input className="w-full p-2 border rounded text-sm" value={authForm.oidcRoleClaim} onChange={(e) => setAuthForm({ ...authForm, oidcRoleClaim: e.target.value })} disabled={!canAdminConfig} />
                 </div>
+                <label className="flex items-center justify-between gap-3 text-sm border border-gray-200 rounded px-3 py-2">
+                  <span>Verify SSL/TLS Certificate</span>
+                  <Switch checked={authForm.oidcVerifySsl} onChange={(checked) => setAuthForm({ ...authForm, oidcVerifySsl: checked })} disabled={!canAdminConfig} />
+                </label>
               </div>
+              <p className="text-xs text-gray-500 mt-2">Disable only for trusted self-signed or internally issued certificates.</p>
             </div>
 
             <div className="border border-gray-200 rounded-lg p-4 mb-4">

@@ -205,6 +205,7 @@ class AuthSettingsType(graphene.ObjectType):
     oidc_email_claim = graphene.String()
     oidc_username_claim = graphene.String()
     oidc_role_claim = graphene.String()
+    oidc_verify_ssl = graphene.Boolean()
     role_admin_values = graphene.String()
     role_analyst_values = graphene.String()
     role_reviewer_values = graphene.String()
@@ -2740,6 +2741,7 @@ class UpdateAuthSettings(graphene.Mutation):
         oidc_email_claim = graphene.String(required=False)
         oidc_username_claim = graphene.String(required=False)
         oidc_role_claim = graphene.String(required=False)
+        oidc_verify_ssl = graphene.Boolean(required=False)
         role_admin_values = graphene.String(required=False)
         role_analyst_values = graphene.String(required=False)
         role_reviewer_values = graphene.String(required=False)
@@ -2793,6 +2795,7 @@ class UpdateAuthSettings(graphene.Mutation):
             'oidc_email_claim',
             'oidc_username_claim',
             'oidc_role_claim',
+            'oidc_verify_ssl',
             'role_admin_values',
             'role_analyst_values',
             'role_reviewer_values',

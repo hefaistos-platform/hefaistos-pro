@@ -152,6 +152,7 @@ Provider panels:
   - client id
   - client secret
   - redirect URI
+  - verify SSL/TLS certificate (disable only for trusted self-signed/internal CA endpoints)
   - scopes
   - claim mapping
 
