@@ -1,4 +1,5 @@
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass
 from time import time
@@ -29,9 +30,10 @@ class OidcProviderConfig:
     email_claim: str
     username_claim: str
     role_claim: str
+    verify_ssl: bool
 
 
-_DISCOVERY_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_DISCOVERY_CACHE: dict[tuple[str, bool], tuple[float, dict[str, Any]]] = {}
 _DISCOVERY_CACHE_SECONDS = 300
 
 
@@ -78,6 +80,7 @@ def build_provider_config(settings_obj, provider: str) -> OidcProviderConfig:
             email_claim=(settings_obj.entra_email_claim or "preferred_username").strip(),
             username_claim=(settings_obj.entra_username_claim or "preferred_username").strip(),
             role_claim=(settings_obj.entra_role_claim or "roles").strip(),
+            verify_ssl=True,
         )
 
     issuer = (settings_obj.oidc_issuer_url or "").strip().rstrip("/")
@@ -98,6 +101,7 @@ def build_provider_config(settings_obj, provider: str) -> OidcProviderConfig:
         email_claim=(settings_obj.oidc_email_claim or "email").strip(),
         username_claim=(settings_obj.oidc_username_claim or "preferred_username").strip(),
         role_claim=(settings_obj.oidc_role_claim or "roles").strip(),
+        verify_ssl=bool(getattr(settings_obj, "oidc_verify_ssl", True)),
     )
 
 
@@ -108,20 +112,50 @@ def _is_provider_enabled(settings_obj, provider: str) -> bool:
     return bool(settings_obj.enable_oidc)
 
 
-def _get_discovery_document(discovery_url: str) -> dict[str, Any]:
+def _get_discovery_document(discovery_url: str, verify_ssl: bool = True) -> dict[str, Any]:
     now = time()
-    cached = _DISCOVERY_CACHE.get(discovery_url)
+    cache_key = (discovery_url, bool(verify_ssl))
+    cached = _DISCOVERY_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _DISCOVERY_CACHE_SECONDS:
         return cached[1]
 
-    response = requests.get(discovery_url, timeout=10)
+    response = requests.get(discovery_url, timeout=10, verify=bool(verify_ssl))
     if response.status_code >= 400:
         raise OidcAuthError(f"OIDC discovery failed with status {response.status_code}")
     payload = response.json()
     if not isinstance(payload, dict):
         raise OidcAuthError("OIDC discovery response is invalid")
-    _DISCOVERY_CACHE[discovery_url] = (now, payload)
+    _DISCOVERY_CACHE[cache_key] = (now, payload)
     return payload
+
+
+def _get_signing_key_from_jwks(id_token: str, jwks_uri: str, verify_ssl: bool = True):
+    try:
+        token_header = jwt.get_unverified_header(id_token)
+    except Exception as exc:
+        raise OidcAuthError("OIDC ID token header is invalid") from exc
+
+    key_id = token_header.get("kid")
+    if not key_id:
+        raise OidcAuthError("OIDC ID token is missing key id")
+
+    jwks_response = requests.get(jwks_uri, timeout=10, verify=bool(verify_ssl))
+    if jwks_response.status_code >= 400:
+        raise OidcAuthError(f"OIDC JWKS fetch failed with status {jwks_response.status_code}")
+
+    jwks_payload = jwks_response.json()
+    keys = jwks_payload.get("keys") if isinstance(jwks_payload, dict) else None
+    if not isinstance(keys, list):
+        raise OidcAuthError("OIDC JWKS payload is invalid")
+
+    jwk = next((item for item in keys if item.get("kid") == key_id), None)
+    if not isinstance(jwk, dict):
+        raise OidcAuthError("OIDC signing key was not found in JWKS")
+
+    try:
+        return jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+    except Exception as exc:
+        raise OidcAuthError("OIDC signing key is invalid") from exc
 
 
 def _make_signed_state(request, provider: str, nonce: str, redirect_uri: str, organization_id: str | None = None) -> str:
@@ -172,7 +206,7 @@ def build_authorization_url(request, settings_obj, provider: str, organization_i
         raise OidcAuthError("Requested OIDC provider is disabled")
 
     config = build_provider_config(settings_obj, provider)
-    metadata = _get_discovery_document(config.discovery_url)
+    metadata = _get_discovery_document(config.discovery_url, verify_ssl=config.verify_ssl)
     authorization_endpoint = metadata.get("authorization_endpoint")
     if not authorization_endpoint:
         raise OidcAuthError("OIDC discovery does not contain authorization_endpoint")
@@ -217,7 +251,7 @@ def complete_code_exchange(request, code: str, state: str) -> tuple[str, OidcPro
         raise OidcAuthError("Requested OIDC provider is disabled")
 
     config = build_provider_config(settings_obj, provider)
-    metadata = _get_discovery_document(config.discovery_url)
+    metadata = _get_discovery_document(config.discovery_url, verify_ssl=config.verify_ssl)
     token_endpoint = metadata.get("token_endpoint")
     jwks_uri = metadata.get("jwks_uri")
     issuer = metadata.get("issuer")
@@ -235,6 +269,7 @@ def complete_code_exchange(request, code: str, state: str) -> tuple[str, OidcPro
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=10,
+        verify=config.verify_ssl,
     )
     if token_response.status_code >= 400:
         raise OidcAuthError(f"OIDC token exchange failed with status {token_response.status_code}")
@@ -244,8 +279,7 @@ def complete_code_exchange(request, code: str, state: str) -> tuple[str, OidcPro
     if not id_token:
         raise OidcAuthError("OIDC token exchange did not return id_token")
 
-    jwk_client = jwt.PyJWKClient(jwks_uri)
-    signing_key = jwk_client.get_signing_key_from_jwt(id_token).key
+    signing_key = _get_signing_key_from_jwks(id_token=id_token, jwks_uri=jwks_uri, verify_ssl=config.verify_ssl)
     claims = jwt.decode(
         id_token,
         signing_key,

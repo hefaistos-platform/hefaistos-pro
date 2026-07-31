@@ -301,6 +301,10 @@ class AuthProviderSettings(models.Model):
     oidc_email_claim = models.CharField(max_length=128, blank=True, default='email')
     oidc_username_claim = models.CharField(max_length=128, blank=True, default='preferred_username')
     oidc_role_claim = models.CharField(max_length=128, blank=True, default='roles')
+    oidc_verify_ssl = models.BooleanField(
+        default=True,
+        help_text='Verify TLS certificates for OIDC provider endpoints. Disable only for trusted self-signed endpoints.',
+    )
 
     # Role claim mapping
     role_admin_values = models.TextField(blank=True, default='HEF-Admins,Admin,ADMIN')
