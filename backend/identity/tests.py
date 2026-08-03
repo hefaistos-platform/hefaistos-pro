@@ -1,4 +1,5 @@
 from django.test import TestCase
+from django.test import override_settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from organizations.models import Organization
@@ -18,6 +19,7 @@ from identity.schema import (
 from identity.decorators import role_required, Roles
 from core.schema import schema
 from django.test import RequestFactory
+from identity.oidc import OidcAuthError, OidcProviderConfig, complete_code_exchange
 
 User = get_user_model()
 
@@ -543,3 +545,114 @@ class SubmitRegistrationRequestTests(TestCase):
         kwargs = service.send_message.call_args.kwargs
         self.assertEqual(kwargs["to"], ["platform-admin@example.com"])
         self.assertEqual(kwargs["headers"]["Reply-To"], "john.doe@example.com")
+
+
+class OidcIdTokenLeewayTests(TestCase):
+    @override_settings(OIDC_ID_TOKEN_LEEWAY_SECONDS=60)
+    @patch("identity.oidc.timezone.now")
+    @patch("identity.oidc.jwt.decode")
+    @patch("identity.oidc._get_signing_key_from_jwks")
+    @patch("identity.oidc.requests.post")
+    @patch("identity.oidc._get_discovery_document")
+    @patch("identity.oidc.build_provider_config")
+    @patch("identity.oidc._is_provider_enabled")
+    @patch("identity.models.AuthProviderSettings.get_solo")
+    @patch("identity.oidc._verify_signed_state")
+    def test_complete_code_exchange_applies_configured_leeway(
+        self,
+        mock_verify_state,
+        mock_get_solo,
+        mock_is_enabled,
+        mock_build_provider,
+        mock_discovery,
+        mock_post,
+        mock_get_key,
+        mock_jwt_decode,
+        mock_now,
+    ):
+        mock_verify_state.return_value = {"provider": "oidc", "nonce": "nonce-1"}
+        mock_get_solo.return_value = MagicMock()
+        mock_is_enabled.return_value = True
+        mock_build_provider.return_value = OidcProviderConfig(
+            provider="oidc",
+            issuer="https://issuer.example",
+            discovery_url="https://issuer.example/.well-known/openid-configuration",
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://app.example/callback",
+            scopes="openid profile email",
+            email_claim="email",
+            username_claim="preferred_username",
+            role_claim="roles",
+            verify_ssl=True,
+        )
+        mock_discovery.return_value = {
+            "token_endpoint": "https://issuer.example/token",
+            "jwks_uri": "https://issuer.example/jwks",
+            "issuer": "https://issuer.example",
+        }
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"id_token": "id-token"}
+        mock_get_key.return_value = "mock-signing-key"
+        mock_now.return_value.timestamp.return_value = 1_000
+        mock_jwt_decode.return_value = {"nonce": "nonce-1", "exp": 950}
+
+        request = MagicMock()
+        request.META = {}
+        complete_code_exchange(request=request, code="code", state="state")
+
+        self.assertEqual(mock_jwt_decode.call_args.kwargs["leeway"], 60)
+
+    @override_settings(OIDC_ID_TOKEN_LEEWAY_SECONDS=60)
+    @patch("identity.oidc.timezone.now")
+    @patch("identity.oidc.jwt.decode")
+    @patch("identity.oidc._get_signing_key_from_jwks")
+    @patch("identity.oidc.requests.post")
+    @patch("identity.oidc._get_discovery_document")
+    @patch("identity.oidc.build_provider_config")
+    @patch("identity.oidc._is_provider_enabled")
+    @patch("identity.models.AuthProviderSettings.get_solo")
+    @patch("identity.oidc._verify_signed_state")
+    def test_complete_code_exchange_rejects_token_past_leeway(
+        self,
+        mock_verify_state,
+        mock_get_solo,
+        mock_is_enabled,
+        mock_build_provider,
+        mock_discovery,
+        mock_post,
+        mock_get_key,
+        mock_jwt_decode,
+        mock_now,
+    ):
+        mock_verify_state.return_value = {"provider": "oidc", "nonce": "nonce-1"}
+        mock_get_solo.return_value = MagicMock()
+        mock_is_enabled.return_value = True
+        mock_build_provider.return_value = OidcProviderConfig(
+            provider="oidc",
+            issuer="https://issuer.example",
+            discovery_url="https://issuer.example/.well-known/openid-configuration",
+            client_id="client-id",
+            client_secret="client-secret",
+            redirect_uri="https://app.example/callback",
+            scopes="openid profile email",
+            email_claim="email",
+            username_claim="preferred_username",
+            role_claim="roles",
+            verify_ssl=True,
+        )
+        mock_discovery.return_value = {
+            "token_endpoint": "https://issuer.example/token",
+            "jwks_uri": "https://issuer.example/jwks",
+            "issuer": "https://issuer.example",
+        }
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"id_token": "id-token"}
+        mock_get_key.return_value = "mock-signing-key"
+        mock_now.return_value.timestamp.return_value = 1_000
+        mock_jwt_decode.return_value = {"nonce": "nonce-1", "exp": 939}
+
+        request = MagicMock()
+        request.META = {}
+        with self.assertRaises(OidcAuthError):
+            complete_code_exchange(request=request, code="code", state="state")
