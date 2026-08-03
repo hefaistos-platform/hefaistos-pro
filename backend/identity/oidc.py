@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 import jwt
 import requests
+from django.conf import settings
 from django.core import signing
 from django.utils import timezone
 
@@ -35,6 +36,7 @@ class OidcProviderConfig:
 
 _DISCOVERY_CACHE: dict[tuple[str, bool], tuple[float, dict[str, Any]]] = {}
 _DISCOVERY_CACHE_SECONDS = 300
+_DEFAULT_ID_TOKEN_LEEWAY_SECONDS = 120
 
 
 def _normalize_scopes(scopes: str | None) -> str:
@@ -55,6 +57,15 @@ def _provider_slug(provider: str | None) -> str:
     if value in {"entra", "oidc"}:
         return value
     raise OidcAuthError("Unsupported OIDC provider")
+
+
+def _id_token_leeway_seconds() -> int:
+    raw_value = getattr(settings, "OIDC_ID_TOKEN_LEEWAY_SECONDS", _DEFAULT_ID_TOKEN_LEEWAY_SECONDS)
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        parsed = _DEFAULT_ID_TOKEN_LEEWAY_SECONDS
+    return max(0, parsed)
 
 
 def build_provider_config(settings_obj, provider: str) -> OidcProviderConfig:
@@ -286,13 +297,15 @@ def complete_code_exchange(request, code: str, state: str) -> tuple[str, OidcPro
         algorithms=["RS256", "RS384", "RS512"],
         audience=config.client_id,
         issuer=issuer,
+        leeway=_id_token_leeway_seconds(),
         options={"verify_at_hash": False},
     )
     if str(claims.get("nonce") or "") != str(state_payload.get("nonce") or ""):
         raise OidcAuthError("OIDC nonce validation failed")
 
     now_ts = int(timezone.now().timestamp())
-    if int(claims.get("exp") or 0) and int(claims["exp"]) < now_ts:
+    token_leeway_seconds = _id_token_leeway_seconds()
+    if int(claims.get("exp") or 0) and int(claims["exp"]) < (now_ts - token_leeway_seconds):
         raise OidcAuthError("OIDC ID token is expired")
 
     return provider, config, claims, organization_id

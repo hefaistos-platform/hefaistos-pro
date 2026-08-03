@@ -268,6 +268,12 @@ GRAPHQL_JWT = {
     "JWT_VERIFY_EXPIRATION": True,
 }
 
+_oidc_id_token_leeway_raw = os.environ.get("OIDC_ID_TOKEN_LEEWAY_SECONDS", "120")
+try:
+    OIDC_ID_TOKEN_LEEWAY_SECONDS = max(0, int(_oidc_id_token_leeway_raw))
+except (TypeError, ValueError):
+    OIDC_ID_TOKEN_LEEWAY_SECONDS = 120
+
 # Elasticsearch Configuration
 ELASTICSEARCH_DSL = {
     'default': {

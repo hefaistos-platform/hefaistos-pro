@@ -25,6 +25,7 @@ This document lists environment variables used by HEFAISTOS runtime configuratio
 | `JWT_SECRET_KEY` | falls back to `SECRET_KEY` | JWT signing key. |
 | `JWT_ACCESS_TOKEN_MINUTES` | `60` | Access token lifetime in minutes. |
 | `JWT_REFRESH_TOKEN_DAYS` | `7` | Refresh token lifetime in days. |
+| `OIDC_ID_TOKEN_LEEWAY_SECONDS` | `120` | Allowed clock skew (in seconds) for OIDC ID token time-based claims (`iat`, `nbf`, `exp`). |
 
 ## CORS / CSRF / Frontend Origins
 
