@@ -356,6 +356,13 @@ code {
   -webkit-text-fill-color: var(--hef-text-primary) !important;
 }
 
+.configuration-theme .ant-select-selection-item,
+.configuration-theme .ant-select-selection-search-input,
+.configuration-theme .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
 /* Force visible selected values in dark mode (including disabled selects). */
 :root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-selector .ant-select-selection-item,
 :root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select .ant-select-selector .ant-select-selection-placeholder,
@@ -365,9 +372,25 @@ code {
   -webkit-text-fill-color: var(--hef-text-primary) !important;
 }
 
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select .ant-select-selector .ant-select-selection-item,
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select .ant-select-selector .ant-select-selection-placeholder,
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select .ant-select-selector .ant-select-selection-search-input,
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
 :root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-item,
 :root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-placeholder,
 :root[data-theme='dark'] .configuration-theme .config-auth-select.ant-select.ant-select-disabled .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+  opacity: 1 !important;
+}
+
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-item,
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select-disabled .ant-select-selector .ant-select-placeholder,
+:root[data-theme='dark'] .configuration-theme .ant-select.ant-select-disabled .ant-select-arrow {
   color: var(--hef-text-primary) !important;
   -webkit-text-fill-color: var(--hef-text-primary) !important;
   opacity: 1 !important;

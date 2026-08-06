@@ -182,6 +182,83 @@ def _openai_chat_create_with_token_fallback(client, model: str, messages: list, 
             return client.chat.completions.create(**{**payload, fallback_param: max_tokens})
         raise
 
+
+def _openai_responses_create_with_token_fallback(client, model: str, input_payload: list, max_tokens: int | None = None, **kwargs):
+    """Create Responses API output while handling max_output_tokens/max_tokens compatibility."""
+    payload = {
+        "model": model,
+        "input": input_payload,
+        **kwargs,
+    }
+
+    if max_tokens is None:
+        return client.responses.create(**payload)
+
+    preferred_param = "max_output_tokens"
+    fallback_param = "max_tokens"
+
+    try:
+        return client.responses.create(**{**payload, preferred_param: max_tokens})
+    except Exception as exc:
+        msg = str(exc)
+        logger.warning(
+            "OpenAI responses call failed on first attempt: model=%s param=%s max_tokens=%s error=%s",
+            model,
+            preferred_param,
+            max_tokens,
+            msg,
+        )
+        unsupported = "unsupported parameter" in msg.lower() or "unsupported_parameter" in msg.lower()
+        mentions_preferred = preferred_param in msg
+        if unsupported and mentions_preferred:
+            logger.warning(
+                "Retrying OpenAI responses call with fallback token parameter: model=%s fallback_param=%s",
+                model,
+                fallback_param,
+            )
+            return client.responses.create(**{**payload, fallback_param: max_tokens})
+        raise
+
+
+def _extract_openai_message_content(message_obj) -> str:
+    """Extract text content from OpenAI chat message objects across SDK variants."""
+    content = getattr(message_obj, 'content', None)
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            text = None
+            if isinstance(block, dict):
+                text = block.get('text')
+            else:
+                text = getattr(block, 'text', None)
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        return "\n".join(parts).strip()
+    return ''
+
+
+def _extract_openai_response_text(response_obj) -> str:
+    """Extract text from OpenAI Responses API payloads."""
+    output_text = getattr(response_obj, 'output_text', None)
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    output = getattr(response_obj, 'output', None)
+    if isinstance(output, list):
+        parts = []
+        for item in output:
+            content = item.get('content') if isinstance(item, dict) else getattr(item, 'content', None)
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                text = block.get('text') if isinstance(block, dict) else getattr(block, 'text', None)
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+        return "\n".join(parts).strip()
+    return ''
+
 def _call_ollama(base_url: str, model: str, messages: list, timeout: int = 60) -> str:
     """Call Ollama via the OpenAI-compatible chat endpoint and return the response text."""
     url = base_url.rstrip('/') + '/v1/chat/completions'
@@ -443,17 +520,53 @@ def _invoke_detection_generation_model(user_settings, provider: str, system_prom
             raise ValidationError("OpenAI SDK not installed. Add 'openai' to requirements and rebuild.")
 
         client = openai.OpenAI(api_key=user_settings.get_openai_key())
-        response = _openai_chat_create_with_token_fallback(
+        model = _map_gpt(provider)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            response = _openai_chat_create_with_token_fallback(
+                client,
+                model,
+                messages,
+                temperature=0.2,
+                max_tokens=8000,
+            )
+            content = _extract_openai_message_content(response.choices[0].message)
+            if content:
+                return content
+        except Exception as exc:
+            msg = str(exc).lower()
+            unsupported_operation = 'requested operation is unsupported' in msg or (
+                'unsupported' in msg and 'operation' in msg
+            )
+            if not unsupported_operation:
+                raise
+            logger.warning(
+                "OpenAI chat operation unsupported for model=%s; retrying with Responses API: %s",
+                model,
+                exc,
+            )
+
+        response = _openai_responses_create_with_token_fallback(
             client,
-            _map_gpt(provider),
+            model,
             [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {
+                    "role": message["role"],
+                    "content": [{"type": "input_text", "text": message["content"]}],
+                }
+                for message in messages
+                if message.get("content")
             ],
             temperature=0.2,
             max_tokens=8000,
         )
-        return response.choices[0].message.content
+        content = _extract_openai_response_text(response)
+        if content:
+            return content
+        raise ValueError(f"OpenAI model '{model}' returned an empty response.")
 
     if 'GEMINI' in provider:
         if not user_settings.get_gemini_key():
