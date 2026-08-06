@@ -1111,7 +1111,12 @@ def _parse_claim_values(claim_value):
     return [text]
 
 
-def _map_role_from_claims(settings_obj: AuthProviderSettings, role_claim_value):
+def _map_role_from_claims(
+    settings_obj: AuthProviderSettings,
+    role_claim_value,
+    *,
+    fallback_to_default: bool = True,
+):
     values = {item.lower() for item in _parse_claim_values(role_claim_value)}
     admin_values = {item.lower() for item in settings_obj.role_admin_values_list()}
     analyst_values = {item.lower() for item in settings_obj.role_analyst_values_list()}
@@ -1123,7 +1128,9 @@ def _map_role_from_claims(settings_obj: AuthProviderSettings, role_claim_value):
         return Roles.ANALYST
     if values & reviewer_values:
         return Roles.REVIEWER
-    return settings_obj.default_provisioned_role or Roles.VIEWER
+    if fallback_to_default:
+        return settings_obj.default_provisioned_role or Roles.VIEWER
+    return None
 
 
 def _sanitize_username(candidate: str) -> str:
@@ -1179,7 +1186,8 @@ def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: Au
     if not user and username:
         user = CustomUser.objects.filter(username__iexact=username, organization=target_org).first()
 
-    desired_role = _map_role_from_claims(settings_obj, role_value)
+    mapped_role = _map_role_from_claims(settings_obj, role_value, fallback_to_default=False)
+    desired_role = mapped_role or settings_obj.default_provisioned_role or Roles.VIEWER
 
     if user is None:
         if not settings_obj.auto_provision_users:
@@ -1209,8 +1217,8 @@ def _find_or_create_sso_user(identity_data: dict, claims: dict, settings_obj: Au
         if email and user.email != email:
             user.email = email
             changed.append('email')
-        if not user.is_superuser and not user.is_staff and desired_role and user.role != desired_role:
-            user.role = desired_role
+        if not user.is_superuser and not user.is_staff and mapped_role and user.role != mapped_role:
+            user.role = mapped_role
             changed.append('role')
         if changed:
             user.save(update_fields=changed)

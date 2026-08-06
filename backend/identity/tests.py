@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pyotp
 import json
 
-from identity.models import AccountSetupToken, UserMfaSettings
+from identity.models import AccountSetupToken, UserMfaSettings, AuthProviderSettings
 from identity.schema import (
     InviteUser,
     PrepareAccountActivation,
@@ -15,6 +15,7 @@ from identity.schema import (
     StartMfaLogin,
     SubmitRegistrationRequest,
     UpdateProfile,
+    _find_or_create_sso_user,
 )
 from identity.decorators import role_required, Roles
 from core.schema import schema
@@ -656,3 +657,62 @@ class OidcIdTokenLeewayTests(TestCase):
         request.META = {}
         with self.assertRaises(OidcAuthError):
             complete_code_exchange(request=request, code="code", state="state")
+
+
+class OidcRoleSyncTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name="OIDC Sync Org")
+        self.settings_obj = AuthProviderSettings.get_for_organization(self.org)
+        self.settings_obj.sync_claims_on_login = True
+        self.settings_obj.default_provisioned_role = Roles.VIEWER
+        self.settings_obj.save(update_fields=["sync_claims_on_login", "default_provisioned_role"])
+
+    def test_existing_user_role_is_preserved_when_role_claim_missing(self):
+        user = User.objects.create_user(
+            username="oidc-user-1",
+            email="oidc-user-1@example.com",
+            role=Roles.ANALYST,
+            organization=self.org,
+        )
+
+        _find_or_create_sso_user(
+            identity_data={"email": user.email, "username": user.username, "role_value": None},
+            claims={},
+            settings_obj=self.settings_obj,
+            target_org=self.org,
+        )
+
+        user.refresh_from_db()
+        self.assertEqual(user.role, Roles.ANALYST)
+
+    def test_existing_user_role_updates_when_mapped_role_claim_present(self):
+        user = User.objects.create_user(
+            username="oidc-user-2",
+            email="oidc-user-2@example.com",
+            role=Roles.ANALYST,
+            organization=self.org,
+        )
+
+        _find_or_create_sso_user(
+            identity_data={"email": user.email, "username": user.username, "role_value": "HEF-Reviewers"},
+            claims={},
+            settings_obj=self.settings_obj,
+            target_org=self.org,
+        )
+
+        user.refresh_from_db()
+        self.assertEqual(user.role, Roles.REVIEWER)
+
+    def test_new_user_without_role_claim_gets_default_role(self):
+        created = _find_or_create_sso_user(
+            identity_data={
+                "email": "oidc-user-3@example.com",
+                "username": "oidc-user-3",
+                "role_value": None,
+            },
+            claims={},
+            settings_obj=self.settings_obj,
+            target_org=self.org,
+        )
+
+        self.assertEqual(created.role, Roles.VIEWER)
