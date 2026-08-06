@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag-release:
@@ -68,6 +69,22 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG_NAME}" "${TARGET_SHA}" -m "HEFAISTOS PRO ${TAG_NAME}"
           git push origin "${TAG_NAME}"
+
+      - name: Trigger changelog generation
+        uses: actions/github-script@v7
+        env:
+          TAG_NAME: ${{ steps.resolve.outputs.tag }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "version-changelog.yml",
+              ref: "sharp",
+              inputs: {
+                tag_name: process.env.TAG_NAME
+              }
+            });
 
       - name: Release summary
         run: |

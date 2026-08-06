@@ -1,9 +1,9 @@
 # Versions
 
-This directory stores generated version changelog documents for the platform.
+This directory stores generated platform version changelog documentation.
 
-A GitHub Actions workflow (`.github/workflows/version-changelog.yml`) creates a new file here whenever a new tag matching `v*` is pushed.
-Each generated file is named after the version tag (for example: `v1.2.3.md`) and contains:
+A GitHub Actions workflow (`.github/workflows/version-changelog.yml`) updates `changelog.md` whenever a release tag (matching `v*`) is created.
+The changelog contains one section per version tag and each section includes:
 
 - Changes
 - Fixes
