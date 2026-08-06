@@ -665,7 +665,10 @@ class OidcRoleSyncTests(TestCase):
         self.settings_obj = AuthProviderSettings.get_for_organization(self.org)
         self.settings_obj.sync_claims_on_login = True
         self.settings_obj.default_provisioned_role = Roles.VIEWER
-        self.settings_obj.save(update_fields=["sync_claims_on_login", "default_provisioned_role"])
+        self.settings_obj.role_reviewer_values = "HEF-Reviewers"
+        self.settings_obj.save(
+            update_fields=["sync_claims_on_login", "default_provisioned_role", "role_reviewer_values"]
+        )
 
     def test_existing_user_role_is_preserved_when_role_claim_missing(self):
         user = User.objects.create_user(
