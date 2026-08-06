@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Version tag to document (for example v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -21,7 +27,7 @@ jobs:
       - name: Generate changelog file
         id: changelog
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
         run: |
           set -Eeuo pipefail
 
@@ -29,8 +35,10 @@ jobs:
           git checkout -B sharp origin/sharp
 
           mkdir -p Versions
-          output_file="Versions/${TAG_NAME}.md"
-          if [[ -f "${output_file}" ]]; then
+          output_file="Versions/changelog.md"
+          touch "${output_file}"
+
+          if grep -q "^## ${TAG_NAME}$" "${output_file}"; then
             echo "exists=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -62,11 +70,11 @@ jobs:
           done
 
           {
-            echo "# ${TAG_NAME}"
+            echo "## ${TAG_NAME}"
             echo
             echo "_Generated on $(date -u +'%Y-%m-%d')_"
             echo
-            echo "## Changes"
+            echo "### Changes"
             if [[ ${#changes[@]} -eq 0 ]]; then
               echo "- None"
             else
@@ -75,7 +83,7 @@ jobs:
               done
             fi
             echo
-            echo "## Fixes"
+            echo "### Fixes"
             if [[ ${#fixes[@]} -eq 0 ]]; then
               echo "- None"
             else
@@ -84,7 +92,7 @@ jobs:
               done
             fi
             echo
-            echo "## Removals"
+            echo "### Removals"
             if [[ ${#removals[@]} -eq 0 ]]; then
               echo "- None"
             else
@@ -92,19 +100,35 @@ jobs:
                 printf -- '- %s\n' "${item}"
               done
             fi
-          } > "${output_file}"
+          } > /tmp/version-entry.md
+
+          if grep -q "^# Changelog$" "${output_file}"; then
+            awk 'NR<=2 {next} {print}' "${output_file}" > /tmp/changelog-tail.md
+          else
+            cat "${output_file}" > /tmp/changelog-tail.md
+          fi
+          {
+            echo "# Changelog"
+            echo
+            cat /tmp/version-entry.md
+            if [[ -s /tmp/changelog-tail.md ]]; then
+              echo
+              cat /tmp/changelog-tail.md
+            fi
+          } > /tmp/changelog-updated.md
+          mv /tmp/changelog-updated.md "${output_file}"
 
           echo "exists=false" >> "${GITHUB_OUTPUT}"
 
       - name: Commit changelog
         if: steps.changelog.outputs.exists == 'false'
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.ref_name }}
         run: |
           set -Eeuo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "Versions/${TAG_NAME}.md"
-          git commit -m "docs(versions): add changelog for ${TAG_NAME} [skip version bump] [skip ci]"
+          git add "Versions/changelog.md"
+          git commit -m "docs(versions): add changelog entry for ${TAG_NAME} [skip version bump] [skip ci]"
           git push origin sharp
