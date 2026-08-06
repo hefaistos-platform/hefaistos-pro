@@ -454,8 +454,8 @@ code {
 .configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-item,
 .configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-placeholder,
 .configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-arrow {
-  color: var(--hef-text-primary) !important;
-  -webkit-text-fill-color: var(--hef-text-primary) !important;
+  color: var(--hef-text-secondary) !important;
+  -webkit-text-fill-color: var(--hef-text-secondary) !important;
   opacity: 1 !important;
 }
 
