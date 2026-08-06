@@ -259,6 +259,7 @@ def _extract_openai_response_text(response_obj) -> str:
         return "\n".join(parts).strip()
     return ''
 
+
 def _call_ollama(base_url: str, model: str, messages: list, timeout: int = 60) -> str:
     """Call Ollama via the OpenAI-compatible chat endpoint and return the response text."""
     url = base_url.rstrip('/') + '/v1/chat/completions'
