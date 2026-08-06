@@ -437,6 +437,28 @@ code {
   color: var(--hef-text-muted) !important;
 }
 
+/* Keep AI Task scheduler select values legible across themes and disabled states. */
+.configuration-theme .ai-task-config-select.ant-select .ant-select-selector {
+  background: var(--hef-bg-subtle) !important;
+  border-color: var(--hef-border) !important;
+}
+
+.configuration-theme .ai-task-config-select.ant-select .ant-select-selector .ant-select-selection-item,
+.configuration-theme .ai-task-config-select.ant-select .ant-select-selector .ant-select-selection-placeholder,
+.configuration-theme .ai-task-config-select.ant-select .ant-select-selector .ant-select-selection-search-input,
+.configuration-theme .ai-task-config-select.ant-select .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+}
+
+.configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-item,
+.configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-selector .ant-select-selection-placeholder,
+.configuration-theme .ai-task-config-select.ant-select.ant-select-disabled .ant-select-arrow {
+  color: var(--hef-text-primary) !important;
+  -webkit-text-fill-color: var(--hef-text-primary) !important;
+  opacity: 1 !important;
+}
+
 /* Maieutic modal dark-mode friendliness */
 .maieutic-modal label,
 .maieutic-modal h4 {

@@ -384,6 +384,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                       />
                     </Tooltip>
                     <Select
+                      className="ai-task-config-select"
                       style={{ width: 118 }}
                       value={task.schedule}
                       disabled={saving}
@@ -392,6 +393,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                     />
                     {task.schedule === 'WEEKLY' && (
                       <Select
+                        className="ai-task-config-select"
                         style={{ width: 128 }}
                         value={task.dayOfWeek}
                         disabled={saving}
@@ -401,6 +403,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                     )}
                     {task.schedule === 'MONTHLY' && (
                       <Select
+                        className="ai-task-config-select"
                         style={{ width: 96 }}
                         value={task.dayOfMonth}
                         disabled={saving}
@@ -409,6 +412,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                       />
                     )}
                     <Select
+                      className="ai-task-config-select"
                       style={{ width: 100 }}
                       value={task.runHour}
                       disabled={saving}
@@ -416,6 +420,7 @@ const AITasksTab: React.FC<{ canManage: boolean }> = ({ canManage }) => {
                       onChange={(value) => persistTaskConfig(task, { runHour: value })}
                     />
                     <Select
+                      className="ai-task-config-select"
                       style={{ width: 88 }}
                       value={task.runMinute}
                       disabled={saving}
