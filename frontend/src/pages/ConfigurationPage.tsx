@@ -412,6 +412,8 @@ const GET_RULE_REPOSITORIES = gql`
     allRuleRepositories {
       id name url username verifySsl lastSync ruleCount
       autoPullEnabled autoPullSchedule nextScheduledPull
+      ragEnabled ragDatasetPath ragBranch ragSchedule
+      ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync
     }
   }
 `;
@@ -443,9 +445,18 @@ const DELETE_RULE_REPOSITORY = gql`
   }
 `;
 const UPDATE_RULE_REPOSITORY = gql`
-  mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $verifySsl: Boolean, $autoPullEnabled: Boolean, $autoPullSchedule: String) {
-    updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, verifySsl: $verifySsl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule) {
-      repository { id name url username verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull }
+  mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $verifySsl: Boolean, $autoPullEnabled: Boolean, $autoPullSchedule: String, $ragEnabled: Boolean, $ragDatasetPath: String, $ragBranch: String, $ragSchedule: String) {
+    updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, verifySsl: $verifySsl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule, ragEnabled: $ragEnabled, ragDatasetPath: $ragDatasetPath, ragBranch: $ragBranch, ragSchedule: $ragSchedule) {
+      repository { id name url username verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull ragEnabled ragDatasetPath ragBranch ragSchedule ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync }
+    }
+  }
+`;
+
+const SYNC_RAG_NOW = gql`
+  mutation SyncRagNow($id: ID!) {
+    syncRagNow(id: $id) {
+      ok message
+      repository { id ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync }
     }
   }
 `;
@@ -862,6 +873,14 @@ interface Repo {
   autoPullEnabled?: boolean;
   autoPullSchedule?: string;
   nextScheduledPull?: string | null;
+  ragEnabled?: boolean;
+  ragDatasetPath?: string | null;
+  ragBranch?: string | null;
+  ragSchedule?: string;
+  ragLastSyncAt?: string | null;
+  ragLastSyncStatus?: string | null;
+  ragLastSyncError?: string | null;
+  ragNextScheduledSync?: string | null;
 }
 
 interface DacDeploymentConfig {
@@ -1081,6 +1100,24 @@ const RulesTab: React.FC = () => {
     onCompleted: () => { msg.success('Repository updated'); refetch(); },
     onError: (err) => msg.error(err.message || 'Update failed'),
   });
+  const [syncingRagIds, setSyncingRagIds] = useState<Set<string>>(new Set());
+  const [syncRagNow] = useMutation<{ syncRagNow: { ok: boolean; message?: string } }>(SYNC_RAG_NOW, {
+    onCompleted: (data, opts) => {
+      const repoId = opts?.variables?.id as string | undefined;
+      setSyncingRagIds((prev) => { const next = new Set(prev); next.delete(repoId ?? ''); return next; });
+      if (data.syncRagNow.ok) {
+        msg.success(data.syncRagNow.message || 'RAG sync queued');
+        refetch();
+      } else {
+        msg.error(data.syncRagNow.message || 'RAG sync failed');
+      }
+    },
+    onError: (err, opts) => {
+      const repoId = opts?.variables?.id as string | undefined;
+      setSyncingRagIds((prev) => { const next = new Set(prev); next.delete(repoId ?? ''); return next; });
+      msg.error(err.message || 'RAG sync request failed');
+    },
+  });
 
   const role = data?.me?.role || 'VIEWER';
   const canAdmin = role === 'ADMIN';
@@ -1114,6 +1151,10 @@ const RulesTab: React.FC = () => {
       verifySsl: repo.verifySsl ?? true,
       autoPullEnabled: repo.autoPullEnabled || false,
       autoPullSchedule: repo.autoPullSchedule || 'DISABLED',
+      ragEnabled: repo.ragEnabled || false,
+      ragDatasetPath: repo.ragDatasetPath || '',
+      ragBranch: repo.ragBranch || '',
+      ragSchedule: repo.ragSchedule || 'DISABLED',
     });
     setIsModalOpen(true);
   };
@@ -1199,6 +1240,21 @@ const RulesTab: React.FC = () => {
         ) : <Typography.Text type="secondary">Off</Typography.Text>
       )
     },
+    {
+      title: 'RAG Sync', key: 'ragSync', render: (_: any, repo: Repo) => {
+        if (!repo.ragEnabled) return <Typography.Text type="secondary">Off</Typography.Text>;
+        const statusColor: Record<string, string> = { ok: '#52c41a', error: '#ff4d4f', pending: '#faad14' };
+        const status = repo.ragLastSyncStatus || 'never';
+        return (
+          <Tooltip title={repo.ragLastSyncError || (repo.ragLastSyncAt ? `Last sync: ${new Date(repo.ragLastSyncAt).toLocaleString()}` : 'Never synced')}>
+            <Space>
+              <span style={{ color: statusColor[status] || '#8c8c8c' }}>●</span>
+              <Typography.Text>{status === 'ok' ? 'OK' : status === 'error' ? 'Error' : status === 'pending' ? 'Syncing…' : 'Enabled'}</Typography.Text>
+            </Space>
+          </Tooltip>
+        );
+      }
+    },
     { title: 'Rules', dataIndex: 'ruleCount', key: 'ruleCount', render: (_: any, repo: Repo) => <>{typeof repo.ruleCount === 'number' ? <Link to={`/rules?repo=${repo.id}`}>{repo.ruleCount}</Link> : 0}</> },
     {
       title: 'Actions', key: 'actions',
@@ -1206,6 +1262,9 @@ const RulesTab: React.FC = () => {
         <Space>
           <AntButton type="primary" size="small" disabled={!canAdmin} loading={pulling || isSyncing} onClick={() => handlePull(repo.id)}>Pull</AntButton>
           <AntButton size="small" disabled={!canAdmin} loading={pushing || isSyncing} onClick={() => openPushModal(repo)}>Push</AntButton>
+          {repo.ragEnabled && (
+            <AntButton size="small" disabled={!canAdmin} loading={syncingRagIds.has(repo.id)} onClick={() => { setSyncingRagIds((prev) => new Set(prev).add(repo.id)); syncRagNow({ variables: { id: repo.id } }); }}>Sync RAG</AntButton>
+          )}
           <AntButton size="small" disabled={!canAdmin} loading={saving} onClick={() => openEditModal(repo)}>Edit</AntButton>
           <Popconfirm title="Delete this repository?" okButtonProps={{ danger: true }} okText="Delete" onConfirm={() => deleteRepository({ variables: { id: repo.id } })} disabled={!canAdmin}>
             <AntButton size="small" danger disabled={!canAdmin} loading={deleting}>Delete</AntButton>
@@ -1269,6 +1328,29 @@ const RulesTab: React.FC = () => {
                 {editingRepo.nextScheduledPull && (
                   <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
                     Next scheduled pull: {new Date(editingRepo.nextScheduledPull).toLocaleString()}
+                  </Typography.Text>
+                )}
+                <Divider orientation="left" plain>RAG Dataset</Divider>
+                <Form.Item label="Enable RAG Sync" name="ragEnabled" valuePropName="checked" tooltip="Sync rule templates from this repository into the vector store to ground AI generation">
+                  <Switch />
+                </Form.Item>
+                <Form.Item label="Dataset Path / Pattern" name="ragDatasetPath" tooltip="Path or glob pattern for JSONL/KQL files (e.g. rules/*.jsonl or detections/kql)">
+                  <Input placeholder="rules/*.jsonl" />
+                </Form.Item>
+                <Form.Item label="Branch" name="ragBranch" tooltip="Branch to sync from (leave blank for default branch)">
+                  <Input placeholder="main" />
+                </Form.Item>
+                <Form.Item label="Sync Schedule" name="ragSchedule" tooltip="How often to sync the RAG dataset">
+                  <Select options={[{ value: 'DISABLED', label: 'Disabled' }, { value: '24H', label: 'Every 24 hours' }, { value: '48H', label: 'Every 48 hours' }, { value: '72H', label: 'Every 72 hours' }, { value: 'WEEKLY', label: 'Weekly' }]} />
+                </Form.Item>
+                {editingRepo.ragLastSyncAt && (
+                  <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                    Last RAG sync: {new Date(editingRepo.ragLastSyncAt).toLocaleString()} — status: {editingRepo.ragLastSyncStatus || 'unknown'}
+                  </Typography.Text>
+                )}
+                {editingRepo.ragLastSyncError && (
+                  <Typography.Text type="danger" style={{ display: 'block', marginBottom: 16 }}>
+                    Error: {editingRepo.ragLastSyncError}
                   </Typography.Text>
                 )}
               </>
@@ -2483,7 +2565,7 @@ export const ConfigurationPage: React.FC = () => {
     },
     {
       key: 'rules',
-      label: 'Rules',
+      label: 'Repos',
       children: <App><RulesTab /></App>,
     },
     {

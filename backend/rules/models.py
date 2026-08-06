@@ -97,6 +97,60 @@ class RuleRepository(models.Model):
     next_scheduled_pull = models.DateTimeField(null=True, blank=True, help_text="When the next scheduled pull should occur")
     # --- END SCHEDULED PULL FIELDS ---
 
+    # --- RAG SYNC FIELDS ---
+    rag_enabled = models.BooleanField(
+        default=False,
+        help_text="Enable RAG dataset sync for this repository"
+    )
+    rag_dataset_path = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text="Path or glob pattern for JSONL/KQL files in the repo (e.g. rules/*.jsonl or detections/kql)"
+    )
+    rag_branch = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Branch to sync RAG dataset from (defaults to repo default branch)"
+    )
+
+    class RagSchedule(models.TextChoices):
+        DISABLED = 'DISABLED', 'Disabled'
+        EVERY_24H = '24H', 'Every 24 hours'
+        EVERY_48H = '48H', 'Every 48 hours'
+        EVERY_72H = '72H', 'Every 72 hours'
+        WEEKLY = 'WEEKLY', 'Weekly'
+
+    rag_schedule = models.CharField(
+        max_length=20,
+        choices=RagSchedule.choices,
+        default=RagSchedule.DISABLED,
+        help_text="Schedule for automatic RAG dataset synchronisation"
+    )
+    rag_last_sync_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of the last RAG sync attempt"
+    )
+    rag_last_sync_status = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Status of the last RAG sync: ok | error | pending"
+    )
+    rag_last_sync_error = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Error message from the last failed RAG sync"
+    )
+    rag_next_scheduled_sync = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the next scheduled RAG sync should occur"
+    )
+    # --- END RAG SYNC FIELDS ---
+
     def __str__(self):
         return self.name
 

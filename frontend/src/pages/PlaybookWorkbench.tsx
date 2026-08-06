@@ -835,6 +835,7 @@ export const PlaybookWorkbench = () => {
     correlationIdeas?: string;
     expectedBlindSpots?: string;
     testGuidance?: string;
+    referenceContext?: Array<{ title?: string; description?: string; query?: string; raw_content?: string; repo_name?: string; language?: string }>;
   } | null>(null);
 
   const conversationHistory = useMemo(() => {
@@ -1219,6 +1220,7 @@ export const PlaybookWorkbench = () => {
             correlationIdeas: result.correlation_ideas || '',
             expectedBlindSpots: result.expected_blind_spots || '',
             testGuidance: result.test_guidance || '',
+            referenceContext: Array.isArray(result.reference_context) ? result.reference_context : [],
           });
           setLocalRule(rule);
           setDetectionMode('ai');
@@ -2522,6 +2524,27 @@ export const PlaybookWorkbench = () => {
                                       <div>
                                         <strong>Suggested test guidance:</strong>
                                         <pre className="whitespace-pre-wrap font-sans text-sm mt-1">{generationInsights.testGuidance}</pre>
+                                      </div>
+                                    )}
+                                    {generationInsights.referenceContext && generationInsights.referenceContext.length > 0 && (
+                                      <div>
+                                        <strong>Grounding context ({generationInsights.referenceContext.length} retrieved example{generationInsights.referenceContext.length !== 1 ? 's' : ''}):</strong>
+                                        <div className="space-y-2 mt-2">
+                                          {generationInsights.referenceContext.map((ctx, idx) => (
+                                            <details key={idx} className="border border-gray-200 rounded p-2 text-sm">
+                                              <summary className="cursor-pointer font-medium">
+                                                {ctx.title || `Example ${idx + 1}`}
+                                                {ctx.repo_name && <span className="text-gray-500 font-normal ml-1">({ctx.repo_name})</span>}
+                                              </summary>
+                                              {ctx.description && <p className="mt-1 text-gray-600">{ctx.description}</p>}
+                                              {(ctx.query || ctx.raw_content) && (
+                                                <pre className="whitespace-pre-wrap font-mono text-xs mt-1 bg-gray-50 p-2 rounded overflow-auto max-h-40">
+                                                  {ctx.query || ctx.raw_content}
+                                                </pre>
+                                              )}
+                                            </details>
+                                          ))}
+                                        </div>
                                       </div>
                                     )}
                                     <div className="flex gap-2 flex-wrap">
