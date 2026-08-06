@@ -100,6 +100,23 @@ def run_scheduled_ai_tasks():
         return False
 
 
+def run_scheduled_rag_syncs():
+    """Execute due RAG template syncs for all enabled repositories."""
+    try:
+        logger.info("Running scheduled RAG sync check...")
+        from rules.rag_sync import run_due_rag_syncs
+        result = run_due_rag_syncs()
+        logger.info(
+            "RAG sync check completed (ran=%s, failed=%s).",
+            result.get('ran', 0),
+            result.get('failed', 0),
+        )
+        return True
+    except Exception as e:
+        logger.error("Error running scheduled RAG syncs: %s", e)
+        return False
+
+
 
 def maybe_send_news_digest():
     """Send weekly news digest on configured schedule.
@@ -179,6 +196,9 @@ def run_loop():
             # Run scheduled organization AI tasks
             run_scheduled_ai_tasks()
 
+            # Run scheduled RAG template syncs
+            run_scheduled_rag_syncs()
+
             # Maybe send weekly news digest
             maybe_send_news_digest()
             
@@ -199,6 +219,7 @@ def run_once():
     success = run_scheduled_pulls()
     success = run_scheduled_hefaistos_pulls() and success
     run_scheduled_ai_tasks()
+    run_scheduled_rag_syncs()
     # Also attempt digest once (respects schedule window)
     maybe_send_news_digest()
     sys.exit(0 if success else 1)

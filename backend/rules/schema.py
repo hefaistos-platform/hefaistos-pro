@@ -212,6 +212,15 @@ class RuleRepositoryType(DjangoObjectType):
     provider = graphene.String()
     api_base_url = graphene.String()
     verify_ssl = graphene.Boolean()
+    # RAG sync fields
+    rag_enabled = graphene.Boolean()
+    rag_dataset_path = graphene.String()
+    rag_branch = graphene.String()
+    rag_schedule = graphene.String()
+    rag_last_sync_at = graphene.DateTime()
+    rag_last_sync_status = graphene.String()
+    rag_last_sync_error = graphene.String()
+    rag_next_scheduled_sync = graphene.DateTime()
 
     class Meta:
         model = RuleRepository
@@ -227,6 +236,14 @@ class RuleRepositoryType(DjangoObjectType):
             "auto_pull_enabled",
             "auto_pull_schedule",
             "next_scheduled_pull",
+            "rag_enabled",
+            "rag_dataset_path",
+            "rag_branch",
+            "rag_schedule",
+            "rag_last_sync_at",
+            "rag_last_sync_status",
+            "rag_last_sync_error",
+            "rag_next_scheduled_sync",
         )
 
     # Resolvers for computed fields
@@ -260,6 +277,30 @@ class RuleRepositoryType(DjangoObjectType):
 
     def resolve_next_scheduled_pull(self, info):
         return getattr(self, 'next_scheduled_pull', None)
+
+    def resolve_rag_enabled(self, info):
+        return getattr(self, 'rag_enabled', False)
+
+    def resolve_rag_dataset_path(self, info):
+        return getattr(self, 'rag_dataset_path', None)
+
+    def resolve_rag_branch(self, info):
+        return getattr(self, 'rag_branch', None)
+
+    def resolve_rag_schedule(self, info):
+        return getattr(self, 'rag_schedule', 'DISABLED')
+
+    def resolve_rag_last_sync_at(self, info):
+        return getattr(self, 'rag_last_sync_at', None)
+
+    def resolve_rag_last_sync_status(self, info):
+        return getattr(self, 'rag_last_sync_status', None)
+
+    def resolve_rag_last_sync_error(self, info):
+        return getattr(self, 'rag_last_sync_error', None)
+
+    def resolve_rag_next_scheduled_sync(self, info):
+        return getattr(self, 'rag_next_scheduled_sync', None)
 
 class RuleType(DjangoObjectType):
     tags = graphene.List(graphene.String)
@@ -838,6 +879,11 @@ class UpdateRuleRepository(graphene.Mutation):
         # Schedule fields
         auto_pull_enabled = graphene.Boolean(description="Enable/disable automatic pulls")
         auto_pull_schedule = graphene.String(description="Pull schedule: DISABLED, 24H, 48H, 72H, WEEKLY")
+        # RAG sync fields
+        rag_enabled = graphene.Boolean(description="Enable/disable RAG dataset sync")
+        rag_dataset_path = graphene.String(description="Path or glob pattern for JSONL/KQL files in the repo")
+        rag_branch = graphene.String(description="Branch to sync RAG dataset from")
+        rag_schedule = graphene.String(description="RAG sync schedule: DISABLED, 24H, 48H, 72H, WEEKLY")
 
     repository = graphene.Field(RuleRepositoryType)
 
@@ -899,6 +945,31 @@ class UpdateRuleRepository(graphene.Mutation):
             repo.next_scheduled_pull = timezone.now() + timedelta(hours=hours)
         elif not repo.auto_pull_enabled or repo.auto_pull_schedule == 'DISABLED':
             repo.next_scheduled_pull = None
+
+        # Handle RAG sync fields
+        rag_schedule_changed = False
+        if 'rag_enabled' in kwargs:
+            repo.rag_enabled = kwargs.pop('rag_enabled')
+            rag_schedule_changed = True
+        if 'rag_dataset_path' in kwargs:
+            repo.rag_dataset_path = kwargs.pop('rag_dataset_path') or None
+        if 'rag_branch' in kwargs:
+            repo.rag_branch = kwargs.pop('rag_branch') or None
+        if 'rag_schedule' in kwargs:
+            rag_sched = kwargs.pop('rag_schedule')
+            valid_rag_schedules = ['DISABLED', '24H', '48H', '72H', 'WEEKLY']
+            if rag_sched and rag_sched.upper() in valid_rag_schedules:
+                repo.rag_schedule = rag_sched.upper()
+                rag_schedule_changed = True
+
+        if rag_schedule_changed:
+            from datetime import timedelta as _td
+            rag_delta_map = {'24H': 24, '48H': 48, '72H': 72, 'WEEKLY': 168}
+            rag_hours = rag_delta_map.get(repo.rag_schedule)
+            if repo.rag_enabled and rag_hours:
+                repo.rag_next_scheduled_sync = timezone.now() + _td(hours=rag_hours)
+            else:
+                repo.rag_next_scheduled_sync = None
 
         # Update remaining simple fields present on the model
         for field, value in kwargs.items():
@@ -1799,6 +1870,64 @@ class DeployOpenTideRule(graphene.Mutation):
 
 
 # --- New: Update last_sync timestamp on a repository ---
+class SyncRagNow(graphene.Mutation):
+    """Queue an immediate RAG sync for a repository via RabbitMQ."""
+
+    class Arguments:
+        id = graphene.ID(required=True)
+
+    ok = graphene.Boolean()
+    message = graphene.String()
+    repository = graphene.Field(RuleRepositoryType)
+
+    @staticmethod
+    @role_required([Roles.ADMIN])
+    def mutate(root, info, id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception("Authentication required")
+
+        try:
+            repo = RuleRepository.objects.get(pk=id, organization=user.organization)
+        except RuleRepository.DoesNotExist:
+            raise Exception("Repository not found")
+
+        if not repo.rag_enabled:
+            return SyncRagNow(ok=False, repository=repo,
+                              message="RAG sync is not enabled for this repository.")
+
+        # Mark as pending immediately so the UI can reflect it
+        repo.rag_last_sync_at = timezone.now()
+        repo.rag_last_sync_status = "pending"
+        repo.rag_last_sync_error = None
+        repo.save(update_fields=["rag_last_sync_at", "rag_last_sync_status", "rag_last_sync_error"])
+
+        # Publish to RabbitMQ so the ai_generation_worker or dedicated worker can handle it
+        try:
+            publisher = get_publisher()
+            publisher.publish_message(
+                "rag.sync.requested",
+                {
+                    "action": "rag_sync",
+                    "repository_id": str(repo.id),
+                    "organization_id": str(user.organization.id),
+                    "triggered_by_user_id": str(user.id),
+                },
+            )
+        except Exception as exc:
+            logger.error("Failed to queue RAG sync for repo %s: %s", id, exc)
+            repo.rag_last_sync_status = "error"
+            repo.rag_last_sync_error = str(exc)
+            repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error"])
+            return SyncRagNow(ok=False, repository=repo,
+                              message=f"Failed to queue RAG sync: {exc}")
+
+        return SyncRagNow(
+            ok=True, repository=repo,
+            message="RAG sync queued. The repository will be processed shortly."
+        )
+
+
 class UpdateRuleRepositoryLastSync(graphene.Mutation):
     class Arguments:
         id = graphene.ID(required=True)
@@ -1832,3 +1961,4 @@ class UpdateRuleRepositoryLastSync(graphene.Mutation):
 class Mutation(Mutation, graphene.ObjectType):
     update_rule_repository_last_sync = UpdateRuleRepositoryLastSync.Field()
     deploy_open_tide_rule = DeployOpenTideRule.Field()
+    sync_rag_now = SyncRagNow.Field()

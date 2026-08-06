@@ -34,6 +34,7 @@ RABBITMQ_PORT = int(os.environ.get('RABBITMQ_PORT', '5672'))
 EXCHANGE_NAME = 'hefaistos_events'
 QUEUE_NAME = 'ai_generation_tasks'
 ROUTING_KEY = 'ai.generation.requested'
+RAG_ROUTING_KEY = 'rag.sync.requested'
 
 
 def _read_secret(secret_name: str) -> str | None:
@@ -60,7 +61,29 @@ def _run_generate_rule(task) -> dict:
     context = task.input_data.get('playbook_context', {})
     output_format = task.input_data.get('output_format', 'KQL')
 
-    bundle, provider = generate_rule_bundle(effective, context, output_format)
+    # --- RAG: retrieve similar templates to ground generation ---
+    reference_context = []
+    try:
+        openai_key = effective.get_openai_key() if hasattr(effective, 'get_openai_key') else None
+        if openai_key and output_format.upper() == 'KQL':
+            from rules.rag_store import retrieve_similar
+            query_text = "\n".join(filter(None, [
+                context.get('title', ''),
+                context.get('strategy_name', ''),
+                context.get('technical_context', ''),
+                context.get('goal', ''),
+            ]))
+            reference_context = retrieve_similar(
+                openai_api_key=openai_key,
+                query_text=query_text,
+                language='KQL',
+                top_k=5,
+            )
+    except Exception as exc:
+        logger.warning("RAG retrieval failed (non-fatal): %s", exc)
+
+    bundle, provider = generate_rule_bundle(effective, context, output_format,
+                                            reference_context=reference_context)
     return {
         'rule': bundle.get('primary_rule'),
         'quick_win_rule': bundle.get('quick_win_rule'),
@@ -71,6 +94,7 @@ def _run_generate_rule(task) -> dict:
         'test_guidance': bundle.get('test_guidance'),
         'provider_used': provider,
         'output_format': output_format,
+        'reference_context': reference_context,
     }
 
 
@@ -274,6 +298,22 @@ def process_ai_task(task_id: str) -> None:
         logger.exception("AIGenerationTask %s (%s) failed: %s", task_id, task.task_type, exc)
 
 
+def process_rag_sync(repository_id: str) -> None:
+    """Run RAG sync for the given repository ID."""
+    try:
+        from rules.rag_sync import sync_repository_rag  # noqa: PLC0415
+        result = sync_repository_rag(int(repository_id))
+        if result.get('ok'):
+            logger.info(
+                "RAG sync succeeded for repo %s: upserted=%s skipped=%s",
+                repository_id, result.get('upserted', 0), result.get('skipped', 0),
+            )
+        else:
+            logger.error("RAG sync failed for repo %s: %s", repository_id, result.get('error'))
+    except Exception as exc:
+        logger.exception("Unexpected error in RAG sync for repo %s: %s", repository_id, exc)
+
+
 def on_message_received(ch, method, properties, body):
     logger.warning("Worker received message with routing key: %s", method.routing_key)
 
@@ -291,6 +331,13 @@ def on_message_received(ch, method, properties, body):
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
         process_ai_task(task_id)
+    elif method.routing_key == RAG_ROUTING_KEY:
+        repo_id = payload.get('repository_id')
+        if not repo_id:
+            logger.error("RAG payload missing 'repository_id'; acknowledging and skipping.")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
+        process_rag_sync(repo_id)
     else:
         logger.warning("Received unexpected routing key: %s", method.routing_key)
 
@@ -318,6 +365,7 @@ def run_worker(max_retries: int = 10, retry_delay: int = 5) -> None:
             channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type='topic', durable=True)
             channel.queue_declare(queue=QUEUE_NAME, durable=True)
             channel.queue_bind(exchange=EXCHANGE_NAME, queue=QUEUE_NAME, routing_key=ROUTING_KEY)
+            channel.queue_bind(exchange=EXCHANGE_NAME, queue=QUEUE_NAME, routing_key=RAG_ROUTING_KEY)
 
             # Process one message at a time
             channel.basic_qos(prefetch_count=1)

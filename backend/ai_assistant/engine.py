@@ -642,7 +642,29 @@ def run_custom_prompt(user_settings, user_prompt: str, system_prompt: str | None
     return response_text, provider
 
 
-def generate_rule_bundle(user_settings, playbook_context, output_format: str = 'KQL'):
+def _format_reference_context_for_prompt(reference_context: list, fmt_label: str) -> str:
+    """Format RAG-retrieved template entries for injection into the generation prompt."""
+    parts = []
+    for i, entry in enumerate(reference_context[:5], 1):
+        title = entry.get("title", f"Example {i}")
+        description = entry.get("description", "")
+        query = entry.get("query", "") or entry.get("raw_content", "")
+        repo = entry.get("repo_name", "")
+
+        block = f"--- Example {i}: {title}"
+        if repo:
+            block += f" (source: {repo})"
+        block += " ---"
+        if description:
+            block += f"\nDescription: {description}"
+        if query:
+            block += f"\n{fmt_label}:\n{query}"
+        parts.append(block)
+    return "\n\n".join(parts)
+
+
+def generate_rule_bundle(user_settings, playbook_context, output_format: str = 'KQL',
+                         reference_context: list | None = None):
     """Generate a capability-aware detection package with primary and alternative rules."""
     available = build_available(user_settings)
     if not available:
@@ -763,6 +785,16 @@ REQUIREMENTS:
 - QUICK-WIN-RULE should optimize for speed to deploy.
 - ROBUST-RULE should optimize for behavior, resilience, and anti-evasion value.
 - Correlation ideas, blind spots, and test guidance must align with the selected capability abstractions.
+"""
+
+    # Inject RAG reference examples when available
+    if reference_context:
+        examples_text = _format_reference_context_for_prompt(reference_context, fmt_label)
+        user_prompt += f"""
+REFERENCE EXAMPLES (retrieved from rule template store – use for grounding, do NOT copy verbatim):
+<reference_examples>
+{examples_text}
+</reference_examples>
 """
 
     try:

@@ -99,3 +99,4 @@ webauthn==2.7.0
 
 channels==4.3.2
 daphne==4.2.2
+qdrant-client==1.12.2

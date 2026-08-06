@@ -83,6 +83,8 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_started
+      qdrant:
+        condition: service_started
     restart: unless-stopped
     networks:
       - hefaistos-net
@@ -410,6 +412,17 @@ services:
     networks:
       - hefaistos-net
 
+  # --- QDRANT VECTOR STORE ---
+  # Stores rule template embeddings for RAG-grounded detection rule generation
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: hefaistos-qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - hefaistos-net
+    restart: unless-stopped
+
   git_push_connector:
     build:
       context: .
@@ -442,6 +455,7 @@ volumes:
   static_data:
   media_data:
   navigator_data:
+  qdrant_data:
 
 networks:
   hefaistos-net:
