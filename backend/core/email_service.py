@@ -355,11 +355,17 @@ class SMTPEmailService:
             return True
         except smtplib.SMTPRecipientsRefused as exc:
             # Common policy: authenticated user may only send as own address.
+            # Only attempt sender-retry when ALL refused recipients carry code 553
+            # AND a different authenticated username is available. A 553 can also
+            # mean the *recipient* address itself is rejected (policy, invalid domain,
+            # etc.) — retrying with a different sender will not help in that case.
             username_sender = (self.smtp_username or '').strip()
+            refused_codes = {code for code, _ in exc.recipients.values()}
+            all_553 = refused_codes == {553}
             if (
-                '@' in username_sender
+                all_553
+                and '@' in username_sender
                 and username_sender != sender
-                and any(code == 553 for code, _ in exc.recipients.values())
             ):
                 logger.warning(
                     "SMTP sender rejected for %s; retrying with authenticated username sender %s",
@@ -390,9 +396,72 @@ class SMTPEmailService:
             return False
 
 
-def get_email_service(organization=None) -> Union[SMTPEmailService, MailgunEmailService]:
-    """Return SMTP service when configured, otherwise fallback to Mailgun."""
+class FallbackEmailService:
+    """Try SMTP first; if the send fails at runtime, fall back to Mailgun.
+
+    This handles the common scenario where SMTP is fully configured but the
+    underlying relay rejects the message (bad recipient, policy error, etc.),
+    so Mailgun is used as a last-resort delivery path.
+    """
+
+    def __init__(self, primary: SMTPEmailService, fallback: MailgunEmailService):
+        self._primary = primary
+        self._fallback = fallback
+
+    def is_configured(self) -> bool:
+        return self._primary.is_configured() or self._fallback.is_configured()
+
+    def send_message(
+        self,
+        to: List[str],
+        subject: str,
+        text: Optional[str] = None,
+        html: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+        hide_recipients: bool = True,
+    ) -> bool:
+        if self._primary.is_configured():
+            sent = self._primary.send_message(
+                to=to,
+                subject=subject,
+                text=text,
+                html=html,
+                headers=headers,
+                hide_recipients=hide_recipients,
+            )
+            if sent:
+                return True
+            if self._fallback.is_configured():
+                logger.warning(
+                    "SMTP send failed; falling back to Mailgun for delivery"
+                )
+            else:
+                return False
+
+        return self._fallback.send_message(
+            to=to,
+            subject=subject,
+            text=text,
+            html=html,
+            headers=headers,
+            hide_recipients=hide_recipients,
+        )
+
+
+def get_email_service(organization=None) -> Union[FallbackEmailService, SMTPEmailService, MailgunEmailService]:
+    """Return the best available email service for the given organization.
+
+    Priority:
+    1. SMTP (shared profile or org-level) – preferred per platform configuration.
+    2. Mailgun – used as fallback both when SMTP is not configured *and* when an
+       SMTP send fails at runtime (e.g. recipient refused, relay error).
+    """
     smtp_service = SMTPEmailService(organization=organization)
+    mailgun_service = MailgunEmailService()
+
+    if smtp_service.is_configured() and mailgun_service.is_configured():
+        # Both available: wrap so that Mailgun is used if SMTP send fails.
+        return FallbackEmailService(primary=smtp_service, fallback=mailgun_service)
     if smtp_service.is_configured():
         return smtp_service
-    return MailgunEmailService()
+    return mailgun_service
