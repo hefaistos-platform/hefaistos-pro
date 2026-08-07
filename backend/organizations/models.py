@@ -667,6 +667,31 @@ def _legacy_global_smtp_config(organization_id=None) -> EffectiveSmtpConfig | No
     )
 
 
+def get_default_shared_smtp_profile() -> SharedSmtpProfile | None:
+    """Resolve the platform-default active shared SMTP profile.
+
+    Preference order:
+    1. "System Shared SMTP" (current canonical name in admin flows)
+    2. "Default Shared SMTP" (legacy migration-created name)
+    3. Most recently updated active profile
+    """
+    active_profiles = SharedSmtpProfile.objects.filter(is_active=True)
+    if not active_profiles.exists():
+        return None
+
+    preferred_names = ('System Shared SMTP', 'Default Shared SMTP')
+    for preferred_name in preferred_names:
+        profile = (
+            active_profiles.filter(name__iexact=preferred_name)
+            .order_by('-updated_at')
+            .first()
+        )
+        if profile is not None:
+            return profile
+
+    return active_profiles.order_by('-updated_at', 'name').first()
+
+
 def get_effective_smtp_for_organization(organization, create_if_missing: bool = True) -> EffectiveSmtpConfig | None:
     if organization is None:
         return _legacy_global_smtp_config()

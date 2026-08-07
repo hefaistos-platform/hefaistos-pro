@@ -17,6 +17,7 @@ from .models import (
     MISP_INSTANCE_LIMIT,
     SharedSmtpProfile,
     OrganizationSmtpSettings,
+    get_default_shared_smtp_profile,
     get_effective_smtp_for_organization,
     PlatformCredential,
     OpenTidePublishProfile,
@@ -3179,17 +3180,7 @@ class SetOrganizationSharedFlags(graphene.Mutation):
 
         smtp_profile = None
         if smtp_shared_enabled is True:
-            smtp_profile = (
-                SharedSmtpProfile.objects.filter(is_active=True, name__iexact='System Shared SMTP')
-                .order_by('-updated_at')
-                .first()
-            )
-            if smtp_profile is None:
-                smtp_profile = (
-                    SharedSmtpProfile.objects.filter(is_active=True)
-                    .order_by('-updated_at', 'name')
-                    .first()
-                )
+            smtp_profile = get_default_shared_smtp_profile()
             if smtp_profile is None:
                 raise GraphQLError(
                     'No active shared SMTP profile found. Configure the shared SMTP profile first.'

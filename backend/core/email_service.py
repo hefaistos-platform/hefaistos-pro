@@ -237,23 +237,13 @@ class SMTPEmailService:
 
     def _load_settings(self) -> None:
         try:
-            from organizations.models import SharedSmtpProfile, get_effective_smtp_for_organization
+            from organizations.models import get_default_shared_smtp_profile, get_effective_smtp_for_organization
             settings_obj = None
 
             # Registration/contact flows are not tied to a specific organization.
             # Prefer platform shared SMTP profile first, then legacy global SMTP.
             if self.organization is None:
-                settings_obj = (
-                    SharedSmtpProfile.objects.filter(is_active=True, name__iexact='System Shared SMTP')
-                    .order_by('-updated_at')
-                    .first()
-                )
-                if settings_obj is None:
-                    settings_obj = (
-                        SharedSmtpProfile.objects.filter(is_active=True)
-                        .order_by('-updated_at', 'name')
-                        .first()
-                    )
+                settings_obj = get_default_shared_smtp_profile()
 
             if settings_obj is None:
                 settings_obj = get_effective_smtp_for_organization(
