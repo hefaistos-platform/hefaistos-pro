@@ -10,12 +10,15 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-def _read_secret_file(name: str) -> Optional[str]:
+def _read_secret_file(name: str, extra_env_file_vars: Optional[List[str]] = None) -> Optional[str]:
     """Read a secret from Docker secrets directory."""
-    paths_to_try = [
-        f"/run/secrets/{name}",
-        os.environ.get(f"{name.upper()}_FILE", ""),
-    ]
+    file_env_vars = [f"{name.upper()}_FILE"]
+    if extra_env_file_vars:
+        file_env_vars.extend(extra_env_file_vars)
+
+    paths_to_try = [f"/run/secrets/{name}"]
+    paths_to_try.extend(os.environ.get(env_var, "") for env_var in file_env_vars)
+
     for path in paths_to_try:
         if path:
             try:
@@ -48,10 +51,13 @@ class MailgunEmailService:
         from_email: Optional[str] = None,
     ):
         # Prefer Docker secret at /run/secrets/mailgun_api
-        secret_key = _read_secret_file("mailgun_api")
-        self.api_key = api_key or secret_key or os.environ.get("MAILGUN_API_KEY")
-        self.domain = domain or os.environ.get("MAILGUN_DOMAIN")
-        self.from_email = from_email or os.environ.get("MAILGUN_FROM_EMAIL")
+        secret_key = _read_secret_file(
+            "mailgun_api",
+            extra_env_file_vars=["MAILGUN_API_KEY_FILE", "MAILGUN_API_KEY_PATH"],
+        )
+        self.api_key = (api_key or secret_key or os.environ.get("MAILGUN_API_KEY") or "").strip()
+        self.domain = (domain or os.environ.get("MAILGUN_DOMAIN") or "").strip()
+        self.from_email = (from_email or os.environ.get("MAILGUN_FROM_EMAIL") or "").strip()
 
         # Track what's configured for debugging
         self._configured = bool(self.api_key and self.domain and self.from_email)
@@ -73,6 +79,16 @@ class MailgunEmailService:
             logger.info(
                 f"MailgunEmailService initialized: domain={self.domain}, from={self.from_email}, api_key={api_key_masked}"
             )
+            if self.domain.lower() in {"mg.example.com", "example.com"} or self.domain.lower().endswith(".example.com"):
+                logger.warning(
+                    "MAILGUN_DOMAIN=%s looks like a template placeholder. Use your verified Mailgun domain.",
+                    self.domain,
+                )
+            if self.from_email.lower().endswith("@example.com"):
+                logger.warning(
+                    "MAILGUN_FROM_EMAIL=%s looks like a template placeholder.",
+                    self.from_email,
+                )
 
         api_base = os.environ.get("MAILGUN_API_BASE", "https://api.eu.mailgun.net")
         self.base_url = f"{api_base}/v3/{self.domain}"
@@ -175,7 +191,10 @@ class MailgunEmailService:
             )
             # Log common error codes with helpful messages
             if resp.status_code == 401:
-                logger.error("Mailgun 401: Invalid API key. Check MAILGUN_API_KEY or /run/secrets/mailgun_api")
+                logger.error(
+                    "Mailgun 401: Unauthorized. Verify MAILGUN_API_KEY source (env/secret), "
+                    "MAILGUN_API_BASE region, and MAILGUN_DOMAIN ownership."
+                )
             elif resp.status_code == 403:
                 logger.error("Mailgun 403: API key doesn't have permission for this domain, or domain not verified")
             elif resp.status_code == 404:
@@ -302,7 +321,10 @@ class SMTPEmailService:
                 server.starttls()
                 server.ehlo()
 
-        if self.login_method == 'LOGIN':
+        # smtplib.login() negotiates the best method (PLAIN, LOGIN, etc.).
+        # Treat both PLAIN and LOGIN as authenticated modes when credentials exist.
+        should_authenticate = self.login_method in {'PLAIN', 'LOGIN'} and bool(self.smtp_username)
+        if should_authenticate:
             server.login(self.smtp_username, self.smtp_password)
         return server
 
