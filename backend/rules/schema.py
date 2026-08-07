@@ -221,6 +221,8 @@ class RuleRepositoryType(DjangoObjectType):
     rag_last_sync_status = graphene.String()
     rag_last_sync_error = graphene.String()
     rag_next_scheduled_sync = graphene.DateTime()
+    rag_last_sync_upserted = graphene.Int()
+    rag_last_sync_skipped = graphene.Int()
 
     class Meta:
         model = RuleRepository
@@ -244,6 +246,8 @@ class RuleRepositoryType(DjangoObjectType):
             "rag_last_sync_status",
             "rag_last_sync_error",
             "rag_next_scheduled_sync",
+            "rag_last_sync_upserted",
+            "rag_last_sync_skipped",
         )
 
     # Resolvers for computed fields
@@ -301,6 +305,12 @@ class RuleRepositoryType(DjangoObjectType):
 
     def resolve_rag_next_scheduled_sync(self, info):
         return getattr(self, 'rag_next_scheduled_sync', None)
+
+    def resolve_rag_last_sync_upserted(self, info):
+        return getattr(self, 'rag_last_sync_upserted', None)
+
+    def resolve_rag_last_sync_skipped(self, info):
+        return getattr(self, 'rag_last_sync_skipped', None)
 
 class RuleType(DjangoObjectType):
     tags = graphene.List(graphene.String)

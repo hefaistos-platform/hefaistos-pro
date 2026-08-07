@@ -414,6 +414,7 @@ const GET_RULE_REPOSITORIES = gql`
       autoPullEnabled autoPullSchedule nextScheduledPull
       ragEnabled ragDatasetPath ragBranch ragSchedule
       ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync
+      ragLastSyncUpserted ragLastSyncSkipped
     }
   }
 `;
@@ -447,7 +448,7 @@ const DELETE_RULE_REPOSITORY = gql`
 const UPDATE_RULE_REPOSITORY = gql`
   mutation UpdateRuleRepository($id: ID!, $url: String, $username: String, $token: String, $name: String, $verifySsl: Boolean, $autoPullEnabled: Boolean, $autoPullSchedule: String, $ragEnabled: Boolean, $ragDatasetPath: String, $ragBranch: String, $ragSchedule: String) {
     updateRuleRepository(id: $id, url: $url, username: $username, token: $token, name: $name, verifySsl: $verifySsl, autoPullEnabled: $autoPullEnabled, autoPullSchedule: $autoPullSchedule, ragEnabled: $ragEnabled, ragDatasetPath: $ragDatasetPath, ragBranch: $ragBranch, ragSchedule: $ragSchedule) {
-      repository { id name url username verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull ragEnabled ragDatasetPath ragBranch ragSchedule ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync }
+      repository { id name url username verifySsl lastSync autoPullEnabled autoPullSchedule nextScheduledPull ragEnabled ragDatasetPath ragBranch ragSchedule ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync ragLastSyncUpserted ragLastSyncSkipped }
     }
   }
 `;
@@ -456,7 +457,7 @@ const SYNC_RAG_NOW = gql`
   mutation SyncRagNow($id: ID!) {
     syncRagNow(id: $id) {
       ok message
-      repository { id ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync }
+      repository { id ragLastSyncAt ragLastSyncStatus ragLastSyncError ragNextScheduledSync ragLastSyncUpserted ragLastSyncSkipped }
     }
   }
 `;
@@ -881,6 +882,8 @@ interface Repo {
   ragLastSyncStatus?: string | null;
   ragLastSyncError?: string | null;
   ragNextScheduledSync?: string | null;
+  ragLastSyncUpserted?: number | null;
+  ragLastSyncSkipped?: number | null;
 }
 
 interface DacDeploymentConfig {
@@ -1245,11 +1248,33 @@ const RulesTab: React.FC = () => {
         if (!repo.ragEnabled) return <Typography.Text type="secondary">Off</Typography.Text>;
         const statusColor: Record<string, string> = { ok: '#52c41a', error: '#ff4d4f', pending: '#faad14' };
         const status = repo.ragLastSyncStatus || 'never';
+        const hasCounts = typeof repo.ragLastSyncUpserted === 'number';
+        const tooltipLines: string[] = [];
+        if (repo.ragLastSyncError) {
+          tooltipLines.push(repo.ragLastSyncError);
+        } else if (repo.ragLastSyncAt) {
+          tooltipLines.push(`Last sync: ${new Date(repo.ragLastSyncAt).toLocaleString()}`);
+        } else {
+          tooltipLines.push('Never synced');
+        }
+        if (hasCounts) {
+          tooltipLines.push(`Upserted: ${repo.ragLastSyncUpserted}  |  Skipped: ${repo.ragLastSyncSkipped ?? 0}`);
+        }
+        let statusLabel: string;
+        if (status === 'ok') {
+          statusLabel = hasCounts ? `OK (${repo.ragLastSyncUpserted} vectors)` : 'OK';
+        } else if (status === 'error') {
+          statusLabel = 'Error';
+        } else if (status === 'pending') {
+          statusLabel = 'Syncing…';
+        } else {
+          statusLabel = 'Enabled';
+        }
         return (
-          <Tooltip title={repo.ragLastSyncError || (repo.ragLastSyncAt ? `Last sync: ${new Date(repo.ragLastSyncAt).toLocaleString()}` : 'Never synced')}>
+          <Tooltip title={tooltipLines.join('\n')}>
             <Space>
               <span style={{ color: statusColor[status] || '#8c8c8c' }}>●</span>
-              <Typography.Text>{status === 'ok' ? 'OK' : status === 'error' ? 'Error' : status === 'pending' ? 'Syncing…' : 'Enabled'}</Typography.Text>
+              <Typography.Text>{statusLabel}</Typography.Text>
             </Space>
           </Tooltip>
         );
@@ -1346,6 +1371,9 @@ const RulesTab: React.FC = () => {
                 {editingRepo.ragLastSyncAt && (
                   <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                     Last RAG sync: {new Date(editingRepo.ragLastSyncAt).toLocaleString()} — status: {editingRepo.ragLastSyncStatus || 'unknown'}
+                    {typeof editingRepo.ragLastSyncUpserted === 'number' && (
+                      <> — Upserted: {editingRepo.ragLastSyncUpserted} | Skipped: {editingRepo.ragLastSyncSkipped ?? 0}</>
+                    )}
                   </Typography.Text>
                 )}
                 {editingRepo.ragLastSyncError && (
