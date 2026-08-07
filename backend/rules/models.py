@@ -149,6 +149,16 @@ class RuleRepository(models.Model):
         blank=True,
         help_text="When the next scheduled RAG sync should occur"
     )
+    rag_last_sync_upserted = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Number of vectors successfully upserted in the last RAG sync"
+    )
+    rag_last_sync_skipped = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Number of entries skipped (embed/upsert failure) in the last RAG sync"
+    )
     # --- END RAG SYNC FIELDS ---
 
     def __str__(self):

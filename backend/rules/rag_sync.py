@@ -214,18 +214,25 @@ def sync_repository_rag(repo_id: int) -> dict:
     except RuleRepository.DoesNotExist:
         return {"ok": False, "upserted": 0, "skipped": 0, "error": "Repository not found"}
 
-    # Mark as pending
+    # Mark as pending; reset counts from any previous run
     repo.rag_last_sync_at = timezone.now()
     repo.rag_last_sync_status = "pending"
     repo.rag_last_sync_error = None
-    repo.save(update_fields=["rag_last_sync_at", "rag_last_sync_status", "rag_last_sync_error"])
+    repo.rag_last_sync_upserted = 0
+    repo.rag_last_sync_skipped = 0
+    repo.save(update_fields=[
+        "rag_last_sync_at", "rag_last_sync_status", "rag_last_sync_error",
+        "rag_last_sync_upserted", "rag_last_sync_skipped",
+    ])
 
     openai_key = _get_openai_key_for_repo(repo)
     if not openai_key:
         error_msg = "No OpenAI API key available for embedding. Configure one in AI Settings or set OPENAI_API_KEY env var."
         repo.rag_last_sync_status = "error"
         repo.rag_last_sync_error = error_msg
-        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error"])
+        repo.rag_last_sync_upserted = 0
+        repo.rag_last_sync_skipped = 0
+        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error", "rag_last_sync_upserted", "rag_last_sync_skipped"])
         return {"ok": False, "upserted": 0, "skipped": 0, "error": error_msg}
 
     # Import Qdrant store helpers
@@ -238,7 +245,9 @@ def sync_repository_rag(repo_id: int) -> dict:
         logger.error("RAG sync – %s (repo=%s)", error_msg, repo.name)
         repo.rag_last_sync_status = "error"
         repo.rag_last_sync_error = error_msg
-        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error"])
+        repo.rag_last_sync_upserted = 0
+        repo.rag_last_sync_skipped = 0
+        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error", "rag_last_sync_upserted", "rag_last_sync_skipped"])
         return {"ok": False, "upserted": 0, "skipped": 0, "error": error_msg}
 
     # Clone and parse
@@ -254,7 +263,9 @@ def sync_repository_rag(repo_id: int) -> dict:
                 logger.error("RAG sync – %s (repo=%s)", error_msg, repo.name)
                 repo.rag_last_sync_status = "error"
                 repo.rag_last_sync_error = error_msg
-                repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error"])
+                repo.rag_last_sync_upserted = 0
+                repo.rag_last_sync_skipped = 0
+                repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error", "rag_last_sync_upserted", "rag_last_sync_skipped"])
                 return {"ok": False, "upserted": 0, "skipped": 0, "error": error_msg}
 
             root = Path(tmp_dir)
@@ -282,15 +293,21 @@ def sync_repository_rag(repo_id: int) -> dict:
         logger.exception("RAG sync – unexpected error (repo=%s)", repo.name)
         repo.rag_last_sync_status = "error"
         repo.rag_last_sync_error = error_msg
-        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error"])
+        repo.rag_last_sync_upserted = upserted
+        repo.rag_last_sync_skipped = skipped
+        repo.save(update_fields=["rag_last_sync_status", "rag_last_sync_error", "rag_last_sync_upserted", "rag_last_sync_skipped"])
         return {"ok": False, "upserted": upserted, "skipped": skipped, "error": error_msg}
 
     # Success – update schedule
     repo.rag_last_sync_status = "ok"
     repo.rag_last_sync_error = None
+    repo.rag_last_sync_upserted = upserted
+    repo.rag_last_sync_skipped = skipped
     _update_next_rag_sync(repo)
     repo.save(update_fields=[
-        "rag_last_sync_status", "rag_last_sync_error", "rag_next_scheduled_sync"
+        "rag_last_sync_status", "rag_last_sync_error",
+        "rag_last_sync_upserted", "rag_last_sync_skipped",
+        "rag_next_scheduled_sync",
     ])
 
     logger.info(
