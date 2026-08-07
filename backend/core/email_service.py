@@ -431,12 +431,13 @@ class FallbackEmailService:
             )
             if sent:
                 return True
-            if self._fallback.is_configured():
-                logger.warning(
-                    "SMTP send failed; falling back to Mailgun for delivery"
-                )
-            else:
+            if not self._fallback.is_configured():
                 return False
+            logger.warning("SMTP send failed; falling back to Mailgun for delivery")
+
+        if not self._fallback.is_configured():
+            logger.error("FallbackEmailService: no configured delivery backend available")
+            return False
 
         return self._fallback.send_message(
             to=to,
