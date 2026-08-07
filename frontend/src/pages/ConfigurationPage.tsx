@@ -1270,8 +1270,13 @@ const RulesTab: React.FC = () => {
         } else {
           statusLabel = 'Enabled';
         }
+        const tooltipContent = (
+          <div>
+            {tooltipLines.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        );
         return (
-          <Tooltip title={tooltipLines.join('\n')}>
+          <Tooltip title={tooltipContent}>
             <Space>
               <span style={{ color: statusColor[status] || '#8c8c8c' }}>●</span>
               <Typography.Text>{statusLabel}</Typography.Text>
