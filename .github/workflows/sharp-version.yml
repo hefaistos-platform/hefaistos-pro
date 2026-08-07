@@ -48,22 +48,37 @@ jobs:
             echo "bump=${bump}"
             echo "next=${next}"
             echo "sharp=${sharp}"
+            echo "changelog_file=Versions/${next}.md"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Generate version changelog file
+        env:
+          NEXT_VERSION: ${{ steps.compute.outputs.next }}
+          COMMIT_RANGE: ${{ steps.compute.outputs.range }}
+          CHANGELOG_FILE: ${{ steps.compute.outputs.changelog_file }}
+        run: |
+          set -Eeuo pipefail
+
+          scripts/generate-version-changelog.sh \
+            --version "${NEXT_VERSION}" \
+            --range "${COMMIT_RANGE}" \
+            --output "${CHANGELOG_FILE}"
 
       - name: Commit VERSION bump
         env:
           NEXT_VERSION: ${{ steps.compute.outputs.next }}
+          CHANGELOG_FILE: ${{ steps.compute.outputs.changelog_file }}
         run: |
           set -Eeuo pipefail
 
-          if git diff --quiet VERSION README.md; then
+          if git diff --quiet VERSION README.md "${CHANGELOG_FILE}"; then
             echo "No version-related change detected; skipping commit."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION README.md
+          git add VERSION README.md "${CHANGELOG_FILE}"
           git commit -m "chore(version): bump to ${NEXT_VERSION} [skip version bump] [skip ci]"
           git push
 

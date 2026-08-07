@@ -23,7 +23,7 @@ Every push to `sharp` produces a version bump using commit messages in that push
 
 ## Release rules
 
-- SHARP automation updates `VERSION` and commits it back to `sharp`.
+- SHARP automation updates `VERSION`, creates `Versions/<version>.md`, and commits both back to `sharp`.
 - Stable releases are created by a manual workflow that:
   - validates the selected commit is on `sharp`,
   - reads `VERSION` from that commit,

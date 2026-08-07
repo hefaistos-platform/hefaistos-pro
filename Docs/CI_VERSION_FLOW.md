@@ -46,6 +46,7 @@ On each push to `sharp`:
 5. Commits updated `VERSION` back to `sharp` with:
    - `chore(version): bump to X.Y.Z [skip version bump] [skip ci]`
 6. Updates README platform badge (`hefaistos-version-badge`) to the same base version.
+7. Creates per-version changelog file `Versions/X.Y.Z.md`.
 
 The `[skip version bump]` marker prevents version workflow loops.
 
@@ -75,7 +76,7 @@ If conventions are not followed, workflow defaults to `PATCH` unless breaking ma
 When a stable tag `v*` is pushed:
 
 1. Workflow `Generate Version Changelog` runs.
-2. It creates `Versions/vX.Y.Z.md`.
+2. It creates `Versions/X.Y.Z.md` (without the `v` prefix).
 3. Sections are filled from commit subjects between previous tag and current tag:
    - `Fixes`: commits starting with `fix:`
    - `Removals`: commits indicating deletion/removal or breaking `!`

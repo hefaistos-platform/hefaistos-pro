@@ -31,15 +31,19 @@ jobs:
         run: |
           set -Eeuo pipefail
 
+          git fetch origin --tags
           git fetch origin sharp --no-tags
           git checkout -B sharp origin/sharp
 
-          mkdir -p Versions
-          output_file="Versions/changelog.md"
-          touch "${output_file}"
+          version="${TAG_NAME#v}"
+          scripts/versioning.sh validate "${version}" >/dev/null
 
-          if grep -q "^## ${TAG_NAME}$" "${output_file}"; then
+          mkdir -p Versions
+          output_file="Versions/${version}.md"
+
+          if [[ -f "${output_file}" ]]; then
             echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "output_file=${output_file}" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
 
@@ -51,74 +55,13 @@ jobs:
             commit_range="${TAG_NAME}"
           fi
 
-          mapfile -t subjects < <(git log --no-merges --format='%s' "${commit_range}")
-
-          changes=()
-          fixes=()
-          removals=()
-
-          for subject in "${subjects[@]}"; do
-            lower_subject="$(printf '%s' "${subject}" | tr '[:upper:]' '[:lower:]')"
-
-            if [[ "${lower_subject}" =~ ^fix(\([^)]+\))?: ]]; then
-              fixes+=("${subject}")
-            elif [[ "${lower_subject}" =~ ^(remove|removal|delete|drop)(\([^)]+\))?: ]] || [[ "${lower_subject}" =~ (^|[[:space:]])(remove|removed|removes|delete|deleted|drop|dropped)([[:space:]]|$) ]] || [[ "${subject}" =~ !: ]]; then
-              removals+=("${subject}")
-            else
-              changes+=("${subject}")
-            fi
-          done
-
-          {
-            echo "## ${TAG_NAME}"
-            echo
-            echo "_Generated on $(date -u +'%Y-%m-%d')_"
-            echo
-            echo "### Changes"
-            if [[ ${#changes[@]} -eq 0 ]]; then
-              echo "- None"
-            else
-              for item in "${changes[@]}"; do
-                printf -- '- %s\n' "${item}"
-              done
-            fi
-            echo
-            echo "### Fixes"
-            if [[ ${#fixes[@]} -eq 0 ]]; then
-              echo "- None"
-            else
-              for item in "${fixes[@]}"; do
-                printf -- '- %s\n' "${item}"
-              done
-            fi
-            echo
-            echo "### Removals"
-            if [[ ${#removals[@]} -eq 0 ]]; then
-              echo "- None"
-            else
-              for item in "${removals[@]}"; do
-                printf -- '- %s\n' "${item}"
-              done
-            fi
-          } > /tmp/version-entry.md
-
-          if grep -q "^# Changelog$" "${output_file}"; then
-            awk 'NR<=2 {next} {print}' "${output_file}" > /tmp/changelog-tail.md
-          else
-            cat "${output_file}" > /tmp/changelog-tail.md
-          fi
-          {
-            echo "# Changelog"
-            echo
-            cat /tmp/version-entry.md
-            if [[ -s /tmp/changelog-tail.md ]]; then
-              echo
-              cat /tmp/changelog-tail.md
-            fi
-          } > /tmp/changelog-updated.md
-          mv /tmp/changelog-updated.md "${output_file}"
+          scripts/generate-version-changelog.sh \
+            --version "${version}" \
+            --range "${commit_range}" \
+            --output "${output_file}"
 
           echo "exists=false" >> "${GITHUB_OUTPUT}"
+          echo "output_file=${output_file}" >> "${GITHUB_OUTPUT}"
 
       - name: Commit changelog
         if: steps.changelog.outputs.exists == 'false'
@@ -129,6 +72,6 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "Versions/changelog.md"
-          git commit -m "docs(versions): add changelog entry for ${TAG_NAME} [skip version bump] [skip ci]"
+          git add "${{ steps.changelog.outputs.output_file }}"
+          git commit -m "docs(versions): add changelog file for ${TAG_NAME} [skip version bump] [skip ci]"
           git push origin sharp
