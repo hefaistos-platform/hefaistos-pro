@@ -88,8 +88,8 @@ This performs:
 
 1. `docker compose down -v --remove-orphans`
 2. `docker compose build --pull`
-3. `docker compose up -d`
-4. `docker compose exec backend python manage.py migrate`
+3. `make up`
+4. `make migrate`
 5. Search rebuild and smoke checks
 
 Manual equivalent is documented in [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](../scripts/SHARP_BOOTSTRAP_RUNBOOK.md).
@@ -165,7 +165,7 @@ docker volume rm <project>_postgres_data
 Then start again:
 
 ```bash
-docker compose up -d db
+docker compose up -d db rabbitmq
 docker compose logs -f db
 ```
 

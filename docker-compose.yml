@@ -15,6 +15,10 @@ x-connector-runtime: &connector-runtime
     HEFAISTOS_API_TOKEN_FILE: ${HEFAISTOS_API_TOKEN_FILE:-/run/connector/token.jwt}
     RABBITMQ_PASS_FILE: ${RABBITMQ_PASS_FILE:-/run/secrets/rabbitmq_pass}
 
+x-backend-build: &backend-build
+  build: ./backend
+  image: hefaistos/backend-runtime:local
+
 services:
   # --- PROXY SERVICE (Entry Point) ---
   nginx:
@@ -32,8 +36,16 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - hefaistos-net
 
@@ -43,13 +55,18 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: hefaistos-frontend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - hefaistos-net
 
   backend:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     container_name: hefaistos-backend
-    <<: *backend-runtime
     ports:
       - "7000:7000"  # KQL LSP Server
       - "7001:7001"  # SPL LSP Server
@@ -82,9 +99,11 @@ services:
       rabbitmq:
         condition: service_healthy
       elasticsearch:
-        condition: service_started
+        condition: service_healthy
+        required: false
       qdrant:
-        condition: service_started
+        condition: service_healthy
+        required: false
     restart: unless-stopped
     networks:
       - hefaistos-net
@@ -117,12 +136,19 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.3.6
     container_name: hefaistos-elastic
+    profiles: ["obs"]
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Memory limit for stability
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - hefaistos-net
       
@@ -172,13 +198,13 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    profiles: ["devtools"]
     networks:
       - hefaistos-net
 
   listener:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     command: python services/listener.py
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     secrets:
@@ -190,6 +216,9 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      backend:
+        condition: service_healthy
+    profiles: ["workers"]
     networks:
       - hefaistos-net
 
@@ -197,9 +226,8 @@ services:
   # Processes async AI generation tasks (generate rule, suggest improvements, generate similar)
   # published via RabbitMQ to avoid 504 gateway timeouts on long-running AI calls
   ai_generation_worker:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     command: python services/ai_generation_worker.py
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     secrets:
@@ -214,15 +242,15 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    profiles: ["workers"]
     networks:
       - hefaistos-net
 
   # --- OPENTIDE ENRICHMENT WORKER ---
   # Processes async OpenTIDE metadata preview tasks published via RabbitMQ
   opentide_enrichment_worker:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     command: python services/opentide_enrichment_worker.py
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     secrets:
@@ -237,15 +265,15 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    profiles: ["workers"]
     networks:
       - hefaistos-net
 
   # --- MVE VALIDATION WORKER ---
   # Processes async Machina Velocity Engine validation runs published via RabbitMQ
   mve_validation_worker:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     command: python manage.py run_mve_validation_worker
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     secrets:
@@ -260,16 +288,16 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    profiles: ["workers"]
     networks:
       - hefaistos-net
 
   # --- SCHEDULER SERVICE ---
   # Runs periodic tasks like scheduled repository pulls
   scheduler:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     container_name: hefaistos-scheduler
     command: python run_scheduler.py
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
@@ -290,13 +318,13 @@ services:
     networks:
       - hefaistos-net
     restart: unless-stopped
+    profiles: ["workers"]
 
   # --- OPENTIDE HEF PUBLISH WORKER ---
   opentide-hef-publish-worker:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     container_name: hefaistos-opentide-hef-publish-worker
     command: python manage.py run_opentide_hef_publish_worker
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
@@ -312,16 +340,16 @@ services:
     networks:
       - hefaistos-net
     restart: unless-stopped
+    profiles: ["workers"]
     secrets:
       - db_password
       - rabbitmq_pass
       - field_key
 
   opentide-hef-import-worker:
-    build: ./backend
+    <<: [*backend-build, *backend-runtime]
     container_name: hefaistos-opentide-hef-import-worker
     command: python manage.py run_opentide_hef_import_worker
-    <<: *backend-runtime
     volumes:
       - ./backend:/app
     environment:
@@ -337,6 +365,7 @@ services:
     networks:
       - hefaistos-net
     restart: unless-stopped
+    profiles: ["workers"]
     secrets:
       - db_password
       - rabbitmq_pass
@@ -361,6 +390,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+    profiles: ["devtools"]
     networks:
       - hefaistos-net
 
@@ -386,6 +416,7 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
+    profiles: ["devtools"]
     networks:
       - hefaistos-net
 
@@ -409,6 +440,7 @@ services:
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
+    profiles: ["devtools"]
     networks:
       - hefaistos-net
 
@@ -417,8 +449,15 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.12.4
     container_name: hefaistos-qdrant
+    profiles: ["obs"]
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:6333/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
     networks:
       - hefaistos-net
     restart: unless-stopped
@@ -443,6 +482,41 @@ services:
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
+    profiles: ["devtools"]
+    networks:
+      - hefaistos-net
+
+  migrate:
+    <<: [*backend-build, *backend-runtime]
+    command: python manage.py migrate --no-input
+    volumes:
+      - ./backend:/app
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["batch"]
+    networks:
+      - hefaistos-net
+
+  seed:
+    <<: [*backend-build, *backend-runtime]
+    command: python manage.py seed_news
+    volumes:
+      - ./backend:/app
+    secrets:
+      - db_password
+      - rabbitmq_pass
+      - field_key
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    profiles: ["batch"]
     networks:
       - hefaistos-net
 
