@@ -25,15 +25,22 @@ docker compose build --pull
 
 ## 3. Start Services
 
+The default `up -d` starts only the core services (`nginx`, `frontend`,
+`backend`, `db`, `rabbitmq`). Start the full long-running stack (workers,
+search/vector, connectors) via profiles:
+
 ```bash
-docker compose up -d
+make up-full
+# equivalent to:
+# docker compose --profile workers --profile obs --profile devtools up -d
 docker compose ps
 ```
 
 ## 4. Django Bootstrap
 
 ```bash
-docker compose exec backend python manage.py migrate
+make migrate
+# equivalent to: docker compose --profile batch run --rm migrate
 ```
 
 ## 5. Search + Navigator Rebuild

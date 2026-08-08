@@ -266,6 +266,7 @@ PostgreSQL 18+ compatibility note: SHARP uses `/var/lib/postgresql` mount layout
 ## 📚 Documentation Index
 
 - Full installation guide: [INSTALL_MANUAL.md](Docs/INSTALL_MANUAL.md)
+- Migrating an existing install (up to 1.5.3): [MIGRATE_HEF.md](Docs/MIGRATE_HEF.md)
 - Compose service matrix: [compose-service-matrix.md](docs/compose-service-matrix.md)
 - Authentication setup guide (Entra OIDC + Generic OIDC): [AUTH_SETUP.md](Docs/AUTH_SETUP.md)
 - Detection Chokepoints guide: [README_CHOKEPOINTS.md](Docs/README_CHOKEPOINTS.md)
@@ -583,16 +584,20 @@ SIGMA/Sigma YAML is no longer supported as a detection rule format in HEFAISTOS.
 
 **Migration steps after `git pull origin sharp`:**
 
+> For a full, non-destructive upgrade of an existing install (including the
+> profile-based startup changes), follow [MIGRATE_HEF.md](Docs/MIGRATE_HEF.md).
+> The SIGMA-specific steps below still apply.
+
 1. Rebuild and restart all containers:
    ```bash
    docker compose down
-   docker compose pull
-   docker compose up -d --build
+   docker compose build --pull
+   make up-full
    ```
 
 2. Apply database migrations (remaps existing SIGMA rules → OTHER format):
    ```bash
-   docker compose exec backend python manage.py migrate
+   make migrate
    ```
 
 3. Clean up your environment:
