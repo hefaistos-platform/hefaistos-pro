@@ -108,6 +108,7 @@ Model selection is now **free-text** in user and organization settings, so no fr
 
 - **Logic Deconstruction** - 5-step analysis (capabilities, atomics, evasions)
 - **Rule Generation** - Create KQL, Elastic EQL, SPL, Wazuh, or QRadar AQL rules from workbench context
+- **RAG-grounded Rule Generation** - When the `obs` profile is active, Qdrant-backed retrieval augments prompts with the most semantically similar rule templates from connected repositories, improving generation quality and consistency
 - **Improvement Suggestions** - AI-powered rule optimization recommendations
 - **ACH Generation** - Generate hypotheses and evidence from scenarios
 - **Bias Detection** - Analyze ACH matrices for cognitive biases
@@ -131,6 +132,14 @@ Bidirectional synchronization with Git repositories:
 - KQL/SPL/WAZUH file parsing with metadata extraction
 - KQL file support (`.kql`, `.kusto`, Markdown with code blocks)
 - Rule deduplication and updates
+
+**RAG Template Sync (Git → Qdrant):**
+
+- Each Rule Repository can optionally be configured as a RAG template source
+- JSONL template files and raw `.kql` files are embedded via OpenAI `text-embedding-3-small` and stored in Qdrant
+- The AI assistant retrieves the most relevant templates at generation time (filtered by rule language) to ground its output
+- Sync schedule: `24H`, `48H`, `72H`, `WEEKLY`, or manual via the UI / `manage.py run_rag_sync`
+- See [Docs/QDRANT_KQL_RAG.md](Docs/QDRANT_KQL_RAG.md) for full setup and operational details
 
 **Outbound (HEFAISTOS → Git):**
 
@@ -267,7 +276,8 @@ PostgreSQL 18+ compatibility note: SHARP uses `/var/lib/postgresql` mount layout
 
 - Full installation guide: [INSTALL_MANUAL.md](Docs/INSTALL_MANUAL.md)
 - Migrating an existing install (up to 1.5.3): [MIGRATE_HEF.md](Docs/MIGRATE_HEF.md)
-- Compose service matrix: [compose-service-matrix.md](docs/compose-service-matrix.md)
+- Compose service matrix: [compose-service-matrix.md](Docs/compose-service-matrix.md)
+- Qdrant + KQL RAG integration: [QDRANT_KQL_RAG.md](Docs/QDRANT_KQL_RAG.md)
 - Authentication setup guide (Entra OIDC + Generic OIDC): [AUTH_SETUP.md](Docs/AUTH_SETUP.md)
 - Detection Chokepoints guide: [README_CHOKEPOINTS.md](Docs/README_CHOKEPOINTS.md)
 - Maieutic Engine guide: [README_MAIEUTIC.md](Docs/README_MAIEUTIC.md)

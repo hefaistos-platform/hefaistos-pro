@@ -31,7 +31,7 @@ silently **not** start its workers, search, or connectors, and background
 processing (enrichment, publishing/import, AI generation, scheduling) and search
 will appear "broken." This guide walks through the full, safe migration.
 
-See [compose-service-matrix.md](../docs/compose-service-matrix.md) for the complete
+See [compose-service-matrix.md](compose-service-matrix.md) for the complete
 service → profile mapping.
 
 ---
