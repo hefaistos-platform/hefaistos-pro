@@ -66,6 +66,14 @@ This document lists environment variables used by HEFAISTOS runtime configuratio
 |---|---|---|
 | `ELASTICSEARCH_URL` | `http://elasticsearch:9200` | Backend connection URL to Elasticsearch. |
 
+## Qdrant / RAG Vector Store
+
+| Variable | Default | Description |
+|---|---|---|
+| `QDRANT_HOST` | `qdrant` | Hostname of the Qdrant service (matches the Docker network alias). |
+| `QDRANT_PORT` | `6333` | Qdrant HTTP port. |
+| `QDRANT_API_KEY` | *(empty)* | Optional Qdrant API key for authenticated Qdrant Cloud or secured deployments. Leave empty for local/dev deployments. |
+
 ## Workers / Scheduler
 
 | Variable | Default | Description |
