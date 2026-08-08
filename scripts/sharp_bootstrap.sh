@@ -26,8 +26,8 @@ Usage: scripts/sharp_bootstrap.sh [options]
 Performs the SHARP clean bootstrap flow:
 1) docker compose down -v
 2) rebuild images
-3) start stack
-4) run Django migrations
+3) start full stack (core + workers + obs + devtools profiles)
+4) run Django migrations (batch one-shot)
 5) rebuild Elasticsearch index
 6) run smoke checks
 
@@ -132,11 +132,11 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   run_compose build --pull
 fi
 
-step "Starting stack"
-run_compose up -d
+step "Starting stack (core + workers + search/vector + connectors)"
+run_compose --profile workers --profile obs --profile devtools up -d
 
 step "Running database migrations"
-run_compose exec -T backend python manage.py migrate
+run_compose --profile batch run --rm migrate
 
 if [[ "${SKIP_INDEX_REBUILD}" -eq 0 ]]; then
   step "Rebuilding Elasticsearch index"

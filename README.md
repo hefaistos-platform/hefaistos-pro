@@ -210,12 +210,44 @@ openssl rand -base64 32 > .secrets/db_password
 openssl rand -base64 32 > .secrets/rabbitmq_pass
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > .secrets/field_key
 echo "your-mailgun-key" > .secrets/mailgun_api
-docker compose up -d
-docker compose exec backend python manage.py migrate
+make up
+make migrate
 docker compose exec backend python manage.py createsuperuser
 ```
 
 **Estimated Time:** 10-20 minutes | **Estimated Cost:** Free (all open source)
+
+### Compose Profiles (Core by Default)
+
+- Default core stack:
+  ```bash
+  make up
+  ```
+- Enable async workers:
+  ```bash
+  make up-workers
+  ```
+- Enable search/vector profile:
+  ```bash
+  make up-obs
+  ```
+- Enable optional connector tooling:
+  ```bash
+  make up-devtools
+  ```
+- Full long-running stack:
+  ```bash
+  make up-full
+  ```
+- One-shot tasks:
+  ```bash
+  make migrate
+  make seed
+  ```
+
+Rationale: the default startup now focuses on core local development flow and moves worker/connector/search-heavy services behind profiles.
+
+Rollback: run full pre-refactor behavior with `make up-full` (or `docker compose --profile workers --profile obs --profile devtools up -d`).
 
 ### SHARP Clean Bootstrap (Destructive Reset)
 
@@ -234,6 +266,8 @@ PostgreSQL 18+ compatibility note: SHARP uses `/var/lib/postgresql` mount layout
 ## 📚 Documentation Index
 
 - Full installation guide: [INSTALL_MANUAL.md](Docs/INSTALL_MANUAL.md)
+- Migrating an existing install (up to 1.5.3): [MIGRATE_HEF.md](Docs/MIGRATE_HEF.md)
+- Compose service matrix: [compose-service-matrix.md](docs/compose-service-matrix.md)
 - Authentication setup guide (Entra OIDC + Generic OIDC): [AUTH_SETUP.md](Docs/AUTH_SETUP.md)
 - Detection Chokepoints guide: [README_CHOKEPOINTS.md](Docs/README_CHOKEPOINTS.md)
 - Maieutic Engine guide: [README_MAIEUTIC.md](Docs/README_MAIEUTIC.md)
@@ -321,13 +355,13 @@ ADMIN_ALLOWED_IP_RANGES=192.168.1.0/24
 ### 5. Start the platform
 
 ```bash
-docker compose up -d
+make up
 ```
 
 ### 6. Run migrations and create superuser
 
 ```bash
-docker compose exec backend python manage.py migrate
+make migrate
 docker compose exec backend python manage.py createsuperuser
 ```
 
@@ -439,7 +473,7 @@ Also set CORS/CSRF values in `.env` (`CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGI
 
 After updating `.env`, restart the services that consume these values:
 ```bash
-docker compose up -d --force-recreate backend scheduler opentide-hef-publish-worker opentide-hef-import-worker listener ai_generation_worker opentide_enrichment_worker
+docker compose --profile workers up -d --force-recreate backend scheduler opentide-hef-publish-worker opentide-hef-import-worker listener ai_generation_worker opentide_enrichment_worker
 ```
 
 > **Note:** Since the frontend and backend are both served by the same Nginx proxy on the same origin, CORS between them is not required. `CORS_ALLOWED_ORIGINS` is only needed for external tools (such as the ATT&CK Navigator at `mitre-attack.github.io`) that need to fetch data from the API.
@@ -550,16 +584,20 @@ SIGMA/Sigma YAML is no longer supported as a detection rule format in HEFAISTOS.
 
 **Migration steps after `git pull origin sharp`:**
 
+> For a full, non-destructive upgrade of an existing install (including the
+> profile-based startup changes), follow [MIGRATE_HEF.md](Docs/MIGRATE_HEF.md).
+> The SIGMA-specific steps below still apply.
+
 1. Rebuild and restart all containers:
    ```bash
    docker compose down
-   docker compose pull
-   docker compose up -d --build
+   docker compose build --pull
+   make up-full
    ```
 
 2. Apply database migrations (remaps existing SIGMA rules → OTHER format):
    ```bash
-   docker compose exec backend python manage.py migrate
+   make migrate
    ```
 
 3. Clean up your environment:
@@ -708,7 +746,9 @@ npm start
 3. **Services (Docker):**
 
 ```bash
-docker compose up -d db rabbitmq elasticsearch
+make up
+# Optional: enable search/vector services when needed
+make up-obs
 ```
 
 ### Running Tests
@@ -868,17 +908,22 @@ sudo ufw allow from 192.168.0.0/16 to any port 80
 ### Service Management
 
 ```bash
-# Start all services
-docker compose up -d
+# Start core services
+make up
+
+# Add optional profiles
+make up-workers
+make up-obs
+make up-devtools
 
 # Stop all services
-docker compose stop
+make down
 
 # Restart specific service
 docker compose restart backend
 
 # View backend logs
-docker compose logs -f backend
+docker compose logs -f --tail=200 backend
 
 # Access backend shell
 docker compose exec backend bash

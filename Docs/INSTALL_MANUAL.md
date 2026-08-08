@@ -7,6 +7,9 @@ This manual is the operator-oriented installation guide for SHARP branch deploym
 - This guide is for clean SHARP deployments.
 - No in-place data migration is expected.
 - Destructive volume reset (`docker compose down -v`) is accepted.
+- **Upgrading an existing install instead?** Do **not** follow this clean-install
+  guide. See [MIGRATE_HEF.md](MIGRATE_HEF.md) for a non-destructive, step-by-step
+  migration of existing HEFAISTOS instances (up to 1.5.3).
 
 ## 2. SHARP Version Baseline
 
@@ -88,8 +91,8 @@ This performs:
 
 1. `docker compose down -v --remove-orphans`
 2. `docker compose build --pull`
-3. `docker compose up -d`
-4. `docker compose exec backend python manage.py migrate`
+3. `make up-full` (core + workers + obs + devtools profiles)
+4. `make migrate`
 5. Search rebuild and smoke checks
 
 Manual equivalent is documented in [scripts/SHARP_BOOTSTRAP_RUNBOOK.md](../scripts/SHARP_BOOTSTRAP_RUNBOOK.md).
@@ -165,7 +168,7 @@ docker volume rm <project>_postgres_data
 Then start again:
 
 ```bash
-docker compose up -d db
+docker compose up -d db rabbitmq
 docker compose logs -f db
 ```
 
