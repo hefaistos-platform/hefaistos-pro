@@ -175,13 +175,13 @@ def upsert_template(
 def retrieve_similar(
     openai_api_key: str,
     query_text: str,
-    language: str = "KQL",
+    language: str | None = "KQL",
     top_k: int = 5,
 ) -> list[dict]:
     """
     Retrieve the top-k most similar rule templates for *query_text*.
 
-    Filters to ``language`` so only same-format examples ground the generation.
+    When ``language`` is provided, results are filtered to same-format examples.
     Returns a list of payload dicts (empty list on any error).
     """
     if not query_text or not openai_api_key:
@@ -200,12 +200,17 @@ def retrieve_similar(
 
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue  # type: ignore
+
+        query_filter = None
+        if language:
+            query_filter = Filter(
+                must=[FieldCondition(key="language", match=MatchValue(value=language.upper()))]
+            )
+
         results = client.search(
             collection_name=COLLECTION_NAME,
             query_vector=vector,
-            query_filter=Filter(
-                must=[FieldCondition(key="language", match=MatchValue(value=language.upper()))]
-            ),
+            query_filter=query_filter,
             limit=top_k,
             with_payload=True,
         )

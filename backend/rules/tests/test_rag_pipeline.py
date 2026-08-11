@@ -38,6 +38,18 @@ class TestRagSyncParsers(SimpleTestCase):
         self.assertEqual(entries[0]["query"], "SecurityEvent | limit 10")
         self.assertEqual(entries[0]["repo_name"], "my-repo")
 
+    def test_parse_jsonl_uses_repo_relative_path_for_repo_path_and_source_id(self):
+        from rules.rag_sync import _parse_jsonl_file
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fp = self._make_jsonl_file(
+                [{"title": "Rule 1", "query": "SecurityEvent | limit 1", "language": "KQL"}],
+                tmp_dir,
+            )
+            entries = _parse_jsonl_file(fp, "my-repo", repo_relative_path="templates/kql/rules.jsonl")
+
+        self.assertEqual(entries[0]["repo_path"], "templates/kql/rules.jsonl")
+        self.assertIn("my-repo:templates/kql/rules.jsonl:", entries[0]["source_id"])
+
     def test_parse_jsonl_skips_malformed_lines(self):
         from rules.rag_sync import _parse_jsonl_file
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -75,6 +87,22 @@ class TestRagSyncParsers(SimpleTestCase):
         self.assertEqual(entries[0]["language"], "KQL")
         self.assertEqual(entries[0]["title"], "detection")
         self.assertIn("SecurityEvent", entries[0]["raw_content"])
+
+    def test_parse_raw_file_uses_repo_relative_path(self):
+        from rules.rag_sync import _parse_raw_file
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fp = Path(tmp_dir) / "rules" / "detection.kql"
+            fp.parent.mkdir(parents=True, exist_ok=True)
+            fp.write_text("SecurityEvent | where EventID == 4625")
+            entries = _parse_raw_file(
+                fp,
+                "repo",
+                language="KQL",
+                repo_relative_path="rules/detection.kql",
+            )
+
+        self.assertEqual(entries[0]["repo_path"], "rules/detection.kql")
+        self.assertIn("repo:rules/detection.kql:", entries[0]["source_id"])
 
     def test_iter_matching_paths_jsonl_default(self):
         from rules.rag_sync import _iter_matching_paths
@@ -136,6 +164,28 @@ class TestRagStoreHelpers(SimpleTestCase):
         from rules.rag_store import retrieve_similar
         result = retrieve_similar(openai_api_key="sk-xxx", query_text="test", language="KQL")
         self.assertEqual(result, [])
+
+    @patch("rules.rag_store._embed_text", return_value=[0.1, 0.2, 0.3])
+    @patch("rules.rag_store.ensure_collection")
+    @patch("rules.rag_store.get_qdrant_client")
+    def test_retrieve_similar_without_language_does_not_apply_language_filter(self, mock_get_client, _mock_ensure, _mock_embed):
+        from rules.rag_store import retrieve_similar
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        hit = MagicMock()
+        hit.payload = {"title": "Any Language Rule"}
+        mock_client.search.return_value = [hit]
+
+        result = retrieve_similar(
+            openai_api_key="sk-live-value",
+            query_text="suspicious process",
+            language=None,
+            top_k=3,
+        )
+
+        self.assertEqual(result, [{"title": "Any Language Rule"}])
+        self.assertIsNone(mock_client.search.call_args.kwargs["query_filter"])
 
 
 # ---------------------------------------------------------------------------

@@ -1337,6 +1337,16 @@ class GenerateAllDetectionRules(graphene.Mutation):
 
             try:
                 from ai_assistant.engine import generate_similar_rules
+                from ai_assistant.rag_context import retrieve_rule_reference_context
+
+                reference_context = retrieve_rule_reference_context(
+                    settings_obj=ai_user_settings,
+                    rule_format=target_fmt,
+                    playbook_context=playbook_context,
+                    rule_content=source_content,
+                    top_k=5,
+                )
+
                 generated_text, _provider = generate_similar_rules(
                     ai_user_settings,
                     rule_content=source_content,
@@ -1345,6 +1355,7 @@ class GenerateAllDetectionRules(graphene.Mutation):
                     variation_type='platform',
                     num_variations=1,
                     target_format=target_fmt,
+                    reference_context=reference_context,
                 )
                 generated_rule = (generated_text or '').split('---RULE---')[0].strip()
                 if not generated_rule or generated_rule.lower().startswith('error'):

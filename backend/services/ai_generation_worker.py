@@ -61,26 +61,14 @@ def _run_generate_rule(task) -> dict:
     context = task.input_data.get('playbook_context', {})
     output_format = task.input_data.get('output_format', 'KQL')
 
-    # --- RAG: retrieve similar templates to ground generation ---
-    reference_context = []
-    try:
-        openai_key = effective.get_openai_key() if hasattr(effective, 'get_openai_key') else None
-        if openai_key and output_format.upper() == 'KQL':
-            from rules.rag_store import retrieve_similar
-            query_text = "\n".join(filter(None, [
-                context.get('title', ''),
-                context.get('strategy_name', ''),
-                context.get('technical_context', ''),
-                context.get('goal', ''),
-            ]))
-            reference_context = retrieve_similar(
-                openai_api_key=openai_key,
-                query_text=query_text,
-                language='KQL',
-                top_k=5,
-            )
-    except Exception as exc:
-        logger.warning("RAG retrieval failed (non-fatal): %s", exc)
+    from ai_assistant.rag_context import retrieve_rule_reference_context
+
+    reference_context = retrieve_rule_reference_context(
+        settings_obj=effective,
+        rule_format=output_format,
+        playbook_context=context,
+        top_k=5,
+    )
 
     bundle, provider = generate_rule_bundle(effective, context, output_format,
                                             reference_context=reference_context)
@@ -110,12 +98,23 @@ def _run_suggest_improvements(task) -> dict:
 
     rule_content = task.input_data.get('rule_content', '')
     rule_format = task.input_data.get('rule_format', 'SIGMA')
+    playbook_context = task.input_data.get('playbook_context')
+
+    from ai_assistant.rag_context import retrieve_rule_reference_context
+    reference_context = retrieve_rule_reference_context(
+        settings_obj=effective,
+        rule_format=rule_format,
+        playbook_context=playbook_context,
+        rule_content=rule_content,
+        top_k=5,
+    )
 
     suggestions_text, provider = suggest_rule_improvements(
         effective,
-        rule_content,
-        rule_format,
-        task.input_data.get('playbook_context'),
+        rule_content=rule_content,
+        rule_format=rule_format,
+        playbook_context=playbook_context,
+        reference_context=reference_context,
     )
 
     improved_rule = None
@@ -139,6 +138,7 @@ def _run_suggest_improvements(task) -> dict:
         'suggestions': suggestions_display,
         'improved_rule': improved_rule,
         'provider_used': provider,
+        'reference_context': reference_context,
     }
 
 
@@ -158,16 +158,27 @@ def _run_generate_similar(task) -> dict:
     num_variations = task.input_data.get('num_variations', 3)
     target_format = task.input_data.get('target_format')
     custom_instructions = task.input_data.get('custom_instructions')
+    playbook_context = task.input_data.get('playbook_context')
+
+    from ai_assistant.rag_context import retrieve_rule_reference_context
+    reference_context = retrieve_rule_reference_context(
+        settings_obj=effective,
+        rule_format=target_format or rule_format,
+        playbook_context=playbook_context,
+        rule_content=rule_content,
+        top_k=5,
+    )
 
     generated_text, provider = generate_similar_rules(
         effective,
-        rule_content,
-        rule_format,
-        task.input_data.get('playbook_context'),
-        variation_type,
-        num_variations,
-        target_format,
-        custom_instructions,
+        rule_content=rule_content,
+        rule_format=rule_format,
+        playbook_context=playbook_context,
+        variation_type=variation_type,
+        num_variations=num_variations,
+        target_format=target_format,
+        custom_instructions=custom_instructions,
+        reference_context=reference_context,
     )
 
     # Normalize separator variants
@@ -184,6 +195,7 @@ def _run_generate_similar(task) -> dict:
         'provider_used': provider,
         'variation_type': variation_type,
         'num_generated': num_generated,
+        'reference_context': reference_context,
     }
 
 

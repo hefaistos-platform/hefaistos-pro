@@ -1,7 +1,7 @@
-# Qdrant + KQL RAG Integration
+# Qdrant Rule RAG Integration
 
-HEFAISTOS uses [Qdrant](https://qdrant.tech/) as a vector store to power a Retrieval-Augmented Generation (RAG) pipeline for AI-assisted KQL detection-rule authoring.  
-When the `obs` profile is active, detection-rule templates are indexed in Qdrant. The AI assistant retrieves the most relevant templates at query time and includes them as grounding context before generating or suggesting new rules.
+HEFAISTOS uses [Qdrant](https://qdrant.tech/) as a vector store to power a Retrieval-Augmented Generation (RAG) pipeline for AI-assisted detection-rule workflows.  
+When the `obs` profile is active, detection-rule templates are indexed in Qdrant. The AI assistant retrieves the most relevant templates at query time and includes them as grounding context for rule generation, improvement suggestions, similar-rule generation, and format-conversion AI fallback flows.
 
 ---
 

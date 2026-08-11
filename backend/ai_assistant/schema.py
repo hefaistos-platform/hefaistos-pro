@@ -24,6 +24,7 @@ from .engine import (
     generate_response_playbook,
     extract_threat_report_workbench_payload,
 )
+from .rag_context import retrieve_rule_reference_context
 import requests
 from requests.exceptions import RequestException
 from playbooks.models import PlaybookGraph, CapabilityAbstraction
@@ -1055,12 +1056,13 @@ class SuggestRuleImprovements(graphene.Mutation):
     class Arguments:
         rule_content = graphene.String(required=True, description="The detection rule content to analyze")
         rule_format = graphene.String(required=False, description="Format: KQL, WAZUH, or SPL (default: KQL)")
+        playbook_id = graphene.UUID(required=False, description="Optional workbench context for grounded suggestions")
 
     suggestions = graphene.String(description="AI-generated improvement suggestions (analysis text)")
     improved_rule = graphene.String(description="Complete improved rule extracted from the AI response")
     provider_used = graphene.String(description="Which AI provider was used")
 
-    def mutate(self, info, rule_content, rule_format=None):
+    def mutate(self, info, rule_content, rule_format=None, playbook_id=None):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
@@ -1081,11 +1083,32 @@ class SuggestRuleImprovements(graphene.Mutation):
                 provider_used="NONE"
             )
 
+        playbook_context = None
+        if playbook_id:
+            try:
+                playbook = PlaybookGraph.objects.prefetch_related('selected_capability_abstractions').get(
+                    pk=playbook_id,
+                    organization=user.organization,
+                )
+                playbook_context = _build_playbook_generation_context(playbook)
+            except PlaybookGraph.DoesNotExist:
+                raise GraphQLError("Playbook not found.")
+
         effective = _get_effective_ai_settings(settings)
+        normalized_format = rule_format or 'KQL'
+        reference_context = retrieve_rule_reference_context(
+            settings_obj=effective,
+            rule_format=normalized_format,
+            playbook_context=playbook_context,
+            rule_content=rule_content,
+            top_k=5,
+        )
         suggestions_text, provider = suggest_rule_improvements(
-            effective, 
-            rule_content, 
-            rule_format or 'KQL'
+            effective,
+            rule_content,
+            normalized_format,
+            playbook_context=playbook_context,
+            reference_context=reference_context,
         )
 
         # Extract the improved rule from between the delimiter markers.
@@ -1126,14 +1149,15 @@ class GenerateSimilarRules(graphene.Mutation):
         num_variations = graphene.Int(required=False, description="Number of variations to generate 1-5 (default: 3)")
         target_format = graphene.String(required=False, description="Output format (defaults to source format)")
         custom_instructions = graphene.String(required=False, description="Custom instructions for generation")
+        playbook_id = graphene.UUID(required=False, description="Optional workbench context for grounded variants")
 
     generated_rules = graphene.String(description="AI-generated similar rules separated by ---RULE---")
     provider_used = graphene.String(description="Which AI provider was used")
     variation_type = graphene.String(description="The variation type that was used")
     num_generated = graphene.Int(description="Number of rules generated")
 
-    def mutate(self, info, rule_content, rule_format=None, variation_type=None, 
-               num_variations=None, target_format=None, custom_instructions=None):
+    def mutate(self, info, rule_content, rule_format=None, variation_type=None,
+               num_variations=None, target_format=None, custom_instructions=None, playbook_id=None):
         user = info.context.user
         if user.is_anonymous:
             raise Exception("Authentication required")
@@ -1162,15 +1186,38 @@ class GenerateSimilarRules(graphene.Mutation):
         if var_type not in valid_types:
             var_type = 'technique'
 
+        playbook_context = None
+        if playbook_id:
+            try:
+                playbook = PlaybookGraph.objects.prefetch_related('selected_capability_abstractions').get(
+                    pk=playbook_id,
+                    organization=user.organization,
+                )
+                playbook_context = _build_playbook_generation_context(playbook)
+            except PlaybookGraph.DoesNotExist:
+                raise GraphQLError("Playbook not found.")
+
         effective = _get_effective_ai_settings(settings)
+        normalized_source_format = rule_format or 'KQL'
+        retrieval_format = target_format or normalized_source_format
+        reference_context = retrieve_rule_reference_context(
+            settings_obj=effective,
+            rule_format=retrieval_format,
+            playbook_context=playbook_context,
+            rule_content=rule_content,
+            top_k=5,
+        )
+
         generated_text, provider = generate_similar_rules(
             effective,
-            rule_content,
-            rule_format or 'KQL',
-            var_type,
-            num_variations or 3,
-            target_format,
-            custom_instructions
+            rule_content=rule_content,
+            rule_format=normalized_source_format,
+            playbook_context=playbook_context,
+            variation_type=var_type,
+            num_variations=num_variations or 3,
+            target_format=target_format,
+            custom_instructions=custom_instructions,
+            reference_context=reference_context,
         )
 
         # Normalise common separator variants the AI might produce so the

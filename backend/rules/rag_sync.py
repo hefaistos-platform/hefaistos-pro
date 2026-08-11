@@ -87,7 +87,7 @@ def _iter_matching_paths(root: Path, pattern: str | None) -> list[Path]:
     return [f for f in root.rglob("*") if fnmatch.fnmatch(f.relative_to(root).as_posix(), pattern)]
 
 
-def _parse_jsonl_file(file_path: Path, repo_name: str) -> list[dict]:
+def _parse_jsonl_file(file_path: Path, repo_name: str, repo_relative_path: str | None = None) -> list[dict]:
     """Parse a JSONL file and return a list of normalised entry dicts."""
     entries = []
     try:
@@ -105,7 +105,7 @@ def _parse_jsonl_file(file_path: Path, repo_name: str) -> list[dict]:
                 if not isinstance(obj, dict):
                     continue
 
-                rel_path = file_path.name
+                rel_path = repo_relative_path or file_path.name
                 source_id = _make_source_id(repo_name, rel_path, lineno, obj)
                 entry = {
                     "source_id": source_id,
@@ -117,7 +117,7 @@ def _parse_jsonl_file(file_path: Path, repo_name: str) -> list[dict]:
                     "author": obj.get("author") or "",
                     "tags": obj.get("tags") or [],
                     "repo_name": repo_name,
-                    "repo_path": str(file_path),
+                    "repo_path": rel_path,
                 }
                 entries.append(entry)
     except Exception as exc:
@@ -125,7 +125,12 @@ def _parse_jsonl_file(file_path: Path, repo_name: str) -> list[dict]:
     return entries
 
 
-def _parse_raw_file(file_path: Path, repo_name: str, language: str = "KQL") -> list[dict]:
+def _parse_raw_file(
+    file_path: Path,
+    repo_name: str,
+    language: str = "KQL",
+    repo_relative_path: str | None = None,
+) -> list[dict]:
     """Parse a raw .kql / .txt / other text file as a single entry."""
     try:
         content = file_path.read_text(encoding="utf-8", errors="replace").strip()
@@ -136,7 +141,7 @@ def _parse_raw_file(file_path: Path, repo_name: str, language: str = "KQL") -> l
     if not content:
         return []
 
-    rel_path = file_path.name
+    rel_path = repo_relative_path or file_path.name
     source_id = _make_source_id(repo_name, rel_path, 0, {"content": content})
     return [{
         "source_id": source_id,
@@ -148,7 +153,7 @@ def _parse_raw_file(file_path: Path, repo_name: str, language: str = "KQL") -> l
         "author": "",
         "tags": [],
         "repo_name": repo_name,
-        "repo_path": str(file_path),
+        "repo_path": rel_path,
     }]
 
 
@@ -273,11 +278,21 @@ def sync_repository_rag(repo_id: int) -> dict:
             matching_files = _iter_matching_paths(root, pattern)
 
             for file_path in matching_files:
+                repo_rel_path = file_path.relative_to(root).as_posix()
                 suffix = file_path.suffix.lower()
                 if suffix == ".jsonl":
-                    entries = _parse_jsonl_file(file_path, repo.name)
+                    entries = _parse_jsonl_file(
+                        file_path,
+                        repo.name,
+                        repo_relative_path=repo_rel_path,
+                    )
                 elif suffix in (".kql", ".txt"):
-                    entries = _parse_raw_file(file_path, repo.name, language="KQL")
+                    entries = _parse_raw_file(
+                        file_path,
+                        repo.name,
+                        language="KQL",
+                        repo_relative_path=repo_rel_path,
+                    )
                 else:
                     continue
 

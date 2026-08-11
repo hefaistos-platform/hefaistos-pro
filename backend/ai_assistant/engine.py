@@ -650,11 +650,24 @@ def _format_reference_context_for_prompt(reference_context: list, fmt_label: str
         description = entry.get("description", "")
         query = entry.get("query", "") or entry.get("raw_content", "")
         repo = entry.get("repo_name", "")
+        repo_path = entry.get("repo_path", "")
+        tags = entry.get("tags", [])
 
         block = f"--- Example {i}: {title}"
         if repo:
             block += f" (source: {repo})"
         block += " ---"
+        if repo_path:
+            block += f"\nPath: {repo_path}"
+        if tags:
+            if isinstance(tags, list):
+                rendered_tags = ", ".join(str(tag) for tag in tags[:8])
+            elif isinstance(tags, str):
+                rendered_tags = tags
+            else:
+                rendered_tags = str(tags)
+            if rendered_tags:
+                block += f"\nTags: {rendered_tags}"
         if description:
             block += f"\nDescription: {description}"
         if query:
@@ -943,7 +956,13 @@ def run_logic_deconstruction(user_settings, rule_content):
         return (f"Error during deconstruction: {str(e)}", provider)
 
 
-def suggest_rule_improvements(user_settings, rule_content: str, rule_format: str = 'KQL', playbook_context: dict | None = None):
+def suggest_rule_improvements(
+    user_settings,
+    rule_content: str,
+    rule_format: str = 'KQL',
+    playbook_context: dict | None = None,
+    reference_context: list | None = None,
+):
     """
     Analyzes a detection rule and suggests specific improvements.
     Returns a tuple: (suggestions_text, provider_used)
@@ -1038,6 +1057,16 @@ ACTIVE CHOKEPOINT GUIDANCE:
 Provide specific, actionable recommendations for improving this rule's effectiveness, reducing false positives, and following {fmt} best practices.
 Finish your response with section 8 containing a complete, improved version of the rule in valid {fmt} format, wrapped between ---IMPROVED-RULE-START--- and ---IMPROVED-RULE-END--- delimiter lines."""
 
+    if reference_context:
+        examples_text = _format_reference_context_for_prompt(reference_context, fmt)
+        user_prompt += f"""
+
+REFERENCE EXAMPLES (retrieved from rule template store – use for grounding, do NOT copy verbatim):
+<reference_examples>
+{examples_text}
+</reference_examples>
+"""
+
     try:
         # --- GEMINI INTEGRATION ---
         if 'GEMINI' in provider:
@@ -1124,7 +1153,8 @@ Finish your response with section 8 containing a complete, improved version of t
 def generate_similar_rules(user_settings, rule_content: str, rule_format: str = 'KQL',
                            playbook_context: dict | None = None,
                            variation_type: str = 'technique', num_variations: int = 3,
-                           target_format: str = None, custom_instructions: str = None):
+                           target_format: str = None, custom_instructions: str = None,
+                           reference_context: list | None = None):
     """
     Generates similar detection rules based on an existing rule.
     
@@ -1247,6 +1277,16 @@ ACTIVE CHOKEPOINT GUIDANCE:
 {f"ADDITIONAL INSTRUCTIONS: {custom_instructions}" if custom_instructions and variation_type != 'custom' else ""}
 
 Output exactly {num_variations} complete, production-ready {out_fmt} rule(s). Use ---RULE--- (on its own line) as the only separator between rules."""
+
+    if reference_context:
+        examples_text = _format_reference_context_for_prompt(reference_context, out_fmt)
+        user_prompt += f"""
+
+REFERENCE EXAMPLES (retrieved from rule template store – use for grounding, do NOT copy verbatim):
+<reference_examples>
+{examples_text}
+</reference_examples>
+"""
 
     # Scale token budget with the number of rules requested (approx 2000 tokens per rule + overhead)
     dynamic_max_tokens = min(num_variations * 2000 + 1500, 16000)
