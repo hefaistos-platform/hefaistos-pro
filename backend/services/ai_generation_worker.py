@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
 RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
 RABBITMQ_PORT = int(os.environ.get('RABBITMQ_PORT', '5672'))
+RABBITMQ_HEARTBEAT = int(os.environ.get('RABBITMQ_HEARTBEAT', '0'))
+RABBITMQ_BLOCKED_CONNECTION_TIMEOUT = int(os.environ.get('RABBITMQ_BLOCKED_CONNECTION_TIMEOUT', '1800'))
 EXCHANGE_NAME = 'hefaistos_events'
 QUEUE_NAME = 'ai_generation_tasks'
 ROUTING_KEY = 'ai.generation.requested'
@@ -313,6 +315,7 @@ def process_ai_task(task_id: str) -> None:
 def process_rag_sync(repository_id: str) -> None:
     """Run RAG sync for the given repository ID."""
     try:
+        logger.warning("RAG sync started for repo %s", repository_id)
         from rules.rag_sync import sync_repository_rag  # noqa: PLC0415
         result = sync_repository_rag(int(repository_id))
         if result.get('ok'):
@@ -336,38 +339,50 @@ def on_message_received(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
         return
 
-    if method.routing_key == ROUTING_KEY:
-        task_id = payload.get('task_id')
-        if not task_id:
-            logger.error("Payload missing 'task_id'; acknowledging and skipping.")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-            return
-        process_ai_task(task_id)
-    elif method.routing_key == RAG_ROUTING_KEY:
-        repo_id = payload.get('repository_id')
-        if not repo_id:
-            logger.error("RAG payload missing 'repository_id'; acknowledging and skipping.")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-            return
-        process_rag_sync(repo_id)
-    else:
-        logger.warning("Received unexpected routing key: %s", method.routing_key)
+    try:
+        if method.routing_key == ROUTING_KEY:
+            task_id = payload.get('task_id')
+            if not task_id:
+                logger.error("Payload missing 'task_id'; acknowledging and skipping.")
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+                return
+            process_ai_task(task_id)
+        elif method.routing_key == RAG_ROUTING_KEY:
+            repo_id = payload.get('repository_id')
+            if not repo_id:
+                logger.error("RAG payload missing 'repository_id'; acknowledging and skipping.")
+                ch.basic_ack(delivery_tag=method.delivery_tag)
+                return
+            process_rag_sync(repo_id)
+        else:
+            logger.warning("Received unexpected routing key: %s", method.routing_key)
 
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception as exc:
+        logger.exception(
+            "Unhandled worker callback error for routing key %s: %s",
+            method.routing_key,
+            exc,
+        )
+        try:
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+        except Exception:
+            logger.exception("Failed to nack message after callback error.")
 
 
 def run_worker(max_retries: int = 10, retry_delay: int = 5) -> None:
     """Connect to RabbitMQ and start consuming AI generation tasks."""
     credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
 
-    for attempt in range(1, max_retries + 1):
+    attempt = 1
+    while True:
         try:
             parameters = pika.ConnectionParameters(
                 host=RABBITMQ_HOST,
                 port=RABBITMQ_PORT,
                 credentials=credentials,
-                heartbeat=60,
-                blocked_connection_timeout=300,
+                heartbeat=RABBITMQ_HEARTBEAT,
+                blocked_connection_timeout=RABBITMQ_BLOCKED_CONNECTION_TIMEOUT,
                 connection_attempts=3,
                 retry_delay=2,
             )
@@ -384,19 +399,33 @@ def run_worker(max_retries: int = 10, retry_delay: int = 5) -> None:
             channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_message_received)
 
             logger.info(
-                "AI generation worker started. Listening on queue '%s' (routing key '%s').",
+                "AI generation worker started. queue='%s' routing_key='%s' rag_routing_key='%s' heartbeat=%s blocked_timeout=%s",
                 QUEUE_NAME,
                 ROUTING_KEY,
+                RAG_ROUTING_KEY,
+                RABBITMQ_HEARTBEAT,
+                RABBITMQ_BLOCKED_CONNECTION_TIMEOUT,
             )
+
+            attempt = 1
             channel.start_consuming()
         except pika.exceptions.AMQPConnectionError as exc:
             logger.warning(
                 "RabbitMQ connection failed (attempt %d/%d): %s", attempt, max_retries, exc
             )
             if attempt < max_retries:
+                attempt += 1
                 time.sleep(retry_delay)
             else:
                 logger.error("Exhausted retries. Exiting.")
+                raise
+        except Exception as exc:
+            logger.exception("Worker consume loop crashed unexpectedly: %s", exc)
+            if attempt < max_retries:
+                attempt += 1
+                time.sleep(retry_delay)
+            else:
+                logger.error("Exhausted retries after unexpected errors. Exiting.")
                 raise
         except KeyboardInterrupt:
             logger.info("Worker stopped by keyboard interrupt.")
