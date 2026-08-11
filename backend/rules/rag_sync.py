@@ -175,29 +175,60 @@ def _resolve_language(obj: dict) -> str:
 
 def _get_openai_key_for_repo(repo: "RuleRepository") -> str | None:
     """
-    Retrieve an OpenAI key usable for embedding.  We try (in order):
-      1. The organisation's AI settings (if any admin user has configured one).
-      2. The OPENAI_API_KEY environment variable.
+    Retrieve an OpenAI key usable for embedding. We try (in order):
+      1. ``OPENAI_API_KEY`` env var (or ``OPENAI_API_KEY_FILE``).
+      2. Organisation-level AI settings (including assigned shared profiles).
+      3. Any per-user AI settings in the same organisation.
     """
     # Try env var first (fast path)
-    env_key = os.environ.get("OPENAI_API_KEY")
+    env_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
     if env_key:
         return env_key
 
-    # Try the first admin/configured key in the organisation
+    # Support Docker secret-style key files
+    key_file = (os.environ.get("OPENAI_API_KEY_FILE") or "").strip()
+    if key_file:
+        try:
+            file_key = (Path(key_file).read_text(encoding="utf-8") or "").strip()
+            if file_key:
+                return file_key
+        except Exception:
+            logger.debug("Could not read OPENAI_API_KEY_FILE at %s", key_file, exc_info=True)
+
+    # Try organisation-level AI settings (custom org config or shared profile fallback)
+    try:
+        from ai_assistant.models import OrgAISettings  # noqa: PLC0415
+
+        org_settings = OrgAISettings.objects.select_related("shared_profile").filter(
+            organization=repo.organization,
+        ).first()
+        if org_settings:
+            effective = org_settings.get_effective_settings()
+            get_key = getattr(effective, "get_openai_key", None)
+            if callable(get_key):
+                key = (get_key() or "").strip()
+                if key:
+                    return key
+    except Exception:
+        logger.debug("Could not resolve org-level OpenAI key for RAG sync.", exc_info=True)
+
+    # Try per-user AI settings in this organisation
     try:
         from ai_assistant.models import UserAISettings  # noqa: PLC0415
-        settings = (
+
+        user_settings_qs = (
             UserAISettings.objects
             .filter(user__organization=repo.organization)
-            .exclude(_openai_key=None)
-            .exclude(_openai_key="")
-            .first()
+            .exclude(openai_api_key__isnull=True)
+            .exclude(openai_api_key="")
         )
-        if settings:
-            return settings.get_openai_key()
+        for settings in user_settings_qs.iterator():
+            key = (settings.get_openai_key() or "").strip()
+            if key:
+                return key
     except Exception:
-        pass
+        logger.debug("Could not resolve user-level OpenAI key for RAG sync.", exc_info=True)
+
     return None
 
 
@@ -232,7 +263,10 @@ def sync_repository_rag(repo_id: int) -> dict:
 
     openai_key = _get_openai_key_for_repo(repo)
     if not openai_key:
-        error_msg = "No OpenAI API key available for embedding. Configure one in AI Settings or set OPENAI_API_KEY env var."
+        error_msg = (
+            "No OpenAI API key available for embedding. Configure OpenAI in Org/User AI Settings "
+            "(or assigned shared profile), or set OPENAI_API_KEY env var."
+        )
         repo.rag_last_sync_status = "error"
         repo.rag_last_sync_error = error_msg
         repo.rag_last_sync_upserted = 0

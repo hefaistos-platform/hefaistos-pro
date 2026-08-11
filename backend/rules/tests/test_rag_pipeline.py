@@ -335,3 +335,43 @@ class TestRuleRepositoryModelBackwardCompat(TestCase):
         self.assertTrue(refreshed.rag_enabled)
         self.assertEqual(refreshed.rag_dataset_path, "rules/*.jsonl")
         self.assertEqual(refreshed.rag_schedule, "24H")
+
+
+class TestRagOpenAIKeyResolution(TestCase):
+    def _make_repo(self):
+        from organizations.models import Organization
+        from rules.models import RuleRepository
+
+        org = Organization.objects.create(name="RagKeyOrg")
+        repo = RuleRepository.objects.create(
+            organization=org,
+            name="rag-key-repo",
+            git_url="https://github.com/example/repo.git",
+            rag_enabled=True,
+        )
+        return org, repo
+
+    def test_get_openai_key_for_repo_from_user_settings(self):
+        from django.contrib.auth import get_user_model
+        from ai_assistant.models import UserAISettings
+        from rules.rag_sync import _get_openai_key_for_repo
+
+        org, repo = self._make_repo()
+        User = get_user_model()
+        user = User.objects.create_user(username="rag-user", email="rag-user@example.com")
+        user.organization = org
+        user.save(update_fields=["organization"])
+        UserAISettings.objects.create(user=user, openai_api_key="sk-user-key")
+
+        key = _get_openai_key_for_repo(repo)
+        self.assertEqual(key, "sk-user-key")
+
+    def test_get_openai_key_for_repo_from_org_settings(self):
+        from ai_assistant.models import OrgAISettings
+        from rules.rag_sync import _get_openai_key_for_repo
+
+        org, repo = self._make_repo()
+        OrgAISettings.objects.create(organization=org, openai_api_key="sk-org-key")
+
+        key = _get_openai_key_for_repo(repo)
+        self.assertEqual(key, "sk-org-key")
