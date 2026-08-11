@@ -124,6 +124,7 @@ const GET_ORG_AI_SETTINGS = gql`
       orgPreferredModel
       azureOpenaiEndpoint
       azureOpenaiDeployment
+      azureOpenaiEmbeddingDeployment
       ollamaEnabled
       openaiEnabled
       geminiEnabled
@@ -139,8 +140,8 @@ const GET_ORG_AI_SETTINGS = gql`
 `;
 
 const UPDATE_ORG_AI_SETTINGS = gql`
-  mutation UpdateOrgAISettings($organizationId: UUID, $ollamaBaseUrl: String, $ollamaModel: String, $openaiKey: String, $geminiKey: String, $claudeKey: String, $azureOpenaiEndpoint: String, $azureOpenaiKey: String, $azureOpenaiDeployment: String, $orgPreferredModel: String, $ollamaEnabled: Boolean, $openaiEnabled: Boolean, $geminiEnabled: Boolean, $claudeEnabled: Boolean, $azureOpenaiEnabled: Boolean) {
-    updateOrgAiSettings(organizationId: $organizationId, ollamaBaseUrl: $ollamaBaseUrl, ollamaModel: $ollamaModel, openaiKey: $openaiKey, geminiKey: $geminiKey, claudeKey: $claudeKey, azureOpenaiEndpoint: $azureOpenaiEndpoint, azureOpenaiKey: $azureOpenaiKey, azureOpenaiDeployment: $azureOpenaiDeployment, orgPreferredModel: $orgPreferredModel, ollamaEnabled: $ollamaEnabled, openaiEnabled: $openaiEnabled, geminiEnabled: $geminiEnabled, claudeEnabled: $claudeEnabled, azureOpenaiEnabled: $azureOpenaiEnabled) {
+  mutation UpdateOrgAISettings($organizationId: UUID, $ollamaBaseUrl: String, $ollamaModel: String, $openaiKey: String, $geminiKey: String, $claudeKey: String, $azureOpenaiEndpoint: String, $azureOpenaiKey: String, $azureOpenaiDeployment: String, $azureOpenaiEmbeddingDeployment: String, $orgPreferredModel: String, $ollamaEnabled: Boolean, $openaiEnabled: Boolean, $geminiEnabled: Boolean, $claudeEnabled: Boolean, $azureOpenaiEnabled: Boolean) {
+    updateOrgAiSettings(organizationId: $organizationId, ollamaBaseUrl: $ollamaBaseUrl, ollamaModel: $ollamaModel, openaiKey: $openaiKey, geminiKey: $geminiKey, claudeKey: $claudeKey, azureOpenaiEndpoint: $azureOpenaiEndpoint, azureOpenaiKey: $azureOpenaiKey, azureOpenaiDeployment: $azureOpenaiDeployment, azureOpenaiEmbeddingDeployment: $azureOpenaiEmbeddingDeployment, orgPreferredModel: $orgPreferredModel, ollamaEnabled: $ollamaEnabled, openaiEnabled: $openaiEnabled, geminiEnabled: $geminiEnabled, claudeEnabled: $claudeEnabled, azureOpenaiEnabled: $azureOpenaiEnabled) {
       ok
       settings {
         id
@@ -155,6 +156,7 @@ const UPDATE_ORG_AI_SETTINGS = gql`
         orgPreferredModel
         azureOpenaiEndpoint
         azureOpenaiDeployment
+        azureOpenaiEmbeddingDeployment
         ollamaEnabled
         openaiEnabled
         geminiEnabled
@@ -194,6 +196,7 @@ const SET_SHARED_AI_PROFILE = gql`
     $azureOpenaiEndpoint: String
     $azureOpenaiKey: String
     $azureOpenaiDeployment: String
+    $azureOpenaiEmbeddingDeployment: String
     $orgPreferredModel: String
     $ollamaEnabled: Boolean
     $openaiEnabled: Boolean
@@ -213,6 +216,7 @@ const SET_SHARED_AI_PROFILE = gql`
       azureOpenaiEndpoint: $azureOpenaiEndpoint
       azureOpenaiKey: $azureOpenaiKey
       azureOpenaiDeployment: $azureOpenaiDeployment
+      azureOpenaiEmbeddingDeployment: $azureOpenaiEmbeddingDeployment
       orgPreferredModel: $orgPreferredModel
       ollamaEnabled: $ollamaEnabled
       openaiEnabled: $openaiEnabled
@@ -763,6 +767,7 @@ interface OrgAISettingsData {
     orgPreferredModel: string;
     azureOpenaiEndpoint: string;
     azureOpenaiDeployment: string;
+    azureOpenaiEmbeddingDeployment: string;
     ollamaEnabled: boolean;
     openaiEnabled: boolean;
     geminiEnabled: boolean;
@@ -2050,7 +2055,7 @@ export const ConfigurationPage: React.FC = () => {
     errorPolicy: 'ignore',
     skip: !isSuperuser || isAccessPending || !isConfigAccessAllowed,
   });
-  const [orgAiForm, setOrgAiForm] = useState({ ollamaBaseUrl: '', ollamaModel: '', openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiEndpoint: '', azureOpenaiKey: '', azureOpenaiDeployment: '', orgPreferredModel: '', ollamaEnabled: true, openaiEnabled: true, geminiEnabled: true, claudeEnabled: true, azureOpenaiEnabled: true });
+  const [orgAiForm, setOrgAiForm] = useState({ ollamaBaseUrl: '', ollamaModel: '', openaiKey: '', geminiKey: '', claudeKey: '', azureOpenaiEndpoint: '', azureOpenaiKey: '', azureOpenaiDeployment: '', azureOpenaiEmbeddingDeployment: '', orgPreferredModel: '', ollamaEnabled: true, openaiEnabled: true, geminiEnabled: true, claudeEnabled: true, azureOpenaiEnabled: true });
   const [authForm, setAuthForm] = useState({
     authMode: 'ENTRA_AND_LOCAL_BREAKGLASS',
     defaultLoginProvider: 'ENTRA',
@@ -2108,6 +2113,7 @@ export const ConfigurationPage: React.FC = () => {
         azureOpenaiEndpoint: orgAiData.orgAiSettings.azureOpenaiEndpoint || '',
         azureOpenaiKey: '',
         azureOpenaiDeployment: orgAiData.orgAiSettings.azureOpenaiDeployment || '',
+        azureOpenaiEmbeddingDeployment: orgAiData.orgAiSettings.azureOpenaiEmbeddingDeployment || '',
         orgPreferredModel: orgAiData.orgAiSettings.orgPreferredModel || '',
         ollamaEnabled: orgAiData.orgAiSettings.ollamaEnabled ?? true,
         openaiEnabled: orgAiData.orgAiSettings.openaiEnabled ?? true,
@@ -2188,6 +2194,7 @@ export const ConfigurationPage: React.FC = () => {
           azureOpenaiEndpoint: orgAiForm.azureOpenaiEndpoint || null,
           azureOpenaiKey: orgAiForm.azureOpenaiKey || undefined,
           azureOpenaiDeployment: orgAiForm.azureOpenaiDeployment || null,
+          azureOpenaiEmbeddingDeployment: orgAiForm.azureOpenaiEmbeddingDeployment || null,
           orgPreferredModel: orgAiForm.orgPreferredModel || null,
           ollamaEnabled: orgAiForm.ollamaEnabled,
           openaiEnabled: orgAiForm.openaiEnabled,
@@ -2221,6 +2228,7 @@ export const ConfigurationPage: React.FC = () => {
           azureOpenaiEndpoint: orgAiForm.azureOpenaiEndpoint || null,
           azureOpenaiKey: orgAiForm.azureOpenaiKey || undefined,
           azureOpenaiDeployment: orgAiForm.azureOpenaiDeployment || null,
+          azureOpenaiEmbeddingDeployment: orgAiForm.azureOpenaiEmbeddingDeployment || null,
           orgPreferredModel: orgAiForm.orgPreferredModel || null,
           ollamaEnabled: orgAiForm.ollamaEnabled,
           openaiEnabled: orgAiForm.openaiEnabled,
@@ -2787,8 +2795,8 @@ export const ConfigurationPage: React.FC = () => {
                   </button>
                 </label>
               </div>
-              <p className="text-sm text-gray-500 mb-4">Organization-wide Azure OpenAI endpoint. Users who opt in will use this deployment for GPT-5.x models.</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <p className="text-sm text-gray-500 mb-4">Configure Azure OpenAI for both chat generation and embeddings used by RAG sync/retrieval.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-xs font-semibold mb-1">Azure Endpoint URL</label>
                   <input type="text" className="w-full p-2 border rounded text-sm" placeholder="https://YOUR_RESOURCE.openai.azure.com" value={orgAiForm.azureOpenaiEndpoint} onChange={e => setOrgAiForm({ ...orgAiForm, azureOpenaiEndpoint: e.target.value })} />
@@ -2798,8 +2806,12 @@ export const ConfigurationPage: React.FC = () => {
                   <input type="password" className="w-full p-2 border rounded text-sm" placeholder={orgAiData?.orgAiSettings?.hasAzureOpenai ? '•••••••• (set — enter new value to update)' : 'Your Azure API key'} value={orgAiForm.azureOpenaiKey} onChange={e => setOrgAiForm({ ...orgAiForm, azureOpenaiKey: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Deployment Name</label>
+                  <label className="block text-xs font-semibold mb-1">Chat Deployment Name</label>
                   <input type="text" className="w-full p-2 border rounded text-sm" placeholder="gpt-5-deployment" value={orgAiForm.azureOpenaiDeployment} onChange={e => setOrgAiForm({ ...orgAiForm, azureOpenaiDeployment: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold mb-1">Embedding Deployment Name (RAG)</label>
+                  <input type="text" className="w-full p-2 border rounded text-sm" placeholder="text-embedding-3-small" value={orgAiForm.azureOpenaiEmbeddingDeployment} onChange={e => setOrgAiForm({ ...orgAiForm, azureOpenaiEmbeddingDeployment: e.target.value })} />
                 </div>
               </div>
             </div>

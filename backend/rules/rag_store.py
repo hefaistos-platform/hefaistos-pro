@@ -4,12 +4,12 @@ RAG template store backed by Qdrant.
 Provides helpers to:
 - Obtain a Qdrant client configured from Django settings / env vars.
 - Ensure the ``hefaistos_rule_templates`` collection exists with the correct schema.
-- Upsert rule template payloads (embed via OpenAI text-embedding-3-small).
+- Upsert rule template payloads (embed via OpenAI or Azure OpenAI).
 - Retrieve the top-k most similar templates filtered by ``language`` tag.
 
-Embedding is performed via the OpenAI *text-embedding-3-small* model (1 536 dims)
-if an OpenAI API key is available.  When no key is present, the helper returns an
-empty list rather than raising, so callers degrade gracefully.
+Embedding is performed via OpenAI *text-embedding-3-small* (public OpenAI) or an
+Azure OpenAI embedding deployment with 1 536 dims. When no embedding credentials
+are present, the helper returns an empty result rather than raising.
 """
 
 from __future__ import annotations
@@ -77,16 +77,44 @@ def ensure_collection(client: "QdrantClient") -> None:
         logger.debug("Qdrant collection '%s' already exists.", COLLECTION_NAME)
 
 
-def _embed_text(text: str, openai_api_key: str) -> list[float] | None:
-    """Embed *text* using OpenAI text-embedding-3-small. Returns None on error."""
+def _embed_text(
+    text: str,
+    openai_api_key: str | None = None,
+    azure_openai_api_key: str | None = None,
+    azure_openai_endpoint: str | None = None,
+    azure_openai_embedding_deployment: str | None = None,
+    azure_openai_api_version: str | None = None,
+) -> list[float] | None:
+    """Embed *text* using OpenAI or Azure OpenAI. Returns None on error."""
     try:
         import openai  # type: ignore
-        client = openai.OpenAI(api_key=openai_api_key)
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text[:8000],  # stay well within 8192-token limit
+        if openai_api_key:
+            client = openai.OpenAI(api_key=openai_api_key)
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text[:8000],  # stay well within 8192-token limit
+            )
+            return response.data[0].embedding
+
+        has_azure = bool(
+            (azure_openai_api_key or "").strip()
+            and (azure_openai_endpoint or "").strip()
+            and (azure_openai_embedding_deployment or "").strip()
         )
-        return response.data[0].embedding
+        if has_azure:
+            client = openai.AzureOpenAI(
+                azure_endpoint=azure_openai_endpoint,
+                api_key=azure_openai_api_key,
+                api_version=(azure_openai_api_version or os.environ.get("AZURE_OPENAI_API_VERSION") or "2024-02-01"),
+            )
+            response = client.embeddings.create(
+                model=azure_openai_embedding_deployment,
+                input=text[:8000],
+            )
+            return response.data[0].embedding
+
+        logger.warning("Embedding skipped: no OpenAI or Azure OpenAI embedding credentials configured.")
+        return None
     except Exception as exc:
         logger.warning("Embedding failed: %s", exc)
         return None
@@ -116,7 +144,11 @@ def _build_embed_text(entry: dict) -> str:
 def upsert_template(
     client: "QdrantClient",
     entry: dict,
-    openai_api_key: str,
+    openai_api_key: str | None = None,
+    azure_openai_api_key: str | None = None,
+    azure_openai_endpoint: str | None = None,
+    azure_openai_embedding_deployment: str | None = None,
+    azure_openai_api_version: str | None = None,
 ) -> bool:
     """
     Upsert a single rule template into the Qdrant collection.
@@ -144,7 +176,14 @@ def upsert_template(
         logger.warning("Skipping entry with no embeddable content: %s", entry.get("source_id"))
         return False
 
-    vector = _embed_text(embed_text, openai_api_key)
+    vector = _embed_text(
+        embed_text,
+        openai_api_key=openai_api_key,
+        azure_openai_api_key=azure_openai_api_key,
+        azure_openai_endpoint=azure_openai_endpoint,
+        azure_openai_embedding_deployment=azure_openai_embedding_deployment,
+        azure_openai_api_version=azure_openai_api_version,
+    )
     if vector is None:
         return False
 
@@ -173,10 +212,14 @@ def upsert_template(
 
 
 def retrieve_similar(
-    openai_api_key: str,
+    openai_api_key: str | None,
     query_text: str,
     language: str | None = "KQL",
     top_k: int = 5,
+    azure_openai_api_key: str | None = None,
+    azure_openai_endpoint: str | None = None,
+    azure_openai_embedding_deployment: str | None = None,
+    azure_openai_api_version: str | None = None,
 ) -> list[dict]:
     """
     Retrieve the top-k most similar rule templates for *query_text*.
@@ -184,7 +227,13 @@ def retrieve_similar(
     When ``language`` is provided, results are filtered to same-format examples.
     Returns a list of payload dicts (empty list on any error).
     """
-    if not query_text or not openai_api_key:
+    has_openai = bool((openai_api_key or "").strip())
+    has_azure = bool(
+        (azure_openai_api_key or "").strip()
+        and (azure_openai_endpoint or "").strip()
+        and (azure_openai_embedding_deployment or "").strip()
+    )
+    if not query_text or not (has_openai or has_azure):
         return []
 
     try:
@@ -194,7 +243,14 @@ def retrieve_similar(
         logger.warning("Could not connect to Qdrant: %s", exc)
         return []
 
-    vector = _embed_text(query_text, openai_api_key)
+    vector = _embed_text(
+        query_text,
+        openai_api_key=openai_api_key,
+        azure_openai_api_key=azure_openai_api_key,
+        azure_openai_endpoint=azure_openai_endpoint,
+        azure_openai_embedding_deployment=azure_openai_embedding_deployment,
+        azure_openai_api_version=azure_openai_api_version,
+    )
     if vector is None:
         return []
 

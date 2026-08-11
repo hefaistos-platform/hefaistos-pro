@@ -12,7 +12,7 @@ When the `obs` profile is active, detection-rule templates are indexed in Qdrant
         │
         │  rag_sync.py  (clones repo, parses JSONL/.kql files)
         ▼
- OpenAI text-embedding-3-small  ──►  1 536-dim embedding vector
+ OpenAI or Azure OpenAI embeddings  ──►  1 536-dim embedding vector
         │
         ▼
  Qdrant collection: hefaistos_rule_templates
@@ -39,7 +39,7 @@ When the `obs` profile is active, detection-rule templates are indexed in Qdrant
 | Service / Package | Notes |
 |---|---|
 | **qdrant** (Docker service) | Started with `--profile obs`. Stores and serves embeddings over HTTP on port 6333. |
-| **OpenAI API key** | Required for the embedding model (`text-embedding-3-small`). Configured either per-user in *AI Settings* or via the `OPENAI_API_KEY` environment variable. |
+| **Embedding credentials** | Preferred: configure in UI via **Configuration → Org AI** (or **Superuser Mgmt → Shared Profiles**) using Azure/OpenAI fields, including **Embedding Deployment Name (RAG)**. Env vars remain available as fallback. |
 | **GitPython** | Python dependency used to shallow-clone rule template repositories. |
 | **qdrant-client** | Python dependency used by `rag_store.py`. |
 
@@ -54,7 +54,19 @@ When the `obs` profile is active, detection-rule templates are indexed in Qdrant
 | `QDRANT_HOST` | `qdrant` | Hostname of the Qdrant container (matches Docker network alias). Change for remote/Qdrant Cloud deployments. |
 | `QDRANT_PORT` | `6333` | Qdrant HTTP port. |
 | `QDRANT_API_KEY` | *(empty)* | API key for authenticated Qdrant Cloud / secured clusters. Leave empty for local deployments. |
-| `OPENAI_API_KEY` | *(empty)* | OpenAI API key used for generating embeddings. Can also be set per-user in the platform's AI Settings UI. |
+| `OPENAI_API_KEY` | *(empty)* | Public OpenAI API key for embeddings (`text-embedding-3-small`). |
+| `OPENAI_API_KEY_FILE` | *(empty)* | Optional secret-file path alternative to `OPENAI_API_KEY`. |
+| `AZURE_OPENAI_ENDPOINT` | *(empty)* | Azure OpenAI endpoint URL (`https://<resource>.openai.azure.com`). |
+| `AZURE_OPENAI_API_KEY` | *(empty)* | Azure OpenAI API key. |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | *(empty)* | Azure embedding deployment name used for RAG vector upsert/retrieval. |
+| `AZURE_OPENAI_API_VERSION` | `2024-02-01` | Azure OpenAI API version used for embeddings when not provided elsewhere. |
+
+Embedding provider precedence for RAG sync and retrieval:
+
+1. Org AI settings (including assigned shared profile)
+2. User AI settings (OpenAI)
+3. OpenAI env (`OPENAI_API_KEY`/`OPENAI_API_KEY_FILE`)
+4. Azure env (`AZURE_OPENAI_*` with embedding deployment)
 
 All variables are read at runtime; no restart of the backend is required after updating `.env` (a container restart is required for the change to take effect in Docker deployments).
 
@@ -144,7 +156,7 @@ Collection name: **`hefaistos_rule_templates`**
 | `repo_name` | string | Source repository name. |
 | `repo_path` | string | Relative file path inside the repository. |
 
-Vector dimensions: **1 536** (OpenAI `text-embedding-3-small`). Distance metric: **Cosine**.
+Vector dimensions: **1 536** (configured for OpenAI `text-embedding-3-small` and Azure deployments with equivalent dimensionality). Distance metric: **Cosine**.
 
 ---
 
@@ -178,15 +190,19 @@ docker compose ps qdrant
 docker compose logs qdrant
 ```
 
-### No OpenAI key configured
+### No embedding credentials configured
 
 Sync will fail with:
 
 ```
-No OpenAI API key available for embedding. Configure one in AI Settings or set OPENAI_API_KEY env var.
+No embedding credentials available for RAG sync. Configure OpenAI or Azure OpenAI in Org/User AI Settings (or assigned shared profile), or set env vars.
 ```
 
-Either add a key in **AI Settings → OpenAI API Key** or set `OPENAI_API_KEY` in your `.env` file and restart the backend.
+Fix by configuring one of these options:
+
+- UI settings (recommended): configure OpenAI/Azure in **Configuration → Org AI** or **Superuser Mgmt → Shared Profiles** and set **Embedding Deployment Name (RAG)**.
+- OpenAI env fallback: set `OPENAI_API_KEY` (or `OPENAI_API_KEY_FILE`).
+- Azure env fallback: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`, and `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`.
 
 ### Git clone failure
 

@@ -131,6 +131,40 @@ SHARP no longer relies on hardcoded model dropdowns for AI model preference.
 
 Leave model fields empty to allow automatic provider-based model selection.
 
+## 10A. Azure OpenAI Embeddings for RAG (Qdrant)
+
+Preferred setup is in-app AI configuration:
+
+- **Configuration → Org AI** (per organization)
+- **Superuser Mgmt → Shared Profiles** (shared across organizations)
+
+For Azure, set both:
+
+- **Azure OpenAI Deployment** (chat/completions)
+- **Azure OpenAI Embedding Deployment (RAG)** (vector embedding)
+
+If you need environment-level fallback instead, add these values to `.env`:
+
+```bash
+AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
+AZURE_OPENAI_API_KEY=<your-azure-openai-key>
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=<your-embedding-deployment-name>
+AZURE_OPENAI_API_VERSION=2024-02-01
+```
+
+Notes:
+
+- `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` must reference an embeddings deployment.
+- The deployment output dimensionality must match the Qdrant collection schema
+  (default HEFAISTOS schema is 1536 dimensions).
+- In-app Org/Shared profile configuration is used before `.env` fallback values.
+
+Apply env changes:
+
+```bash
+docker compose --profile workers up -d --force-recreate backend ai_generation_worker scheduler
+```
+
 ## 11. Validation Checklist
 
 Use [scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md](../scripts/SHARP_ACCEPTANCE_REPORT_TEMPLATE.md) and verify:

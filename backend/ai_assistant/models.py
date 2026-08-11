@@ -131,6 +131,9 @@ class UserAISettings(models.Model):
     def get_azure_openai_deployment(self) -> str:
         return ''
 
+    def get_azure_openai_embedding_deployment(self) -> str:
+        return ''
+
 
 class AIGenerationTask(models.Model):
     """Async task for AI rule generation, improvement suggestions, and similar-rule generation."""
@@ -197,6 +200,7 @@ class SharedAIProfile(models.Model):
     azure_openai_endpoint = models.CharField(max_length=512, blank=True, default='')
     azure_openai_api_key = models.TextField(blank=True, null=True)
     azure_openai_deployment = models.CharField(max_length=100, blank=True, default='')
+    azure_openai_embedding_deployment = models.CharField(max_length=100, blank=True, default='')
 
     org_preferred_model = models.CharField(max_length=50, blank=True, default='')
     ollama_enabled = models.BooleanField(default=True)
@@ -247,6 +251,9 @@ class SharedAIProfile(models.Model):
 
     def get_azure_openai_deployment(self) -> str:
         return self.azure_openai_deployment or ''
+
+    def get_azure_openai_embedding_deployment(self) -> str:
+        return self.azure_openai_embedding_deployment or ''
 
     def get_ollama_url(self) -> str:
         return self.ollama_base_url or ''
@@ -351,6 +358,12 @@ class OrgAISettings(models.Model):
         default='',
         help_text="Azure OpenAI deployment name",
     )
+    azure_openai_embedding_deployment = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        help_text="Azure OpenAI embedding deployment name for RAG",
+    )
 
     # Preferred model for org-wide usage (overrides user's personal preferred_model when use_org_ai=True)
     org_preferred_model = models.CharField(
@@ -402,6 +415,9 @@ class OrgAISettings(models.Model):
 
     def get_azure_openai_deployment(self) -> str:
         return self.azure_openai_deployment or ''
+
+    def get_azure_openai_embedding_deployment(self) -> str:
+        return self.azure_openai_embedding_deployment or ''
 
     def get_ollama_url(self) -> str:
         return self.ollama_base_url or ''

@@ -792,7 +792,7 @@ class OrgAISettingsType(DjangoObjectType):
     class Meta:
         model = OrgAISettings
         fields = ('id', 'ollama_base_url', 'ollama_model', 'org_preferred_model',
-                  'azure_openai_endpoint', 'azure_openai_deployment', 'created_at', 'updated_at',
+                  'azure_openai_endpoint', 'azure_openai_deployment', 'azure_openai_embedding_deployment', 'created_at', 'updated_at',
                   'ollama_enabled', 'openai_enabled', 'gemini_enabled', 'claude_enabled', 'azure_openai_enabled',
                   'shared_profile_locked')
 
@@ -858,6 +858,7 @@ class SharedAIProfileType(DjangoObjectType):
             'org_preferred_model',
             'azure_openai_endpoint',
             'azure_openai_deployment',
+            'azure_openai_embedding_deployment',
             'created_at',
             'updated_at',
             'is_active',
@@ -1677,6 +1678,7 @@ class UpdateOrgAISettings(graphene.Mutation):
         azure_openai_endpoint = graphene.String()
         azure_openai_key = graphene.String()
         azure_openai_deployment = graphene.String()
+        azure_openai_embedding_deployment = graphene.String()
         org_preferred_model = graphene.String()
         ollama_enabled = graphene.Boolean()
         openai_enabled = graphene.Boolean()
@@ -1692,6 +1694,7 @@ class UpdateOrgAISettings(graphene.Mutation):
     def mutate(root, info, organization_id=None, ollama_base_url=None, ollama_model=None,
                openai_key=None, gemini_key=None, claude_key=None,
                azure_openai_endpoint=None, azure_openai_key=None, azure_openai_deployment=None,
+               azure_openai_embedding_deployment=None,
                org_preferred_model=None,
                ollama_enabled=None, openai_enabled=None, gemini_enabled=None,
                claude_enabled=None, azure_openai_enabled=None):
@@ -1720,6 +1723,8 @@ class UpdateOrgAISettings(graphene.Mutation):
             settings.azure_openai_api_key = azure_openai_key or ''
         if azure_openai_deployment is not None:
             settings.azure_openai_deployment = azure_openai_deployment.strip()
+        if azure_openai_embedding_deployment is not None:
+            settings.azure_openai_embedding_deployment = azure_openai_embedding_deployment.strip()
         if org_preferred_model is not None:
             settings.org_preferred_model = org_preferred_model.strip()
         if ollama_enabled is not None:
@@ -1748,6 +1753,7 @@ class SetSharedAIProfile(graphene.Mutation):
         azure_openai_endpoint = graphene.String()
         azure_openai_key = graphene.String()
         azure_openai_deployment = graphene.String()
+        azure_openai_embedding_deployment = graphene.String()
         org_preferred_model = graphene.String()
         ollama_enabled = graphene.Boolean()
         openai_enabled = graphene.Boolean()
@@ -1775,6 +1781,7 @@ class SetSharedAIProfile(graphene.Mutation):
         azure_openai_endpoint=None,
         azure_openai_key=None,
         azure_openai_deployment=None,
+        azure_openai_embedding_deployment=None,
         org_preferred_model=None,
         ollama_enabled=None,
         openai_enabled=None,
@@ -1817,6 +1824,8 @@ class SetSharedAIProfile(graphene.Mutation):
             profile.azure_openai_api_key = azure_openai_key or ''
         if azure_openai_deployment is not None:
             profile.azure_openai_deployment = azure_openai_deployment.strip()
+        if azure_openai_embedding_deployment is not None:
+            profile.azure_openai_embedding_deployment = azure_openai_embedding_deployment.strip()
         if org_preferred_model is not None:
             profile.org_preferred_model = org_preferred_model.strip()
         if ollama_enabled is not None:

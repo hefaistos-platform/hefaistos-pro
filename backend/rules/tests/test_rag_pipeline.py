@@ -375,3 +375,36 @@ class TestRagOpenAIKeyResolution(TestCase):
 
         key = _get_openai_key_for_repo(repo)
         self.assertEqual(key, "sk-org-key")
+
+    def test_get_embedding_config_for_repo_from_org_azure_settings(self):
+        from ai_assistant.models import OrgAISettings
+        from rules.rag_sync import _get_embedding_config_for_repo
+
+        org, repo = self._make_repo()
+        OrgAISettings.objects.create(
+            organization=org,
+            azure_openai_endpoint="https://example-aoai.openai.azure.com",
+            azure_openai_api_key="azure-key",
+            azure_openai_deployment="embed-small",
+        )
+
+        cfg = _get_embedding_config_for_repo(repo)
+        self.assertEqual(cfg["azure_openai_endpoint"], "https://example-aoai.openai.azure.com")
+        self.assertEqual(cfg["azure_openai_api_key"], "azure-key")
+        self.assertEqual(cfg["azure_openai_embedding_deployment"], "embed-small")
+
+    def test_get_embedding_config_for_repo_prefers_embedding_deployment_field(self):
+        from ai_assistant.models import OrgAISettings
+        from rules.rag_sync import _get_embedding_config_for_repo
+
+        org, repo = self._make_repo()
+        OrgAISettings.objects.create(
+            organization=org,
+            azure_openai_endpoint="https://example-aoai.openai.azure.com",
+            azure_openai_api_key="azure-key",
+            azure_openai_deployment="gpt-5-chat",
+            azure_openai_embedding_deployment="embed-v2",
+        )
+
+        cfg = _get_embedding_config_for_repo(repo)
+        self.assertEqual(cfg["azure_openai_embedding_deployment"], "embed-v2")

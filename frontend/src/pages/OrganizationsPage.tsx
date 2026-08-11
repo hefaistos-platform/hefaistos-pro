@@ -118,6 +118,7 @@ const GET_SHARED_AI_PROFILES = gql`
       orgPreferredModel
       azureOpenaiEndpoint
       azureOpenaiDeployment
+      azureOpenaiEmbeddingDeployment
       ollamaEnabled
       openaiEnabled
       geminiEnabled
@@ -333,6 +334,7 @@ const SET_SHARED_AI_PROFILE = gql`
     $azureOpenaiEndpoint: String
     $azureOpenaiKey: String
     $azureOpenaiDeployment: String
+    $azureOpenaiEmbeddingDeployment: String
     $orgPreferredModel: String
     $ollamaEnabled: Boolean
     $openaiEnabled: Boolean
@@ -352,6 +354,7 @@ const SET_SHARED_AI_PROFILE = gql`
       azureOpenaiEndpoint: $azureOpenaiEndpoint
       azureOpenaiKey: $azureOpenaiKey
       azureOpenaiDeployment: $azureOpenaiDeployment
+      azureOpenaiEmbeddingDeployment: $azureOpenaiEmbeddingDeployment
       orgPreferredModel: $orgPreferredModel
       ollamaEnabled: $ollamaEnabled
       openaiEnabled: $openaiEnabled
@@ -467,6 +470,7 @@ interface SharedAiProfile {
   orgPreferredModel?: string | null;
   azureOpenaiEndpoint?: string | null;
   azureOpenaiDeployment?: string | null;
+  azureOpenaiEmbeddingDeployment?: string | null;
   ollamaEnabled?: boolean;
   openaiEnabled?: boolean;
   geminiEnabled?: boolean;
@@ -759,6 +763,7 @@ export const OrganizationsPage: React.FC = () => {
       azureOpenaiEndpoint: primaryAiProfile?.azureOpenaiEndpoint || '',
       azureOpenaiKey: '',
       azureOpenaiDeployment: primaryAiProfile?.azureOpenaiDeployment || '',
+      azureOpenaiEmbeddingDeployment: primaryAiProfile?.azureOpenaiEmbeddingDeployment || '',
       orgPreferredModel: primaryAiProfile?.orgPreferredModel || '',
       ollamaEnabled: primaryAiProfile?.ollamaEnabled ?? true,
       openaiEnabled: primaryAiProfile?.openaiEnabled ?? true,
@@ -861,6 +866,7 @@ export const OrganizationsPage: React.FC = () => {
           azureOpenaiEndpoint: values.azureOpenaiEndpoint || null,
           azureOpenaiKey: values.azureOpenaiKey || undefined,
           azureOpenaiDeployment: values.azureOpenaiDeployment || null,
+          azureOpenaiEmbeddingDeployment: values.azureOpenaiEmbeddingDeployment || null,
           orgPreferredModel: values.orgPreferredModel || null,
           ollamaEnabled: values.ollamaEnabled,
           openaiEnabled: values.openaiEnabled,
@@ -1510,6 +1516,9 @@ export const OrganizationsPage: React.FC = () => {
               </Form.Item>
               <Form.Item name="azureOpenaiDeployment" label="Azure OpenAI Deployment">
                 <Input placeholder="gpt-5-deployment" />
+              </Form.Item>
+              <Form.Item name="azureOpenaiEmbeddingDeployment" label="Azure OpenAI Embedding Deployment (RAG)">
+                <Input placeholder="text-embedding-3-small" />
               </Form.Item>
               <Form.Item
                 name="orgPreferredModel"

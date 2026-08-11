@@ -173,28 +173,16 @@ def _resolve_language(obj: dict) -> str:
     return "KQL"
 
 
-def _get_openai_key_for_repo(repo: "RuleRepository") -> str | None:
+def _get_embedding_config_for_repo(repo: "RuleRepository") -> dict | None:
     """
-    Retrieve an OpenAI key usable for embedding. We try (in order):
-      1. ``OPENAI_API_KEY`` env var (or ``OPENAI_API_KEY_FILE``).
-      2. Organisation-level AI settings (including assigned shared profiles).
-      3. Any per-user AI settings in the same organisation.
+    Retrieve embedding credentials usable for RAG vector operations.
+
+    We try (in order):
+      1. Organisation-level AI settings (including assigned shared profiles).
+      2. Any per-user AI settings in the same organisation.
+      3. OpenAI env vars (``OPENAI_API_KEY`` / ``OPENAI_API_KEY_FILE``).
+      4. Azure OpenAI env vars (endpoint + API key + embedding deployment).
     """
-    # Try env var first (fast path)
-    env_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    if env_key:
-        return env_key
-
-    # Support Docker secret-style key files
-    key_file = (os.environ.get("OPENAI_API_KEY_FILE") or "").strip()
-    if key_file:
-        try:
-            file_key = (Path(key_file).read_text(encoding="utf-8") or "").strip()
-            if file_key:
-                return file_key
-        except Exception:
-            logger.debug("Could not read OPENAI_API_KEY_FILE at %s", key_file, exc_info=True)
-
     # Try organisation-level AI settings (custom org config or shared profile fallback)
     try:
         from ai_assistant.models import OrgAISettings  # noqa: PLC0415
@@ -208,7 +196,36 @@ def _get_openai_key_for_repo(repo: "RuleRepository") -> str | None:
             if callable(get_key):
                 key = (get_key() or "").strip()
                 if key:
-                    return key
+                    return {
+                        "openai_api_key": key,
+                        "azure_openai_api_key": None,
+                        "azure_openai_endpoint": None,
+                        "azure_openai_embedding_deployment": None,
+                        "azure_openai_api_version": None,
+                    }
+
+            get_azure_key = getattr(effective, "get_azure_openai_key", None)
+            get_azure_endpoint = getattr(effective, "get_azure_openai_endpoint", None)
+            get_azure_embedding_deployment = getattr(effective, "get_azure_openai_embedding_deployment", None)
+            get_azure_chat_deployment = getattr(effective, "get_azure_openai_deployment", None)
+            azure_key = (get_azure_key() if callable(get_azure_key) else "") or ""
+            azure_endpoint = (get_azure_endpoint() if callable(get_azure_endpoint) else "") or ""
+            azure_deployment = (
+                get_azure_embedding_deployment() if callable(get_azure_embedding_deployment) else ""
+            ) or ""
+            if not azure_deployment:
+                azure_deployment = (get_azure_chat_deployment() if callable(get_azure_chat_deployment) else "") or ""
+            azure_key = azure_key.strip()
+            azure_endpoint = azure_endpoint.strip()
+            azure_deployment = azure_deployment.strip()
+            if azure_key and azure_endpoint and azure_deployment:
+                return {
+                    "openai_api_key": None,
+                    "azure_openai_api_key": azure_key,
+                    "azure_openai_endpoint": azure_endpoint,
+                    "azure_openai_embedding_deployment": azure_deployment,
+                    "azure_openai_api_version": (os.environ.get("AZURE_OPENAI_API_VERSION") or "").strip() or None,
+                }
     except Exception:
         logger.debug("Could not resolve org-level OpenAI key for RAG sync.", exc_info=True)
 
@@ -225,11 +242,66 @@ def _get_openai_key_for_repo(repo: "RuleRepository") -> str | None:
         for settings in user_settings_qs.iterator():
             key = (settings.get_openai_key() or "").strip()
             if key:
-                return key
+                return {
+                    "openai_api_key": key,
+                    "azure_openai_api_key": None,
+                    "azure_openai_endpoint": None,
+                    "azure_openai_embedding_deployment": None,
+                    "azure_openai_api_version": None,
+                }
     except Exception:
         logger.debug("Could not resolve user-level OpenAI key for RAG sync.", exc_info=True)
 
+    # Fall back to environment-level credentials
+    env_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if env_key:
+        return {
+            "openai_api_key": env_key,
+            "azure_openai_api_key": None,
+            "azure_openai_endpoint": None,
+            "azure_openai_embedding_deployment": None,
+            "azure_openai_api_version": None,
+        }
+
+    key_file = (os.environ.get("OPENAI_API_KEY_FILE") or "").strip()
+    if key_file:
+        try:
+            file_key = (Path(key_file).read_text(encoding="utf-8") or "").strip()
+            if file_key:
+                return {
+                    "openai_api_key": file_key,
+                    "azure_openai_api_key": None,
+                    "azure_openai_endpoint": None,
+                    "azure_openai_embedding_deployment": None,
+                    "azure_openai_api_version": None,
+                }
+        except Exception:
+            logger.debug("Could not read OPENAI_API_KEY_FILE at %s", key_file, exc_info=True)
+
+    azure_env_endpoint = (os.environ.get("AZURE_OPENAI_ENDPOINT") or "").strip()
+    azure_env_key = (os.environ.get("AZURE_OPENAI_API_KEY") or "").strip()
+    azure_env_embedding_deployment = (
+        os.environ.get("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+        or os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+        or ""
+    ).strip()
+    azure_env_api_version = (os.environ.get("AZURE_OPENAI_API_VERSION") or "").strip()
+    if azure_env_endpoint and azure_env_key and azure_env_embedding_deployment:
+        return {
+            "openai_api_key": None,
+            "azure_openai_api_key": azure_env_key,
+            "azure_openai_endpoint": azure_env_endpoint,
+            "azure_openai_embedding_deployment": azure_env_embedding_deployment,
+            "azure_openai_api_version": azure_env_api_version or None,
+        }
+
     return None
+
+
+def _get_openai_key_for_repo(repo: "RuleRepository") -> str | None:
+    """Backward-compatible helper kept for tests and callers expecting only OpenAI key."""
+    cfg = _get_embedding_config_for_repo(repo)
+    return (cfg or {}).get("openai_api_key")
 
 
 # ---------------------------------------------------------------------------
@@ -261,11 +333,11 @@ def sync_repository_rag(repo_id: int) -> dict:
         "rag_last_sync_upserted", "rag_last_sync_skipped",
     ])
 
-    openai_key = _get_openai_key_for_repo(repo)
-    if not openai_key:
+    embedding_cfg = _get_embedding_config_for_repo(repo)
+    if not embedding_cfg:
         error_msg = (
-            "No OpenAI API key available for embedding. Configure OpenAI in Org/User AI Settings "
-            "(or assigned shared profile), or set OPENAI_API_KEY env var."
+            "No embedding credentials available for RAG sync. Configure OpenAI or Azure OpenAI "
+            "in Org/User AI Settings (or assigned shared profile), or set env vars."
         )
         repo.rag_last_sync_status = "error"
         repo.rag_last_sync_error = error_msg
@@ -331,7 +403,15 @@ def sync_repository_rag(repo_id: int) -> dict:
                     continue
 
                 for entry in entries:
-                    ok = upsert_template(qdrant_client, entry, openai_key)
+                    ok = upsert_template(
+                        qdrant_client,
+                        entry,
+                        openai_api_key=embedding_cfg.get("openai_api_key"),
+                        azure_openai_api_key=embedding_cfg.get("azure_openai_api_key"),
+                        azure_openai_endpoint=embedding_cfg.get("azure_openai_endpoint"),
+                        azure_openai_embedding_deployment=embedding_cfg.get("azure_openai_embedding_deployment"),
+                        azure_openai_api_version=embedding_cfg.get("azure_openai_api_version"),
+                    )
                     if ok:
                         upserted += 1
                     else:
