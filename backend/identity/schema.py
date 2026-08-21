@@ -18,6 +18,8 @@ from .models import (
     WebAuthnCredential,
     WebAuthnChallenge,
     AuthProviderSettings,
+    PersonalAPIToken,
+    VALID_SCOPES,
 )
 from organizations.models import Organization
 from .decorators import (
@@ -257,6 +259,32 @@ def _public_auth_options(settings_obj: AuthProviderSettings) -> PublicAuthOption
     )
 
 
+class PersonalAPITokenType(graphene.ObjectType):
+    id = graphene.UUID()
+    name = graphene.String()
+    prefix = graphene.String()
+    scopes = graphene.List(graphene.String)
+    created_at = graphene.DateTime()
+    last_used_at = graphene.DateTime()
+    expires_at = graphene.DateTime()
+    revoked_at = graphene.DateTime()
+    is_active = graphene.Boolean()
+
+
+def _token_to_type(token: PersonalAPIToken) -> PersonalAPITokenType:
+    return PersonalAPITokenType(
+        id=token.id,
+        name=token.name,
+        prefix=token.prefix,
+        scopes=token.scopes,
+        created_at=token.created_at,
+        last_used_at=token.last_used_at,
+        expires_at=token.expires_at,
+        revoked_at=token.revoked_at,
+        is_active=token.is_active,
+    )
+
+
 class Query(graphene.ObjectType):
     me = graphene.Field(UserType)
     all_users_in_org = graphene.List(UserType)
@@ -269,6 +297,7 @@ class Query(graphene.ObjectType):
         organization_id=graphene.UUID(required=False),
     )
     public_auth_organizations = graphene.List(PublicAuthOrganizationType)
+    my_api_tokens = graphene.List(PersonalAPITokenType)
 
     def resolve_all_users_in_org(self, info):
         user = info.context.user
@@ -382,6 +411,12 @@ class Query(graphene.ObjectType):
                 )
             )
         return result
+
+    def resolve_my_api_tokens(self, info):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        return [_token_to_type(t) for t in PersonalAPIToken.objects.filter(user=user)]
 
 def _frontend_url(path: str, request=None) -> str:
     base = get_frontend_base_url(request=request).rstrip('/')
@@ -2832,6 +2867,67 @@ class UpdateAuthSettings(graphene.Mutation):
         )
 
 
+# ---------------------------------------------------------------------------
+# Personal API Token types and mutations
+# ---------------------------------------------------------------------------
+
+
+class CreatePersonalAPIToken(graphene.Mutation):
+    class Arguments:
+        name = graphene.String(required=True)
+        scopes = graphene.List(graphene.String, required=True)
+        expires_at = graphene.DateTime(required=False)
+
+    token = graphene.Field(PersonalAPITokenType)
+    plaintext = graphene.String()
+
+    def mutate(self, info, name, scopes, expires_at=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+
+        name = (name or '').strip()
+        if not name:
+            raise GraphQLError('Token name is required')
+        if len(name) > 128:
+            raise GraphQLError('Token name is too long (max 128 chars)')
+
+        invalid = [s for s in scopes if s not in VALID_SCOPES]
+        if invalid:
+            raise GraphQLError(f'Invalid scopes: {invalid}. Valid scopes: {VALID_SCOPES}')
+        if not scopes:
+            raise GraphQLError('At least one scope is required')
+
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=user,
+            name=name,
+            scopes=scopes,
+            expires_at=expires_at,
+        )
+        return CreatePersonalAPIToken(
+            token=_token_to_type(token_obj),
+            plaintext=plaintext,
+        )
+
+
+class RevokePersonalAPIToken(graphene.Mutation):
+    class Arguments:
+        token_id = graphene.UUID(required=True)
+
+    ok = graphene.Boolean()
+
+    def mutate(self, info, token_id):
+        user = info.context.user
+        if user.is_anonymous:
+            raise GraphQLError('Authentication required')
+        try:
+            token = PersonalAPIToken.objects.get(pk=token_id, user=user)
+        except PersonalAPIToken.DoesNotExist:
+            raise GraphQLError('Token not found')
+        token.revoke()
+        return RevokePersonalAPIToken(ok=True)
+
+
 class Mutation(graphene.ObjectType):
     prepare_account_activation = PrepareAccountActivation.Field()
     complete_account_activation = CompleteAccountActivation.Field()
@@ -2876,6 +2972,8 @@ class Mutation(graphene.ObjectType):
     start_oidc_login = StartOidcLogin.Field()
     complete_oidc_login = CompleteOidcLogin.Field()
     update_auth_settings = UpdateAuthSettings.Field()
+    create_personal_api_token = CreatePersonalAPIToken.Field()
+    revoke_personal_api_token = RevokePersonalAPIToken.Field()
 
     @role_required([Roles.ADMIN])
     def resolve_admin_update_user(self, info, user_id, email=None, role=None, bio=None, job_title=None, slack_handle=None, organization_id=None):

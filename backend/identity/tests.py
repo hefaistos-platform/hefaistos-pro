@@ -719,3 +719,82 @@ class OidcRoleSyncTests(TestCase):
         )
 
         self.assertEqual(created.role, Roles.VIEWER)
+
+
+# ---------------------------------------------------------------------------
+# PersonalAPIToken tests
+# ---------------------------------------------------------------------------
+
+from identity.models import PersonalAPIToken, TOKEN_PREFIX, VALID_SCOPES
+
+
+class PersonalAPITokenUnitTests(SimpleTestCase):
+    """Pure unit tests for PersonalAPIToken helpers that don't require a database."""
+
+    def test_prefix_constant(self):
+        self.assertEqual(TOKEN_PREFIX, 'hfst_')
+
+    def test_valid_scopes(self):
+        self.assertIn('waiting_room:create', VALID_SCOPES)
+
+    def test_authenticate_wrong_prefix_returns_none(self):
+        result = PersonalAPIToken.authenticate('jwt_somefaketoken')
+        self.assertIsNone(result)
+
+    def test_authenticate_no_prefix_returns_none(self):
+        result = PersonalAPIToken.authenticate('totallyrandomtoken')
+        self.assertIsNone(result)
+
+
+class PersonalAPITokenDBTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Token Test Org')
+        self.user = User.objects.create_user(
+            username='tokenuser', password='pass', email='token@example.com'
+        )
+        self.user.organization = self.org
+        self.user.save()
+
+    def test_generate_and_authenticate(self):
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=self.user, name='KQL Striker', scopes=['waiting_room:create']
+        )
+        self.assertTrue(plaintext.startswith(TOKEN_PREFIX))
+        authenticated = PersonalAPIToken.authenticate(plaintext)
+        self.assertIsNotNone(authenticated)
+        self.assertEqual(authenticated.user, self.user)
+
+    def test_revoked_token_fails_authentication(self):
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=self.user, name='Revoke Me', scopes=['waiting_room:create']
+        )
+        token_obj.revoke()
+        result = PersonalAPIToken.authenticate(plaintext)
+        self.assertIsNone(result)
+
+    def test_has_scope(self):
+        token_obj, _ = PersonalAPIToken.generate(
+            user=self.user, name='Scoped', scopes=['waiting_room:create']
+        )
+        self.assertTrue(token_obj.has_scope('waiting_room:create'))
+        self.assertFalse(token_obj.has_scope('other:scope'))
+
+    def test_is_active(self):
+        token_obj, _ = PersonalAPIToken.generate(
+            user=self.user, name='Active', scopes=['waiting_room:create']
+        )
+        self.assertTrue(token_obj.is_active)
+        token_obj.revoke()
+        self.assertFalse(token_obj.is_active)
+
+    def test_expired_token_is_inactive(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        past = timezone.now() - timedelta(days=1)
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=self.user, name='Expired', scopes=['waiting_room:create'],
+            expires_at=past,
+        )
+        self.assertFalse(token_obj.is_active)
+        result = PersonalAPIToken.authenticate(plaintext)
+        self.assertIsNone(result)

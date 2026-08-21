@@ -335,6 +335,47 @@ const DELETE_WEBAUTHN_CREDENTIAL = gql`
   }
 `;
 
+// --- Personal API Tokens ---
+const GET_API_TOKENS = gql`
+  query GetMyApiTokens {
+    myApiTokens {
+      id
+      name
+      prefix
+      scopes
+      createdAt
+      lastUsedAt
+      expiresAt
+      revokedAt
+      isActive
+    }
+  }
+`;
+
+const CREATE_API_TOKEN = gql`
+  mutation CreatePersonalApiToken($name: String!, $scopes: [String]!, $expiresAt: DateTime) {
+    createPersonalApiToken(name: $name, scopes: $scopes, expiresAt: $expiresAt) {
+      token {
+        id
+        name
+        prefix
+        scopes
+        createdAt
+        isActive
+      }
+      plaintext
+    }
+  }
+`;
+
+const REVOKE_API_TOKEN = gql`
+  mutation RevokePersonalApiToken($tokenId: UUID!) {
+    revokePersonalApiToken(tokenId: $tokenId) {
+      ok
+    }
+  }
+`;
+
 // --- AI Settings ---
 const GET_AI_SETTINGS = gql`
   query GetMyAISettings {
@@ -507,6 +548,15 @@ export const UserProfile: React.FC = () => {
   const [finishWebauthnRegistration, { loading: finishingWebauthn }] = useMutation(FINISH_WEBAUTHN_REGISTRATION);
   const [deleteWebauthnCredential] = useMutation(DELETE_WEBAUTHN_CREDENTIAL);
   const [aiForm, setAiForm] = useState({ openaiKey: '', geminiKey: '', claudeKey: '', preferredModel: '', useOrgAi: false });
+  // API Token state
+  const { data: apiTokensData, refetch: refetchApiTokens } = useQuery(GET_API_TOKENS, { fetchPolicy: 'cache-and-network' });
+  const [createApiToken, { loading: creatingToken }] = useMutation(CREATE_API_TOKEN);
+  const [revokeApiToken] = useMutation(REVOKE_API_TOKEN);
+  const [showCreateTokenModal, setShowCreateTokenModal] = useState(false);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [newTokenExpiry, setNewTokenExpiry] = useState('');
+  const [createdTokenPlaintext, setCreatedTokenPlaintext] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   // Sync preferredModel and useOrgAi from server once settings load; always reflect server value
   useEffect(() => {
@@ -1342,6 +1392,185 @@ export const UserProfile: React.FC = () => {
             {savingWorkbenchDefaults ? 'Saving...' : 'Save Defaults'}
           </button>
         </div>
+      </div>
+
+      {/* API Tokens */}
+      <div className="bg-white rounded-lg shadow-sm border p-6 mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">API Tokens</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Personal API tokens for external integrations like KQL Striker. Tokens are shown only once at creation.
+            </p>
+          </div>
+          <button
+            className="px-4 py-2 text-sm font-semibold rounded bg-purple-600 text-white hover:bg-purple-700"
+            onClick={() => { setShowCreateTokenModal(true); setNewTokenName(''); setNewTokenExpiry(''); setCreatedTokenPlaintext(null); setTokenCopied(false); }}
+          >
+            + Create Token
+          </button>
+        </div>
+
+        {/* Token list */}
+        {apiTokensData?.myApiTokens?.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-gray-500 uppercase">
+                  <th className="pb-2 pr-4">Name</th>
+                  <th className="pb-2 pr-4">Prefix</th>
+                  <th className="pb-2 pr-4">Scopes</th>
+                  <th className="pb-2 pr-4">Created</th>
+                  <th className="pb-2 pr-4">Last Used</th>
+                  <th className="pb-2 pr-4">Expires</th>
+                  <th className="pb-2 pr-4">Status</th>
+                  <th className="pb-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {apiTokensData.myApiTokens.map((tok: any) => (
+                  <tr key={tok.id} className="border-b hover:bg-gray-50">
+                    <td className="py-2 pr-4 font-medium">{tok.name}</td>
+                    <td className="py-2 pr-4 font-mono text-xs text-gray-500">{tok.prefix}…</td>
+                    <td className="py-2 pr-4">
+                      {(tok.scopes || []).map((s: string) => (
+                        <span key={s} className="inline-block text-xs bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 mr-1">{s}</span>
+                      ))}
+                    </td>
+                    <td className="py-2 pr-4 text-xs text-gray-500">{tok.createdAt ? new Date(tok.createdAt).toLocaleDateString() : '—'}</td>
+                    <td className="py-2 pr-4 text-xs text-gray-500">{tok.lastUsedAt ? new Date(tok.lastUsedAt).toLocaleDateString() : 'Never'}</td>
+                    <td className="py-2 pr-4 text-xs text-gray-500">{tok.expiresAt ? new Date(tok.expiresAt).toLocaleDateString() : 'Never'}</td>
+                    <td className="py-2 pr-4">
+                      {tok.revokedAt
+                        ? <span className="text-xs font-semibold text-red-600">Revoked</span>
+                        : tok.isActive
+                          ? <span className="text-xs font-semibold text-green-600">Active</span>
+                          : <span className="text-xs font-semibold text-orange-500">Expired</span>
+                      }
+                    </td>
+                    <td className="py-2">
+                      {tok.isActive && !tok.revokedAt && (
+                        <button
+                          className="text-xs text-red-500 hover:text-red-700 font-semibold"
+                          onClick={async () => {
+                            if (!window.confirm(`Revoke token "${tok.name}"? This cannot be undone.`)) return;
+                            try {
+                              await revokeApiToken({ variables: { tokenId: tok.id } });
+                              refetchApiTokens();
+                            } catch (e: any) {
+                              message.error(e?.message || 'Failed to revoke token');
+                            }
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">No API tokens yet. Create one to integrate external tools.</p>
+        )}
+
+        {/* Create token modal */}
+        {showCreateTokenModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+              {createdTokenPlaintext ? (
+                <>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">Token Created</h3>
+                  <div className="bg-yellow-50 border border-yellow-300 rounded p-3 mb-4">
+                    <p className="text-xs font-semibold text-yellow-800 mb-2">⚠️ Copy this token now — it will not be shown again.</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs font-mono bg-white border rounded px-2 py-1 break-all select-all">{createdTokenPlaintext}</code>
+                      <button
+                        className={`text-xs px-3 py-1 rounded font-semibold ${tokenCopied ? 'bg-green-100 text-green-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
+                        onClick={() => {
+                          navigator.clipboard.writeText(createdTokenPlaintext);
+                          setTokenCopied(true);
+                        }}
+                      >
+                        {tokenCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    className="w-full py-2 rounded bg-purple-600 text-white font-semibold text-sm hover:bg-purple-700"
+                    onClick={() => { setShowCreateTokenModal(false); setCreatedTokenPlaintext(null); refetchApiTokens(); }}
+                  >
+                    Done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">Create API Token</h3>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Token Name</label>
+                    <input
+                      type="text"
+                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      placeholder="e.g. KQL Striker Prod"
+                      value={newTokenName}
+                      onChange={e => setNewTokenName(e.target.value)}
+                      maxLength={128}
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Scopes</label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked readOnly className="accent-purple-600" />
+                      <span className="font-mono text-xs bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded">waiting_room:create</span>
+                      <span className="text-gray-500 text-xs">— Create cases in Waiting Room</span>
+                    </label>
+                  </div>
+                  <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Expiry (optional)</label>
+                    <input
+                      type="date"
+                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                      value={newTokenExpiry}
+                      onChange={e => setNewTokenExpiry(e.target.value)}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Leave blank for no expiry.</p>
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      className="px-4 py-2 text-sm rounded border bg-gray-50 hover:bg-gray-100"
+                      onClick={() => setShowCreateTokenModal(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="px-4 py-2 text-sm font-semibold rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-60"
+                      disabled={creatingToken || !newTokenName.trim()}
+                      onClick={async () => {
+                        try {
+                          const vars: any = {
+                            name: newTokenName.trim(),
+                            scopes: ['waiting_room:create'],
+                          };
+                          if (newTokenExpiry) {
+                            vars.expiresAt = new Date(newTokenExpiry + 'T23:59:59').toISOString();
+                          }
+                          const result = await createApiToken({ variables: vars });
+                          const plaintext = result.data?.createPersonalApiToken?.plaintext;
+                          if (plaintext) setCreatedTokenPlaintext(plaintext);
+                        } catch (e: any) {
+                          message.error(e?.message || 'Failed to create token');
+                        }
+                      }}
+                    >
+                      {creatingToken ? 'Creating…' : 'Create Token'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Playbooks */}

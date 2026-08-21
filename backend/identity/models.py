@@ -6,6 +6,7 @@ from django.utils import timezone
 from datetime import timedelta
 import hashlib
 import secrets
+import uuid
 from organizations.models import Organization
 
 
@@ -564,3 +565,100 @@ class WebAuthnChallenge(models.Model):
 
     def __str__(self):
         return f"WebAuthnChallenge({self.challenge_type}, used={self.used})"
+
+
+# ---------------------------------------------------------------------------
+# Personal API Tokens (for external integrations like KQL Striker)
+# ---------------------------------------------------------------------------
+
+TOKEN_PREFIX = 'hfst_'
+VALID_SCOPES = ['waiting_room:create']
+
+
+class PersonalAPIToken(models.Model):
+    """
+    A long-lived personal API token associated with a user.
+    The plaintext is shown once at creation; only the SHA-256 hash is stored.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='personal_api_tokens',
+    )
+    name = models.CharField(max_length=128)
+    prefix = models.CharField(max_length=10)
+    token_hash = models.CharField(max_length=64, unique=True)
+    scopes = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    # ------------------------------------------------------------------
+    # Class helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def generate(cls, user, name: str, scopes: list[str], expires_at=None) -> tuple['PersonalAPIToken', str]:
+        """
+        Create a new token.  Returns (instance, plaintext_token).
+        The plaintext is shown only once – the caller must relay it to the user.
+        """
+        raw_bytes = secrets.token_bytes(32)
+        plaintext = TOKEN_PREFIX + raw_bytes.hex()
+        prefix_display = plaintext[:12]
+        token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+        token = cls.objects.create(
+            user=user,
+            name=name,
+            prefix=prefix_display,
+            token_hash=token_hash,
+            scopes=scopes,
+            expires_at=expires_at,
+        )
+        return token, plaintext
+
+    @classmethod
+    def authenticate(cls, plaintext: str):
+        """
+        Validate a raw token string.
+        Returns the PersonalAPIToken instance if valid, None otherwise.
+        Updates last_used_at on success.
+        """
+        if not plaintext.startswith(TOKEN_PREFIX):
+            return None
+        token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+        try:
+            token = cls.objects.select_related('user').get(token_hash=token_hash)
+        except cls.DoesNotExist:
+            return None
+        if not token.is_active:
+            return None
+        # Update last_used_at without triggering other save hooks
+        now = timezone.now()
+        cls.objects.filter(pk=token.pk).update(last_used_at=now)
+        token.last_used_at = now
+        return token
+
+    @property
+    def is_active(self) -> bool:
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and timezone.now() > self.expires_at:
+            return False
+        return True
+
+    def has_scope(self, scope: str) -> bool:
+        return scope in (self.scopes or [])
+
+    def revoke(self):
+        self.revoked_at = timezone.now()
+        self.save(update_fields=['revoked_at'])
+
+    def __str__(self):
+        return f"PersonalAPIToken({self.user}, {self.name}, {self.prefix}...)"
