@@ -22,6 +22,7 @@ class WaitingCase(models.Model):
     class SourceType(models.TextChoices):
         MANUAL = 'MANUAL', 'Manual'
         MISP = 'MISP', 'MISP'
+        API = 'API', 'API'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
@@ -46,6 +47,10 @@ class WaitingCase(models.Model):
         related_name='waiting_cases',
     )
     misp_event_id = models.CharField(max_length=64, blank=True, default='')
+
+    # API ingest idempotency fields
+    api_source = models.CharField(max_length=128, blank=True, default='')
+    api_external_id = models.CharField(max_length=255, blank=True, default='')
 
     title = models.CharField(max_length=255)
     short_description = models.TextField(blank=True, default='')
@@ -79,6 +84,11 @@ class WaitingCase(models.Model):
                 fields=['misp_instance', 'misp_event_id'],
                 condition=models.Q(misp_event_id__gt=''),
                 name='waiting_case_misp_instance_event_unique',
+            ),
+            models.UniqueConstraint(
+                fields=['organization', 'api_source', 'api_external_id'],
+                condition=models.Q(api_source__gt='', api_external_id__gt=''),
+                name='waiting_case_api_source_external_id_unique',
             ),
         ]
 

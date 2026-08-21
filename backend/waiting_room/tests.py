@@ -241,3 +241,130 @@ class WaitingRoomBusinessTests(TestCase):
 
         with self.assertRaises(GraphQLError):
             DeleteWaitingCase.mutate(None, self._info(self.other_reviewer), id=waiting_case.id)
+
+
+# ---------------------------------------------------------------------------
+# API ingest endpoint tests (REST)
+# ---------------------------------------------------------------------------
+
+from django.test import RequestFactory, TestCase as DjangoTestCase
+from rest_framework.test import APIRequestFactory, APITestCase
+from rest_framework import status
+from identity.models import PersonalAPIToken
+
+
+class WaitingRoomIngestViewTests(APITestCase):
+    """
+    Tests for POST /api/waiting-room/cases.
+    These tests require a database (PostgreSQL in CI) and are skipped in SQLite-only environments.
+    """
+
+    def _make_user(self, username='apiuser'):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        org = Organization.objects.create(name=f'org-{username}')
+        user = User.objects.create_user(username=username, password='pass', email=f'{username}@test.com')
+        user.organization = org
+        user.save()
+        return user
+
+    def test_ingest_requires_auth(self):
+        from django.urls import reverse
+        url = '/api/waiting-room/cases'
+        resp = self.client.post(url, {}, content_type='application/json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_ingest_with_valid_token(self):
+        user = self._make_user('ingest_valid')
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=user, name='test-token', scopes=['waiting_room:create']
+        )
+        url = '/api/waiting-room/cases'
+        payload = {
+            'source': 'kql-striker',
+            'external_id': 'alert-001',
+            'title': 'Test alert',
+            'severity': 'high',
+            'description': 'Test description',
+        }
+        self.client.credentials(HTTP_AUTHORIZATION=f'******')
+        resp = self.client.post(url, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        data = resp.json()
+        self.assertEqual(data['status'], 'created')
+        self.assertTrue(data['waiting_room'])
+
+    def test_ingest_idempotency(self):
+        user = self._make_user('ingest_idempotent')
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=user, name='test-token', scopes=['waiting_room:create']
+        )
+        url = '/api/waiting-room/cases'
+        payload = {
+            'source': 'kql-striker',
+            'external_id': 'idem-001',
+            'title': 'Idempotent alert',
+            'severity': 'medium',
+            'description': 'Repeated send',
+        }
+        self.client.credentials(HTTP_AUTHORIZATION=f'******')
+        resp1 = self.client.post(url, payload, format='json')
+        resp2 = self.client.post(url, payload, format='json')
+        self.assertEqual(resp1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp1.json()['case_id'], resp2.json()['case_id'])
+        self.assertEqual(resp2.json()['status'], 'existing')
+
+    def test_ingest_scope_denied(self):
+        user = self._make_user('ingest_noscope')
+        # Token with no scopes
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=user, name='no-scope', scopes=[]
+        )
+        url = '/api/waiting-room/cases'
+        payload = {
+            'source': 'kql-striker',
+            'external_id': 'scope-001',
+            'title': 'No scope',
+            'severity': 'low',
+            'description': 'Should be denied',
+        }
+        self.client.credentials(HTTP_AUTHORIZATION=f'******')
+        resp = self.client.post(url, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_ingest_revoked_token(self):
+        user = self._make_user('ingest_revoked')
+        token_obj, plaintext = PersonalAPIToken.generate(
+            user=user, name='revoked-token', scopes=['waiting_room:create']
+        )
+        token_obj.revoke()
+        url = '/api/waiting-room/cases'
+        payload = {
+            'source': 'kql-striker',
+            'external_id': 'rev-001',
+            'title': 'Revoked',
+            'severity': 'low',
+            'description': 'Token was revoked',
+        }
+        self.client.credentials(HTTP_AUTHORIZATION=f'******')
+        resp = self.client.post(url, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class PersonalAPITokenModelTests(SimpleTestCase):
+    """Unit tests for PersonalAPIToken model helpers (no DB required)."""
+
+    def test_generate_prefix(self):
+        # Smoke test: generate requires a DB, so just verify the prefix constant
+        from identity.models import TOKEN_PREFIX
+        self.assertEqual(TOKEN_PREFIX, 'hfst_')
+
+    def test_invalid_token_returns_none(self):
+        # authenticate on a non-hfst_ token returns None (no DB needed)
+        result = PersonalAPIToken.authenticate('not-a-valid-token')
+        self.assertIsNone(result)
+
+    def test_wrong_prefix_returns_none(self):
+        result = PersonalAPIToken.authenticate('jwt_someothertoken')
+        self.assertIsNone(result)

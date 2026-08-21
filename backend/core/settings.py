@@ -238,6 +238,7 @@ AUTH_USER_MODEL = 'identity.CustomUser'
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'identity.authentication.PersonalTokenAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
 }

@@ -32,6 +32,8 @@ from rest_framework_simplejwt.views import (
 )
 from core.schema import schema
 
+from waiting_room.views import WaitingRoomIngestView
+
 urlpatterns = [
     # Friendly alias FIRST so it doesn't get swallowed by admin include
     path('admin/users', RedirectView.as_view(url='/admin/identity/customuser/', permanent=False)),
@@ -49,6 +51,7 @@ urlpatterns = [
     path('api/sharing/info', sharing_instance_info, name='sharing-info'),
     path('api/sharing/export', sharing_export, name='sharing-export'),
     path('api/webhooks/', include('webhooks.urls')),
+    path('api/waiting-room/cases', WaitingRoomIngestView.as_view(), name='waiting-room-ingest'),
     # Serve user-uploaded media files (avatars, snapshots) in all environments
     re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
 ]
