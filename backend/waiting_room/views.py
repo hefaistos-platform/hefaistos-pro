@@ -44,6 +44,12 @@ class HasTokenScope(IsAuthenticated):
     """
     Extends IsAuthenticated: if the request was authenticated via a
     PersonalAPIToken, also verifies the required scope.
+
+    JWT-authenticated users (i.e. regular logged-in users accessing the API
+    directly or via the frontend) always pass scope enforcement because they
+    are already authorised to interact with the Waiting Room through the normal
+    application flow.  Scope checks apply exclusively to personal API tokens
+    issued to external integrations.
     """
     required_scope = 'waiting_room:create'
 
@@ -53,7 +59,8 @@ class HasTokenScope(IsAuthenticated):
         token = request.auth
         if isinstance(token, PersonalAPIToken):
             return token.has_scope(self.required_scope)
-        return True  # JWT-authenticated users always pass scope check
+        # JWT-authenticated users (normal session) are trusted without scope.
+        return True
 
 
 class WaitingRoomIngestView(APIView):

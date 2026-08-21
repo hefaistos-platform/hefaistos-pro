@@ -640,8 +640,9 @@ class PersonalAPIToken(models.Model):
         if not token.is_active:
             return None
         # Update last_used_at without triggering other save hooks
-        cls.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
-        token.last_used_at = timezone.now()
+        now = timezone.now()
+        cls.objects.filter(pk=token.pk).update(last_used_at=now)
+        token.last_used_at = now
         return token
 
     @property
