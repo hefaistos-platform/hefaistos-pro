@@ -38,6 +38,7 @@ import PlatformCredentials from './settings/PlatformCredentials';
 import HefPublishTargets from './settings/HefPublishTargets';
 import AITasksTab from './settings/AITasks';
 import InstanceSharing from './settings/InstanceSharing';
+import SystemUpdateTab from './settings/SystemUpdateTab';
 import { computeDefaultRedirectUri } from '../config/env';
 
 // ---------------------------------------------------------------------------
@@ -1962,7 +1963,7 @@ const DacTab: React.FC<{ repositories: Repo[] }> = ({ repositories }) => {
 // Main ConfigurationPage
 // ---------------------------------------------------------------------------
 
-const VALID_TABS = ['users', 'auth', 'hef', 'rules', 'misp', 'smtp', 'sharing', 'aitasks', 'orgai', 'platforms', 'dac'] as const;
+const VALID_TABS = ['users', 'auth', 'hef', 'rules', 'misp', 'smtp', 'sharing', 'aitasks', 'orgai', 'platforms', 'dac', 'system-update'] as const;
 type TabKey = typeof VALID_TABS[number];
 
 export const ConfigurationPage: React.FC = () => {
@@ -2023,6 +2024,8 @@ export const ConfigurationPage: React.FC = () => {
   // Shared AI/SMTP superuser controls were moved to /mgmt/superuser.
   // Keep Configuration focused on organization-level admin settings.
   const isSuperuser = false;
+  // Real superuser check for system update tab (from access query)
+  const isSuperuserForUpdate = Boolean(accessData?.me?.isSuperuser);
   const [selectedOrgAiOrgId, setSelectedOrgAiOrgId] = useState<string | undefined>(undefined);
   const [sharedAiProfileName, setSharedAiProfileName] = useState('');
   const [selectedSharedAiProfileId, setSelectedSharedAiProfileId] = useState<string | undefined>(undefined);
@@ -2872,6 +2875,15 @@ export const ConfigurationPage: React.FC = () => {
         </Space>
       ),
       children: <App><DacTab repositories={repoData?.allRuleRepositories || []} /></App>,
+    }] : []),
+    ...(isSuperuserForUpdate ? [{
+      key: 'system-update',
+      label: '🔄 System Update',
+      children: (
+        <div style={{ padding: 24 }}>
+          <App><SystemUpdateTab isSuperuser={isSuperuserForUpdate} /></App>
+        </div>
+      ),
     }] : []),
   ];
 
