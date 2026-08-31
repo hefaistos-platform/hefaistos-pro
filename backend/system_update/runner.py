@@ -94,8 +94,9 @@ def _build_steps(compose_cmd: list[str], suffixes: list[list[str]]) -> list[list
 
 
 # Backward-compatible exports (default command at import time)
-_STANDARD_STEPS = _build_steps(_resolve_compose_cmd(), _STANDARD_STEP_SUFFIXES)
-_FORCE_STEPS = _build_steps(_resolve_compose_cmd(), _FORCE_STEP_SUFFIXES)
+_default_compose_cmd = _resolve_compose_cmd()
+_STANDARD_STEPS = _build_steps(_default_compose_cmd, _STANDARD_STEP_SUFFIXES)
+_FORCE_STEPS = _build_steps(_default_compose_cmd, _FORCE_STEP_SUFFIXES)
 
 # ---------------------------------------------------------------------------
 # Secret redaction

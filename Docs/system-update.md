@@ -140,7 +140,8 @@ query {
 ## Runtime expectations
 
 - The backend Django process must have access to the Docker socket or
-  the configured compose executable (`HEFAISTOS_COMPOSE_CMD`) on PATH.
+  the configured compose executable (`HEFAISTOS_COMPOSE_CMD`) either on PATH
+  or as an absolute path.
 - `HEFAISTOS_COMPOSE_DIR` must point to the directory containing
   `docker-compose.yml`.
 - The backend user/process must have permissions to run `docker compose`
