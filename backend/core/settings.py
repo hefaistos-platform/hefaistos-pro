@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     'mgmt_reports',  # Management reports and AI assistant
     'lsp_server.apps.LspServerConfig',  # SyntaxTide LSP server management
     'webhooks',     # CoreTide webhook handlers
+    'system_update',  # In-app Docker Compose update feature
 ]
 
 MIDDLEWARE = [

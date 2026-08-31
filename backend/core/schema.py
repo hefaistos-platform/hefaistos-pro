@@ -22,6 +22,7 @@ import advops.schema
 import pain_points.schema  # Import the pain_points schema
 import waiting_room.schema
 import mgmt_reports.schema
+import system_update.schema  # In-app system update (superuser only)
 from django.conf import settings
 from identity.decorators import role_required, Roles
 
@@ -101,6 +102,7 @@ class UUID(Scalar):
 
 
 class Query(
+    system_update.schema.Query,
     platform_data.schema.Query,
     ach.schema.Query, # Add ach queries
     advops.schema.Query,
@@ -180,6 +182,7 @@ class ObtainJSONWebTokenWithSignal(graphql_jwt.ObtainJSONWebToken):
 
 
 class Mutation(
+    system_update.schema.Mutation,
     ach.schema.Mutation, # Add ach mutations
     advops.schema.Mutation,
     pain_points.schema.Mutation,  # Add pain_points mutations
