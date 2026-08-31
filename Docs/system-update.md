@@ -74,7 +74,7 @@ docker compose --profile batch run --rm migrate
 | `HEFAISTOS_UPDATE_STEP_TIMEOUT` | `600` | Per-step timeout in seconds |
 | `HEFAISTOS_UPDATE_JOB_TIMEOUT` | `1800` | Overall job timeout in seconds |
 | `HEFAISTOS_COMPOSE_DIR` | project root | Working directory for compose commands |
-| `HEFAISTOS_COMPOSE_CMD` | `docker compose` | Compose command tokens (for example `docker compose` or `/usr/bin/docker compose`) |
+| `HEFAISTOS_COMPOSE_CMD` | `docker compose` | Compose command tokens (for example `docker compose`, `docker-compose`, or `/usr/bin/docker compose`) |
 | `HEFAISTOS_VERSION` | `1.0` | Version string shown in the UI/API |
 
 ---

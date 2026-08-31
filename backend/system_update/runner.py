@@ -71,36 +71,31 @@ def _resolve_compose_cmd() -> list[str]:
     return tokens if tokens else ["docker", "compose"]
 
 
-COMPOSE_CMD = _resolve_compose_cmd()
-
 # ---------------------------------------------------------------------------
 # Command sequences (allowlist – no arbitrary user input reaches here)
 # ---------------------------------------------------------------------------
 
-_STANDARD_STEPS: list[list[str]] = [
-    [*COMPOSE_CMD, "pull"],
-    [*COMPOSE_CMD, "--profile", "batch", "run", "--rm", "migrate"],
-    [
-        *COMPOSE_CMD,
-        "--profile", "workers",
-        "--profile", "obs",
-        "--profile", "devtools",
-        "up", "-d", "--build", "--remove-orphans",
-    ],
+_STANDARD_STEP_SUFFIXES: list[list[str]] = [
+    ["pull"],
+    ["--profile", "batch", "run", "--rm", "migrate"],
+    ["--profile", "workers", "--profile", "obs", "--profile", "devtools", "up", "-d", "--build", "--remove-orphans"],
 ]
 
-_FORCE_STEPS: list[list[str]] = [
-    [*COMPOSE_CMD, "down", "--remove-orphans"],
-    [*COMPOSE_CMD, "pull"],
-    [
-        *COMPOSE_CMD,
-        "--profile", "workers",
-        "--profile", "obs",
-        "--profile", "devtools",
-        "up", "-d", "--build", "--remove-orphans",
-    ],
-    [*COMPOSE_CMD, "--profile", "batch", "run", "--rm", "migrate"],
+_FORCE_STEP_SUFFIXES: list[list[str]] = [
+    ["down", "--remove-orphans"],
+    ["pull"],
+    ["--profile", "workers", "--profile", "obs", "--profile", "devtools", "up", "-d", "--build", "--remove-orphans"],
+    ["--profile", "batch", "run", "--rm", "migrate"],
 ]
+
+
+def _build_steps(compose_cmd: list[str], suffixes: list[list[str]]) -> list[list[str]]:
+    return [[*compose_cmd, *suffix] for suffix in suffixes]
+
+
+# Backward-compatible exports (default command at import time)
+_STANDARD_STEPS = _build_steps(_resolve_compose_cmd(), _STANDARD_STEP_SUFFIXES)
+_FORCE_STEPS = _build_steps(_resolve_compose_cmd(), _FORCE_STEP_SUFFIXES)
 
 # ---------------------------------------------------------------------------
 # Secret redaction
@@ -197,11 +192,12 @@ class UpdateRunner:
     def get_info(self) -> UpdateInfoResult:
         from django.conf import settings
         version = getattr(settings, "HEFAISTOS_VERSION", "unknown")
-        capable, note = _docker_compose_capability()
+        compose_cmd = _resolve_compose_cmd()
+        capable, note = _docker_compose_capability(compose_cmd)
         return UpdateInfoResult(
             current_version=version,
             compose_dir=COMPOSE_WORK_DIR,
-            compose_command=" ".join(COMPOSE_CMD),
+            compose_command=" ".join(compose_cmd),
             capable=capable,
             capability_note=note,
         )
@@ -264,7 +260,12 @@ class UpdateRunner:
         record.started_at = datetime.now(timezone.utc)
         record.append_log(f"[hefaistos] Update job {record.job_id} started  mode={record.mode}  actor={record.actor}")
 
-        steps = _STANDARD_STEPS if record.mode == UPDATE_MODE_STANDARD else _FORCE_STEPS
+        compose_cmd = _resolve_compose_cmd()
+        steps = (
+            _build_steps(compose_cmd, _STANDARD_STEP_SUFFIXES)
+            if record.mode == UPDATE_MODE_STANDARD
+            else _build_steps(compose_cmd, _FORCE_STEP_SUFFIXES)
+        )
         job_deadline = time.monotonic() + JOB_TIMEOUT
 
         try:
@@ -282,7 +283,7 @@ class UpdateRunner:
 
             # Health check
             record.append_log("[hefaistos] Running health check …")
-            self._health_check(record)
+            self._health_check(record, compose_cmd)
 
             record.status = JOB_STATUS_SUCCESS
             record.append_log("[hefaistos] ✓ Update completed successfully.")
@@ -337,9 +338,9 @@ class UpdateRunner:
             return False
         return True
 
-    def _health_check(self, record: UpdateJobRecord) -> None:
+    def _health_check(self, record: UpdateJobRecord, compose_cmd: list[str]) -> None:
         """Minimal readiness verification: check compose can report service state."""
-        cmd = [*COMPOSE_CMD, "ps", "--format", "json"]
+        cmd = [*compose_cmd, "ps", "--format", "json"]
         try:
             result = subprocess.run(
                 cmd,
@@ -392,11 +393,12 @@ class UpdateRunner:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _docker_compose_capability() -> tuple[bool, str]:
+def _docker_compose_capability(compose_cmd: Optional[list[str]] = None) -> tuple[bool, str]:
+    command_tokens = compose_cmd or _resolve_compose_cmd()
     if not os.path.isdir(COMPOSE_WORK_DIR):
         return False, f"Compose directory does not exist: {COMPOSE_WORK_DIR}"
 
-    cmd = [*COMPOSE_CMD, "version"]
+    cmd = [*command_tokens, "version"]
     try:
         result = subprocess.run(
             cmd,
@@ -406,16 +408,16 @@ def _docker_compose_capability() -> tuple[bool, str]:
             timeout=10,
         )
     except FileNotFoundError:
-        return False, f"Command not found: {COMPOSE_CMD[0]}"
+        return False, f"Command not found: {command_tokens[0]}"
     except Exception as exc:
         return False, f"Failed to probe compose command: {exc}"
 
     if result.returncode == 0:
-        return True, f"Available via: {' '.join(COMPOSE_CMD)}"
+        return True, f"Available via: {' '.join(command_tokens)}"
 
     detail = (result.stderr or result.stdout or "").strip().splitlines()
     detail_msg = detail[0] if detail else f"exit code {result.returncode}"
-    return False, f"Compose command failed ({' '.join(COMPOSE_CMD)}): {detail_msg}"
+    return False, f"Compose command failed ({' '.join(command_tokens)}): {detail_msg}"
 
 
 # Module-level singleton
