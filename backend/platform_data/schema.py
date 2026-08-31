@@ -26,6 +26,9 @@ from .models import (
 )
 from playbooks.models import PlaybookGraph
 
+
+MITRE_ANALYTIC_CACHE_TTL = 60 * 60 * 24  # 24h
+
 # --- TYPES ---
 
 class MitreAnalyticType(DjangoObjectType):
@@ -557,7 +560,7 @@ class Query(graphene.ObjectType):
         if cached is not None:
             return cached
         result = scrape_mitre_analytic_details(strategy_url, analytic_id)
-        cache.set(cache_key, result, timeout=3600)
+        cache.set(cache_key, result, timeout=MITRE_ANALYTIC_CACHE_TTL)
         return result
 
     def resolve_enrich_analytic_json(self, info, strategy_url, analytic_id):
@@ -566,7 +569,7 @@ class Query(graphene.ObjectType):
         if cached is not None:
             return cached
         rows = scrape_mitre_log_sources_json(strategy_url, analytic_id)
-        cache.set(cache_key, rows, timeout=3600)
+        cache.set(cache_key, rows, timeout=MITRE_ANALYTIC_CACHE_TTL)
         return rows
 
     def resolve_attack_navigator_layer(self, info):

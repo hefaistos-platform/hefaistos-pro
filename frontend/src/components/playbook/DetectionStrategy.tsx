@@ -60,6 +60,12 @@ const ENRICH_ANALYTIC_JSON_QUERY = gql`
   }
 `;
 
+const EXISTING_DATA_SOURCE_NAMES_QUERY = gql`
+  query ExistingDataSourceNames($names: [String!]!) {
+    existingDataSourceNames(names: $names)
+  }
+`;
+
 // Add Data Source directly to Data Catalog (visible in catalog UI)
 const CREATE_SOURCE_MUTATION = gql`
   mutation AddDataSource($name: String!, $platform: String, $description: String) {
@@ -129,6 +135,14 @@ interface EnrichAnalyticJsonData {
   enrichAnalyticJson: LiveLogSource[];
 }
 
+interface ExistingDataSourceNamesData {
+  existingDataSourceNames: string[];
+}
+
+interface ExistingDataSourceNamesVars {
+  names: string[];
+}
+
 interface StrategyProps {
   selectedTechniqueId: string | null;
   onTechniqueChange: (t: any) => void;
@@ -136,12 +150,30 @@ interface StrategyProps {
   ruleFormat?: 'KQL' | 'WAZUH' | 'SPL' | 'AQL';
 }
 
-// Simple UUID generator for non-secure contexts
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    var r = Math.random() * 16 | 0, v = c === 'x' ? r : ((r & 0x3) | 0x8);
-    return v.toString(16);
-  });
+const normalizeCatalogName = (value: string) => value.trim().toLowerCase();
+
+const buildCatalogDataSourceName = (row: LiveLogSource) => {
+  const dataComponent = (row.dataComponent || '').trim();
+  if (dataComponent) return dataComponent;
+
+  const provider = (row.logProvider || '').trim();
+  const channel = (row.channel || '').trim();
+  if (provider && channel) return `${provider} - ${channel}`;
+  return provider || channel;
+};
+
+const buildLegacyCatalogDataSourceName = (row: LiveLogSource) => {
+  const provider = (row.logProvider || '').trim();
+  const channel = (row.channel || '').trim();
+  if (provider && channel) return `${provider} - ${channel}`;
+  return provider || channel;
+};
+
+const getCandidateCatalogNames = (row: LiveLogSource) => {
+  const names = [buildCatalogDataSourceName(row), buildLegacyCatalogDataSourceName(row)]
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return Array.from(new Set(names));
 };
 
 export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueId, onTechniqueChange, onStrategyChange, ruleFormat = 'KQL' }) => {
@@ -220,6 +252,44 @@ export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueI
   
   // Lazy Query for JSON data (for interactive table)
   const [getLiveJson] = useLazyQuery<EnrichAnalyticJsonData>(ENRICH_ANALYTIC_JSON_QUERY);
+  const [fetchExistingNames] = useLazyQuery<ExistingDataSourceNamesData, ExistingDataSourceNamesVars>(
+    EXISTING_DATA_SOURCE_NAMES_QUERY,
+    { fetchPolicy: 'network-only' }
+  );
+
+  const [existingCatalogNames, setExistingCatalogNames] = useState<Set<string>>(new Set());
+  const [addingCatalogNames, setAddingCatalogNames] = useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    let active = true;
+    const namesToCheck = Array.from(
+      new Set(liveLogSources.flatMap((row) => getCandidateCatalogNames(row)))
+    );
+
+    if (namesToCheck.length === 0) {
+      setExistingCatalogNames(new Set());
+      return () => {
+        active = false;
+      };
+    }
+
+    fetchExistingNames({ variables: { names: namesToCheck } })
+      .then((result) => {
+        if (!active) return;
+        const next = new Set(
+          (result.data?.existingDataSourceNames || []).map((name) => normalizeCatalogName(name))
+        );
+        setExistingCatalogNames(next);
+      })
+      .catch(() => {
+        if (!active) return;
+        setExistingCatalogNames(new Set());
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetchExistingNames, liveLogSources]);
   
   // Mutation to add source to Data Catalog
   interface CreateDataSourceResult { createDataSource: { dataSource: { id: string, name: string } } }
@@ -227,9 +297,26 @@ export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueI
   const [addSource] = useMutation<CreateDataSourceResult, CreateDataSourceVars>(CREATE_SOURCE_MUTATION);
   const [addField] = useMutation(ADD_DATA_SOURCE_FIELD_MUTATION);
 
+  const isRowAlreadyInCatalog = (row: LiveLogSource) => {
+    return getCandidateCatalogNames(row).some((candidate) =>
+      existingCatalogNames.has(normalizeCatalogName(candidate))
+    );
+  };
+
   // Handler for the "+ Add" button in the table
     const handleAddFromMitre = async (row: LiveLogSource) => {
-        const name = `${row.logProvider} - ${row.channel}`;
+        const name = buildCatalogDataSourceName(row);
+        const rowKey = normalizeCatalogName(name || `${row.dataComponent}|${row.logProvider}|${row.channel}`);
+        if (isRowAlreadyInCatalog(row) || !name) {
+          return;
+        }
+
+        setAddingCatalogNames((prev) => {
+          const next = new Set(prev);
+          next.add(rowKey);
+          return next;
+        });
+
         const providerLc = (row.logProvider || '').toLowerCase();
         let platformGuess: string | undefined;
         if (providerLc.includes('wineventlog') || providerLc.includes('sysmon') || providerLc.includes('windows')) {
@@ -259,6 +346,11 @@ export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueI
                 addField({ variables: { dataSourceId: id, fieldName: 'channel', dataType: 'string', description: metaDesc, exampleValue: row.channel } }),
               ]);
             }
+            setExistingCatalogNames((prev) => {
+              const next = new Set(prev);
+              getCandidateCatalogNames(row).forEach((candidate) => next.add(normalizeCatalogName(candidate)));
+              return next;
+            });
             message.success({
               content: (
                 <span>
@@ -276,7 +368,20 @@ export const DetectionStrategy = React.memo<StrategyProps>(({ selectedTechniqueI
           if (/already exists|duplicate/i.test(raw)) reason = 'Object already exists';
           else if (/unique|conflict/i.test(raw)) reason = 'Event already added';
           else if (/permission|forbidden|denied/i.test(raw)) reason = 'Permission denied';
+          if (/already exists|duplicate|unique|conflict/i.test(raw)) {
+            setExistingCatalogNames((prev) => {
+              const next = new Set(prev);
+              getCandidateCatalogNames(row).forEach((candidate) => next.add(normalizeCatalogName(candidate)));
+              return next;
+            });
+          }
           message.error(`Failed to add source to Data Catalog.${reason ? ` ${reason}.` : ''}`);
+        } finally {
+          setAddingCatalogNames((prev) => {
+            const next = new Set(prev);
+            next.delete(rowKey);
+            return next;
+          });
         }
     };
 
@@ -650,12 +755,33 @@ ${ruleBody}
                                    <td className="p-2 font-mono text-gray-600">{row.logProvider}</td>
                                    <td className="p-2 font-mono text-blue-600">{row.channel}</td>
                                    <td className="p-2 text-right">
-                                       <button 
-                                          className="text-white bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded shadow-sm transition-colors flex items-center ml-auto"
-                                          onClick={() => handleAddFromMitre(row)}
-                                       >
-                                          + Add
-                                       </button>
+                                       {(() => {
+                                         const name = buildCatalogDataSourceName(row);
+                                         const fallbackKey = `${row.dataComponent}|${row.logProvider}|${row.channel}`;
+                                         const rowKey = normalizeCatalogName(name || fallbackKey);
+                                         const alreadyInCatalog = isRowAlreadyInCatalog(row);
+                                         const adding = addingCatalogNames.has(rowKey);
+                                         const disabled = alreadyInCatalog || adding;
+
+                                         return (
+                                           <span
+                                             className="inline-flex"
+                                             title={alreadyInCatalog ? 'Data Source already in Data Catalog' : undefined}
+                                           >
+                                             <button
+                                               className={`px-2 py-1 rounded shadow-sm transition-colors flex items-center ml-auto ${
+                                                 disabled
+                                                   ? 'text-gray-500 bg-gray-200 cursor-not-allowed'
+                                                   : 'text-white bg-blue-600 hover:bg-blue-700'
+                                               }`}
+                                               disabled={disabled}
+                                               onClick={() => handleAddFromMitre(row)}
+                                             >
+                                               {adding ? 'Adding...' : '+ Add'}
+                                             </button>
+                                           </span>
+                                         );
+                                       })()}
                                    </td>
                                </tr>
                            ))}
