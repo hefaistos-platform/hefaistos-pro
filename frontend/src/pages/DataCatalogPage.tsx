@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { gql } from '@apollo/client';
-import { useMutation, useQuery } from '@apollo/client/react';
+import { useLazyQuery, useMutation, useQuery } from '@apollo/client/react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Input, Space, Typography, Select, Empty, Tag, Pagination, App, Progress } from 'antd';
+import { Card, Button, Input, Space, Typography, Select, Empty, Tag, Pagination, App, Progress, Checkbox } from 'antd';
 import { PixelIcon } from '../components/ui/PixelIcon';
 import { markdownToPlainText } from '../components/MarkdownRenderer';
 
@@ -44,6 +44,14 @@ const GET_ATTACK_IMPORT_JOBS_QUERY = gql`
   }
 `;
 
+const GET_DATA_SOURCE_IDS_QUERY = gql`
+  query GetDataSourceIds($limit: Int, $offset: Int, $search: String, $platform: String) {
+    allDataSources(limit: $limit, offset: $offset, search: $search, platform: $platform) {
+      id
+    }
+  }
+`;
+
 const RUN_ATTACK_DATA_IMPORT_MUTATION = gql`
   mutation RunAttackDataImport($version: String) {
     runAttackDataImport(version: $version) {
@@ -59,6 +67,14 @@ const RUN_ATTACK_DATA_IMPORT_MUTATION = gql`
         totalCandidates
         error
       }
+    }
+  }
+`;
+
+const DELETE_DATA_SOURCE_MUTATION = gql`
+  mutation DeleteDataSource($id: ID!) {
+    deleteDataSource(id: $id) {
+      ok
     }
   }
 `;
@@ -112,6 +128,17 @@ interface AttackImportJobsVars {
   limit?: number;
 }
 
+interface DataSourceIdsData {
+  allDataSources: Array<{ id: string }>;
+}
+
+interface DataSourceIdsVars {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  platform?: string;
+}
+
 interface RunAttackDataImportData {
   runAttackDataImport: {
     job: AttackImportJob | null;
@@ -122,7 +149,19 @@ interface RunAttackDataImportVars {
   version?: string;
 }
 
+interface DeleteDataSourceData {
+  deleteDataSource: {
+    ok: boolean;
+  };
+}
+
+interface DeleteDataSourceVars {
+  id: string;
+}
+
 const DEFAULT_PAGE_SIZE = 48;
+const SELECT_ALL_FETCH_BATCH_SIZE = 500;
+const DELETE_BATCH_SIZE = 25;
 const JOB_RUNNING_STATUSES = new Set(['PENDING', 'RUNNING']);
 
 export const DataCatalogPage = () => {
@@ -134,6 +173,8 @@ export const DataCatalogPage = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -143,6 +184,10 @@ export const DataCatalogPage = () => {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchTerm, platformFilter]);
 
   const queryVariables = useMemo<DataCatalogPageVars>(() => {
     const offset = Math.max((page - 1) * pageSize, 0);
@@ -194,6 +239,16 @@ export const DataCatalogPage = () => {
     RunAttackDataImportData,
     RunAttackDataImportVars
   >(RUN_ATTACK_DATA_IMPORT_MUTATION);
+
+  const [fetchAllFilteredIds, { loading: selectingFiltered }] = useLazyQuery<
+    DataSourceIdsData,
+    DataSourceIdsVars
+  >(GET_DATA_SOURCE_IDS_QUERY, { fetchPolicy: 'network-only' });
+
+  const [deleteDataSource, { loading: deletingSingle }] = useMutation<
+    DeleteDataSourceData,
+    DeleteDataSourceVars
+  >(DELETE_DATA_SOURCE_MUTATION);
 
   const allPlatforms = data?.dataSourcePlatforms || [];
   const dataSources = data?.allDataSources || [];
@@ -267,7 +322,7 @@ export const DataCatalogPage = () => {
 
   const handleImportAttack = async () => {
     const confirmed = window.confirm(
-      'Start async import of all ATT&CK data components into Data Catalog? Existing entries will be skipped.'
+      'Start async import of all ATT&CK log-source components into Data Catalog? Existing entries will be skipped.'
     );
     if (!confirmed) return;
 
@@ -285,6 +340,145 @@ export const DataCatalogPage = () => {
       startPolling(2000);
     } catch (err: any) {
       message.error(`Failed to start ATT&CK import: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  const allVisibleSelected = dataSources.length > 0 && dataSources.every((item) => selectedIds.has(item.id));
+
+  const toggleSelect = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        dataSources.forEach((item) => next.delete(item.id));
+      } else {
+        dataSources.forEach((item) => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllFiltered = async () => {
+    if (totalRows <= 0) {
+      setSelectedIds(new Set());
+      return;
+    }
+
+    try {
+      const fetchedIds: string[] = [];
+      const platform = platformFilter === 'ALL' ? undefined : platformFilter;
+      let offset = 0;
+
+      while (true) {
+        const response = await fetchAllFilteredIds({
+          variables: {
+            limit: SELECT_ALL_FETCH_BATCH_SIZE,
+            offset,
+            search: searchTerm || undefined,
+            platform,
+          },
+        });
+
+        const rows = response.data?.allDataSources || [];
+        if (rows.length === 0) break;
+
+        fetchedIds.push(...rows.map((row) => row.id));
+
+        if (rows.length < SELECT_ALL_FETCH_BATCH_SIZE) break;
+        offset += rows.length;
+      }
+
+      const uniqueIds = Array.from(new Set(fetchedIds));
+      setSelectedIds(new Set(uniqueIds));
+      message.success(`Selected ${uniqueIds.length} filtered data source(s).`);
+    } catch (err: any) {
+      message.error(`Failed to select filtered data sources: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteOne = async (id: string, name: string) => {
+    const confirmed = window.confirm(`Delete data source "${name}"?`);
+    if (!confirmed) return;
+
+    try {
+      const result = await deleteDataSource({ variables: { id } });
+      if (!result.data?.deleteDataSource?.ok) {
+        message.error(`Failed to delete "${name}".`);
+        return;
+      }
+
+      message.success(`Deleted "${name}".`);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      await refetch();
+    } catch (err: any) {
+      message.error(`Failed to delete "${name}": ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    const confirmed = window.confirm(`Delete ${ids.length} selected data source(s)?`);
+    if (!confirmed) return;
+
+    setBulkDeleting(true);
+    let deleted = 0;
+    let failed = 0;
+    const failedIds: string[] = [];
+
+    for (let index = 0; index < ids.length; index += DELETE_BATCH_SIZE) {
+      const batchIds = ids.slice(index, index + DELETE_BATCH_SIZE);
+      const outcomes = await Promise.all(
+        batchIds.map(async (id) => {
+          try {
+            const result = await deleteDataSource({ variables: { id } });
+            return Boolean(result.data?.deleteDataSource?.ok);
+          } catch {
+            return false;
+          }
+        })
+      );
+
+      outcomes.forEach((ok, batchIndex) => {
+        if (ok) {
+          deleted += 1;
+          return;
+        }
+        failed += 1;
+        failedIds.push(batchIds[batchIndex]);
+      });
+    }
+
+    setBulkDeleting(false);
+    if (failedIds.length > 0) {
+      setSelectedIds(new Set(failedIds));
+    } else {
+      setSelectedIds(new Set());
+    }
+
+    if (deleted > 0) {
+      await refetch();
+    }
+
+    if (failed === 0) {
+      message.success(`Deleted ${deleted} data source(s).`);
+    } else if (deleted > 0) {
+      message.warning(`Deleted ${deleted} data source(s), failed to delete ${failed}.`);
+    } else {
+      message.error(`Failed to delete ${failed} data source(s).`);
     }
   };
 
@@ -338,6 +532,35 @@ export const DataCatalogPage = () => {
             Showing {dataSources.length} of {totalRows} data sources
           </Typography.Text>
         </Space>
+
+        {isAdmin && dataSources.length > 0 && (
+          <Space style={{ marginBottom: 8 }} wrap>
+            <Button onClick={toggleSelectAllVisible} disabled={bulkDeleting || deletingSingle}>
+              {allVisibleSelected ? 'Unselect All (Page)' : 'Select All (Page)'}
+            </Button>
+            <Button
+              onClick={handleSelectAllFiltered}
+              loading={selectingFiltered}
+              disabled={bulkDeleting || deletingSingle}
+            >
+              Select All (Filtered)
+            </Button>
+            <Button
+              onClick={() => setSelectedIds(new Set())}
+              disabled={selectedIds.size === 0 || bulkDeleting || deletingSingle}
+            >
+              Clear Selection
+            </Button>
+            <Button
+              danger
+              onClick={handleDeleteSelected}
+              disabled={selectedIds.size === 0 || bulkDeleting || deletingSingle}
+              loading={bulkDeleting}
+            >
+              Delete Selected ({selectedIds.size})
+            </Button>
+          </Space>
+        )}
       </div>
 
       {error && (
@@ -376,38 +599,67 @@ export const DataCatalogPage = () => {
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-            {dataSources.map((ds: DataSource) => (
-              <Card
-                key={ds.id}
-                hoverable
-                loading={loading}
-                style={{ borderLeft: `5px solid ${getPlatformColor(ds.platform)}` }}
-                onClick={() => navigate(`/catalog/${ds.id}`)}
-              >
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8, marginBottom: 8 }}>
-                    <Typography.Title level={4} style={{ margin: 0 }}>
-                      {ds.name}
-                    </Typography.Title>
-                    {ds.platform && (
-                      <Tag color={getPlatformColor(ds.platform)} style={{ color: '#fff' }}>
-                        {ds.platform}
-                      </Tag>
+            {dataSources.map((ds: DataSource) => {
+              const selected = selectedIds.has(ds.id);
+              return (
+                <Card
+                  key={ds.id}
+                  hoverable
+                  loading={loading}
+                  style={{
+                    borderLeft: `5px solid ${getPlatformColor(ds.platform)}`,
+                    boxShadow: selected ? '0 0 0 2px rgba(37, 99, 235, 0.4)' : undefined,
+                  }}
+                  onClick={() => navigate(`/catalog/${ds.id}`)}
+                >
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 8, marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'start', gap: 8 }}>
+                        {isAdmin && (
+                          <Checkbox
+                            checked={selected}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => toggleSelect(ds.id, event.target.checked)}
+                          />
+                        )}
+                        <Typography.Title level={4} style={{ margin: 0 }}>
+                          {ds.name}
+                        </Typography.Title>
+                      </div>
+                      {ds.platform && (
+                        <Tag color={getPlatformColor(ds.platform)} style={{ color: '#fff' }}>
+                          {ds.platform}
+                        </Tag>
+                      )}
+                    </div>
+                    {ds.description && (
+                      <Typography.Text type="secondary" ellipsis={{ tooltip: markdownToPlainText(ds.description) }}>
+                        {markdownToPlainText(ds.description)}
+                      </Typography.Text>
                     )}
                   </div>
-                  {ds.description && (
-                    <Typography.Text type="secondary" ellipsis={{ tooltip: markdownToPlainText(ds.description) }}>
-                      {markdownToPlainText(ds.description)}
-                    </Typography.Text>
-                  )}
-                </div>
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
-                  <Button type="text" size="small" onClick={(e) => { e.stopPropagation(); navigate(`/catalog/${ds.id}`); }}>
-                    View Details →
-                  </Button>
-                </div>
-              </Card>
-            ))}
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
+                    <Button type="text" size="small" onClick={(event) => { event.stopPropagation(); navigate(`/catalog/${ds.id}`); }}>
+                      View Details →
+                    </Button>
+                    {isAdmin && (
+                      <Button
+                        danger
+                        type="text"
+                        size="small"
+                        loading={deletingSingle && !bulkDeleting}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteOne(ds.id, ds.name);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
           </div>
 
           {totalRows > 0 && (

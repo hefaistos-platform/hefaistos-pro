@@ -153,16 +153,18 @@ interface StrategyProps {
 const normalizeCatalogName = (value: string) => value.trim().toLowerCase();
 
 const buildCatalogDataSourceName = (row: LiveLogSource) => {
-  const dataComponent = (row.dataComponent || '').trim();
-  if (dataComponent) return dataComponent;
-
   const provider = (row.logProvider || '').trim();
   const channel = (row.channel || '').trim();
   if (provider && channel) return `${provider} - ${channel}`;
-  return provider || channel;
+
+  const dataComponent = (row.dataComponent || '').trim();
+  return provider || channel || dataComponent;
 };
 
 const buildLegacyCatalogDataSourceName = (row: LiveLogSource) => {
+  const dataComponent = (row.dataComponent || '').trim();
+  if (dataComponent) return dataComponent;
+
   const provider = (row.logProvider || '').trim();
   const channel = (row.channel || '').trim();
   if (provider && channel) return `${provider} - ${channel}`;

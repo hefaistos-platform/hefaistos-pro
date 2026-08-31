@@ -1,18 +1,18 @@
-import io
 import re
 from typing import Any, Callable
 
 from django.core.cache import cache
-from django.db.models import Q
 from django.db.models.functions import Lower
 
 from data_catalog.models import DataSource, DataSourceField
-from platform_data.models import MitreDataComponent, PlatformDataVersion
+from platform_data.models import MitreAnalytic, PlatformDataVersion
+from platform_data.scraper import scrape_mitre_log_sources_json
 
 
-ATTACK_EXCEL_BASE_URL = "https://attack.mitre.org/docs/attack-excel-files"
 ATTACK_COMPONENT_CACHE_TTL = 60 * 60 * 24  # 24h
 IMPORT_BATCH_SIZE = 500
+FIELD_BATCH_SIZE = 1000
+FIELD_DESCRIPTION = 'Imported from MITRE live data via Detection Strategy'
 
 
 def _emit_progress(on_progress: Callable[[dict[str, Any]], None] | None, **payload) -> None:
@@ -32,11 +32,11 @@ def _batched(values: list[Any], size: int):
 
 def _clean_text(value: Any) -> str:
     if value is None:
-        return ""
+        return ''
     if isinstance(value, float) and value != value:
-        return ""
+        return ''
     text = str(value)
-    return re.sub(r"\s+", " ", text).strip()
+    return re.sub(r'\s+', ' ', text).strip()
 
 
 def _normalize_name(value: str) -> str:
@@ -47,216 +47,149 @@ def _truncate(value: str, limit: int = 255) -> str:
     text = _clean_text(value)
     if len(text) <= limit:
         return text
-    return text[: limit - 1] + "…"
+    return text[: limit - 1] + '…'
 
 
 def _guess_platform(*fragments: str) -> str | None:
-    corpus = " ".join(_clean_text(x).lower() for x in fragments if x)
+    corpus = ' '.join(_clean_text(x).lower() for x in fragments if x)
     if not corpus:
         return None
 
-    windows_tokens = ("windows", "wineventlog", "sysmon", "event id", "powershell")
-    linux_tokens = ("linux", "syslog", "journald", "auditd", "systemd")
-    mac_tokens = ("macos", "darwin", "endpointsecurity", "unified log")
-    cloud_tokens = ("aws", "cloudtrail", "azure", "gcp", "google cloud")
+    windows_tokens = ('windows', 'wineventlog', 'sysmon', 'event id', 'powershell')
+    linux_tokens = ('linux', 'syslog', 'journald', 'auditd', 'systemd')
+    mac_tokens = ('macos', 'darwin', 'endpointsecurity', 'unified log')
+    cloud_tokens = ('aws', 'cloudtrail', 'azure', 'gcp', 'google cloud')
 
     if any(token in corpus for token in windows_tokens):
-        return "Windows"
+        return 'Windows'
     if any(token in corpus for token in linux_tokens):
-        return "Linux"
+        return 'Linux'
     if any(token in corpus for token in mac_tokens):
-        return "macOS"
+        return 'macOS'
     if any(token in corpus for token in cloud_tokens):
-        return "Cloud"
+        return 'Cloud'
     return None
 
 
 def _build_catalog_name(data_component: str, log_provider: str, channel: str) -> str:
-    component = _clean_text(data_component)
-    if component:
-        return component
-
     provider = _clean_text(log_provider)
     chan = _clean_text(channel)
     if provider and chan:
-        return f"{provider} - {chan}"
-    return provider or chan
+        return f'{provider} - {chan}'
 
+    if provider:
+        return provider
+    if chan:
+        return chan
 
-def _normalize_header(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "", _clean_text(value).lower())
-
-
-def _pick_from_row(row: Any, aliases: set[str]) -> str:
-    alias_norms = {_normalize_header(x) for x in aliases}
-    for key, raw in row.items():
-        if _normalize_header(key) in alias_norms:
-            cleaned = _clean_text(raw)
-            if cleaned:
-                return cleaned
-    return ""
-
-
-def _find_sheet_name(sheet_names: list[str], candidates: tuple[str, ...], contains: tuple[str, ...]) -> str | None:
-    target = {_normalize_header(name): name for name in sheet_names}
-
-    for cand in candidates:
-        normalized = _normalize_header(cand)
-        if normalized in target:
-            return target[normalized]
-
-    for normalized, original in target.items():
-        if any(token in normalized for token in contains):
-            return original
-
-    return None
+    return _clean_text(data_component)
 
 
 def _resolve_attack_version(requested_version: str | None = None) -> str:
     if requested_version:
-        return str(requested_version).lstrip("v").strip()
+        return str(requested_version).lstrip('v').strip()
 
     db_version = (
-        PlatformDataVersion.objects.filter(framework="enterprise-attack")
-        .values_list("version", flat=True)
+        PlatformDataVersion.objects.filter(framework='enterprise-attack')
+        .values_list('version', flat=True)
         .first()
     )
     if db_version:
         return str(db_version)
 
-    return "19.1"
+    return '19.1'
 
 
-def _load_rows_from_local_models() -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    qs = (
-        MitreDataComponent.objects.select_related("data_source")
-        .filter(~Q(name__isnull=True), ~Q(name=""))
-        .order_by("name")
-    )
-    for component in qs:
-        rows.append(
-            {
-                "data_component": _clean_text(component.name),
-                "log_provider": _clean_text(getattr(component.data_source, "name", "")),
-                "channel": "",
-                "description": _clean_text(component.description),
-            }
-        )
-    return rows
+def _derive_analytic_code(name: str) -> str | None:
+    clean = _clean_text(name)
+    if not clean:
+        return None
+
+    direct_match = re.search(r'\bAN\d{3,6}\b', clean, re.IGNORECASE)
+    if direct_match:
+        return direct_match.group(0).upper()
+
+    analytic_match = re.search(r'\bAnalytic\s*0*([0-9]{1,6})\b', clean, re.IGNORECASE)
+    if analytic_match:
+        digits = analytic_match.group(1)
+        width = max(4, len(digits))
+        return f"AN{digits.zfill(width)}"
+
+    return None
 
 
-def _fetch_rows_from_attack_excel(version: str) -> list[dict[str, str]]:
-    import pandas as pd
-    import requests
-
-    filename = f"enterprise-attack-v{version}.xlsx"
-    url = f"{ATTACK_EXCEL_BASE_URL}/v{version}/enterprise-attack/{filename}"
-
-    response = requests.get(url, timeout=120)
-    response.raise_for_status()
-
-    xls = pd.ExcelFile(io.BytesIO(response.content))
-
-    datasource_sheet = _find_sheet_name(
-        xls.sheet_names,
-        candidates=("datasources", "data sources"),
-        contains=("datasource",),
-    )
-    datacomponent_sheet = _find_sheet_name(
-        xls.sheet_names,
-        candidates=("datacomponents", "data components"),
-        contains=("datacomponent",),
-    )
-
-    if not datacomponent_sheet:
-        return []
-
-    data_sources_by_stix: dict[str, str] = {}
-    if datasource_sheet:
-        ds_df = pd.read_excel(xls, datasource_sheet)
-        for _, row in ds_df.iterrows():
-            source_stix = _pick_from_row(row, {
-                "STIX ID",
-                "stix id",
-                "stix_id",
-                "id",
-            })
-            source_name = _pick_from_row(row, {
-                "name",
-                "data source",
-                "datasource",
-            })
-            if source_stix and source_name:
-                data_sources_by_stix[source_stix] = source_name
-
-    component_df = pd.read_excel(xls, datacomponent_sheet)
-    rows: list[dict[str, str]] = []
-
-    for _, row in component_df.iterrows():
-        component_name = _pick_from_row(row, {
-            "name",
-            "data component",
-            "datacomponent",
-            "component",
-        })
-        if not component_name:
-            continue
-
-        provider_name = _pick_from_row(row, {
-            "data source",
-            "datasource",
-            "source",
-            "attack data source",
-            "x_mitre_data_source",
-        })
-
-        if not provider_name:
-            source_ref = _pick_from_row(row, {
-                "x_mitre_data_source_ref",
-                "x mitre data source ref",
-                "data source ref",
-                "datasource ref",
-                "source ref",
-                "x_mitre_data_source_refs",
-            })
-            if source_ref:
-                for candidate_ref in [x.strip() for x in source_ref.split(",") if x.strip()]:
-                    mapped_name = data_sources_by_stix.get(candidate_ref)
-                    if mapped_name:
-                        provider_name = mapped_name
-                        break
-
-        rows.append(
-            {
-                "data_component": component_name,
-                "log_provider": provider_name,
-                "channel": "",
-                "description": _pick_from_row(row, {"description"}),
-            }
-        )
-
-    return rows
+def _normalize_scraped_row(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        'data_component': _clean_text(row.get('data_component') or row.get('dataComponent')),
+        'log_provider': _clean_text(row.get('log_provider') or row.get('logProvider')),
+        'channel': _clean_text(row.get('channel')),
+    }
 
 
-def load_attack_component_rows(version: str | None = None) -> tuple[list[dict[str, str]], str]:
-    """
-    Returns ATT&CK data-component rows in a format compatible with Workbench
-    log-source rows: {data_component, log_provider, channel, description}.
-    """
-    local_rows = _load_rows_from_local_models()
-    resolved_version = _resolve_attack_version(version)
-    if local_rows:
-        return local_rows, resolved_version
-
-    cache_key = f"attack:datacomponents:enterprise:v{resolved_version}"
+def _load_rows_from_strategy_analytics(
+    version: str,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+) -> list[dict[str, str]]:
+    cache_key = f'attack:log-sources:enterprise:v{version}'
     cached_rows = cache.get(cache_key)
     if cached_rows is not None:
-        return cached_rows, resolved_version
+        _emit_progress(
+            on_progress,
+            progress_percent=20,
+            message='Loaded cached MITRE log source rows',
+            log_line=f'Loaded {len(cached_rows)} log source rows from cache.',
+        )
+        return cached_rows
 
-    rows = _fetch_rows_from_attack_excel(resolved_version)
-    cache.set(cache_key, rows, timeout=ATTACK_COMPONENT_CACHE_TTL)
-    return rows, resolved_version
+    analytics = list(
+        MitreAnalytic.objects.select_related('detection_strategy')
+        .filter(detection_strategy__isnull=False)
+        .exclude(detection_strategy__url__isnull=True)
+        .exclude(detection_strategy__url='')
+        .order_by('detection_strategy__def_id', 'name')
+    )
+
+    total_analytics = len(analytics)
+    if total_analytics == 0:
+        return []
+
+    out_rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for idx, analytic in enumerate(analytics, start=1):
+        strategy = analytic.detection_strategy
+        strategy_url = _clean_text(getattr(strategy, 'url', ''))
+        analytic_code = _derive_analytic_code(analytic.name)
+        if not strategy_url or not analytic_code:
+            continue
+
+        row_cache_key = f'mitre:json:{strategy_url}#{analytic_code}'
+        scraped_rows = cache.get(row_cache_key)
+        if scraped_rows is None:
+            scraped_rows = scrape_mitre_log_sources_json(strategy_url, analytic_code)
+            cache.set(row_cache_key, scraped_rows, timeout=ATTACK_COMPONENT_CACHE_TTL)
+
+        for raw_row in scraped_rows or []:
+            row = _normalize_scraped_row(raw_row)
+            if not row['log_provider'] or not row['channel']:
+                # Import only rows that are directly actionable as log source components.
+                continue
+            signature = (row['data_component'], row['log_provider'], row['channel'])
+            if signature in seen:
+                continue
+            seen.add(signature)
+            out_rows.append(row)
+
+        if idx == 1 or idx % 25 == 0 or idx == total_analytics:
+            progress = 20 + int((idx / total_analytics) * 25)
+            _emit_progress(
+                on_progress,
+                progress_percent=progress,
+                message=f'Collecting MITRE log source rows ({idx}/{total_analytics})',
+            )
+
+    cache.set(cache_key, out_rows, timeout=ATTACK_COMPONENT_CACHE_TTL)
+    return out_rows
 
 
 def import_attack_data_sources_for_organization(
@@ -264,94 +197,108 @@ def import_attack_data_sources_for_organization(
     version: str | None = None,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    rows, resolved_version = load_attack_component_rows(version)
+    resolved_version = _resolve_attack_version(version)
+
     _emit_progress(
         on_progress,
         progress_percent=10,
-        message="Loaded ATT&CK data components",
-        log_line=f"Loaded {len(rows)} ATT&CK source rows.",
+        message='Preparing ATT&CK log source import',
+        log_line=f'Starting ATT&CK import for version {resolved_version}.',
+    )
+
+    rows = _load_rows_from_strategy_analytics(resolved_version, on_progress=on_progress)
+
+    _emit_progress(
+        on_progress,
+        progress_percent=45,
+        message='Loaded ATT&CK log source rows',
+        log_line=f'Loaded {len(rows)} ATT&CK log source rows.',
     )
 
     candidate_map: dict[str, dict[str, str]] = {}
     for row in rows:
-        data_component = _clean_text(row.get("data_component"))
-        log_provider = _clean_text(row.get("log_provider"))
-        channel = _clean_text(row.get("channel"))
-        description = _clean_text(row.get("description"))
+        data_component = _clean_text(row.get('data_component'))
+        log_provider = _clean_text(row.get('log_provider'))
+        channel = _clean_text(row.get('channel'))
 
         name = _build_catalog_name(data_component, log_provider, channel)
         if not name:
             continue
 
         key = _normalize_name(name)
-        if key in candidate_map:
+        existing = candidate_map.get(key)
+        if not existing:
+            candidate_map[key] = {
+                'name': name,
+                'data_component': data_component,
+                'log_provider': log_provider,
+                'channel': channel,
+            }
             continue
 
-        candidate_map[key] = {
-            "name": name,
-            "data_component": data_component,
-            "log_provider": log_provider,
-            "channel": channel,
-            "description": description,
-        }
+        # Preserve richest values when same catalog key appears repeatedly.
+        if not existing.get('data_component') and data_component:
+            existing['data_component'] = data_component
+        if not existing.get('log_provider') and log_provider:
+            existing['log_provider'] = log_provider
+        if not existing.get('channel') and channel:
+            existing['channel'] = channel
 
     _emit_progress(
         on_progress,
-        progress_percent=25,
-        message="Prepared import candidates",
+        progress_percent=55,
+        message='Prepared import candidates',
         total_candidates=len(candidate_map),
-        log_line=f"Prepared {len(candidate_map)} unique Data Catalog candidates.",
+        log_line=f'Prepared {len(candidate_map)} unique Data Catalog candidates.',
     )
 
     if not candidate_map:
         _emit_progress(
             on_progress,
             progress_percent=100,
-            message="Nothing to import",
+            message='Nothing to import',
             created_count=0,
             skipped_count=0,
             failed_count=0,
             total_candidates=0,
-            log_line="No ATT&CK candidates available to import.",
+            log_line='No ATT&CK log-source candidates available to import.',
         )
         return {
-            "created_count": 0,
-            "skipped_count": 0,
-            "failed_count": 0,
-            "total_candidates": 0,
-            "version": resolved_version,
+            'created_count': 0,
+            'skipped_count': 0,
+            'failed_count': 0,
+            'total_candidates': 0,
+            'version': resolved_version,
         }
 
     keys = set(candidate_map.keys())
 
     existing_before = set(
         DataSource.objects.filter(organization=organization)
-        .annotate(name_lc=Lower("name"))
+        .annotate(name_lc=Lower('name'))
         .filter(name_lc__in=keys)
-        .values_list("name_lc", flat=True)
+        .values_list('name_lc', flat=True)
     )
 
     _emit_progress(
         on_progress,
-        progress_percent=35,
-        message="Checked existing Data Catalog entries",
+        progress_percent=60,
+        message='Checked existing Data Catalog entries',
         skipped_count=len(existing_before),
     )
 
-    to_create_objects = []
+    to_create_objects: list[DataSource] = []
     for key in (keys - existing_before):
         item = candidate_map[key]
         description = (
-            f"Imported from MITRE ATT&CK v{resolved_version}. "
-            f"Component: {item['data_component'] or item['name']}"
+            f"Auto-added from MITRE strategy: {item['data_component']}"
+            f" | {item['log_provider']} | {item['channel']}"
         )
-        if item["log_provider"]:
-            description += f" | Source: {item['log_provider']}"
 
         to_create_objects.append(
             DataSource(
-                name=item["name"],
-                platform=_guess_platform(item["name"], item["log_provider"], item["channel"]),
+                name=item['name'],
+                platform=_guess_platform(item['name'], item['log_provider'], item['channel']),
                 description=description,
                 organization=organization,
             )
@@ -361,25 +308,25 @@ def import_attack_data_sources_for_organization(
         total_batches = max(1, (len(to_create_objects) + IMPORT_BATCH_SIZE - 1) // IMPORT_BATCH_SIZE)
         for batch_index, batch in enumerate(_batched(to_create_objects, IMPORT_BATCH_SIZE), start=1):
             DataSource.objects.bulk_create(batch, batch_size=IMPORT_BATCH_SIZE, ignore_conflicts=True)
-            progress = 35 + int((batch_index / total_batches) * 30)
+            progress = 60 + int((batch_index / total_batches) * 15)
             _emit_progress(
                 on_progress,
                 progress_percent=progress,
-                message="Importing Data Catalog entries",
-                log_line=f"Created batch {batch_index}/{total_batches} ({len(batch)} rows attempted).",
+                message='Importing Data Catalog entries',
+                log_line=f'Created batch {batch_index}/{total_batches} ({len(batch)} rows attempted).',
             )
     else:
         _emit_progress(
             on_progress,
-            progress_percent=65,
-            message="No new Data Catalog entries required",
+            progress_percent=75,
+            message='No new Data Catalog entries required',
         )
 
     existing_after = set(
         DataSource.objects.filter(organization=organization)
-        .annotate(name_lc=Lower("name"))
+        .annotate(name_lc=Lower('name'))
         .filter(name_lc__in=keys)
-        .values_list("name_lc", flat=True)
+        .values_list('name_lc', flat=True)
     )
 
     created_count = len(existing_after - existing_before)
@@ -388,8 +335,8 @@ def import_attack_data_sources_for_organization(
 
     _emit_progress(
         on_progress,
-        progress_percent=75,
-        message="Import counts computed",
+        progress_percent=78,
+        message='Import counts computed',
         created_count=created_count,
         skipped_count=skipped_count,
         failed_count=failed_count,
@@ -400,80 +347,70 @@ def import_attack_data_sources_for_organization(
         row[1]: row[0]
         for row in (
             DataSource.objects.filter(organization=organization)
-            .annotate(name_lc=Lower("name"))
+            .annotate(name_lc=Lower('name'))
             .filter(name_lc__in=existing_after)
-            .values_list("id", "name_lc")
+            .values_list('id', 'name_lc')
         )
     }
 
-    field_description = f"Imported from MITRE ATT&CK v{resolved_version}"
     field_rows: list[DataSourceField] = []
     for key in existing_after:
         ds_id = name_to_ds_id.get(key)
         if not ds_id:
             continue
+
         item = candidate_map.get(key)
         if not item:
             continue
 
-        if item["data_component"]:
+        if item['channel']:
             field_rows.append(
                 DataSourceField(
                     data_source_id=ds_id,
-                    field_name="data_component",
-                    data_type="string",
-                    description=field_description,
-                    example_value=_truncate(item["data_component"]),
+                    field_name='channel',
+                    data_type='string',
+                    description=FIELD_DESCRIPTION,
+                    example_value=_truncate(item['channel']),
                 )
             )
 
-        if item["log_provider"]:
+        if item['log_provider']:
             field_rows.append(
                 DataSourceField(
                     data_source_id=ds_id,
-                    field_name="provider",
-                    data_type="string",
-                    description=field_description,
-                    example_value=_truncate(item["log_provider"]),
+                    field_name='provider',
+                    data_type='string',
+                    description=FIELD_DESCRIPTION,
+                    example_value=_truncate(item['log_provider']),
                 )
             )
 
-        if item["channel"]:
+        if item['data_component']:
             field_rows.append(
                 DataSourceField(
                     data_source_id=ds_id,
-                    field_name="channel",
-                    data_type="string",
-                    description=field_description,
-                    example_value=_truncate(item["channel"]),
+                    field_name='data_component',
+                    data_type='string',
+                    description=FIELD_DESCRIPTION,
+                    example_value=_truncate(item['data_component']),
                 )
             )
-
-        field_rows.append(
-            DataSourceField(
-                data_source_id=ds_id,
-                field_name="mitre_attack_version",
-                data_type="string",
-                description=field_description,
-                example_value=_truncate(resolved_version),
-            )
-        )
 
     if field_rows:
-        total_field_batches = max(1, (len(field_rows) + 1000 - 1) // 1000)
-        for field_batch_index, batch in enumerate(_batched(field_rows, 1000), start=1):
-            DataSourceField.objects.bulk_create(batch, batch_size=1000, ignore_conflicts=True)
-            progress = 75 + int((field_batch_index / total_field_batches) * 20)
+        total_field_batches = max(1, (len(field_rows) + FIELD_BATCH_SIZE - 1) // FIELD_BATCH_SIZE)
+        for field_batch_index, batch in enumerate(_batched(field_rows, FIELD_BATCH_SIZE), start=1):
+            DataSourceField.objects.bulk_create(batch, batch_size=FIELD_BATCH_SIZE, ignore_conflicts=True)
+            progress = 78 + int((field_batch_index / total_field_batches) * 20)
             _emit_progress(
                 on_progress,
                 progress_percent=progress,
-                message="Importing metadata fields",
+                message='Importing metadata fields',
             )
 
     _emit_progress(
         on_progress,
         progress_percent=100,
-        message="Import completed",
+        message='Import completed',
         created_count=created_count,
         skipped_count=skipped_count,
         failed_count=failed_count,
@@ -481,9 +418,9 @@ def import_attack_data_sources_for_organization(
     )
 
     return {
-        "created_count": created_count,
-        "skipped_count": skipped_count,
-        "failed_count": failed_count,
-        "total_candidates": len(keys),
-        "version": resolved_version,
+        'created_count': created_count,
+        'skipped_count': skipped_count,
+        'failed_count': failed_count,
+        'total_candidates': len(keys),
+        'version': resolved_version,
     }
