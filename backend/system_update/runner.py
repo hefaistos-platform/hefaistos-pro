@@ -397,7 +397,7 @@ class UpdateRunner:
 # ---------------------------------------------------------------------------
 
 def _docker_compose_capability(compose_cmd: Optional[list[str]] = None) -> tuple[bool, str]:
-    command_tokens = compose_cmd or _resolve_compose_cmd()
+    command_tokens = compose_cmd if compose_cmd is not None else _resolve_compose_cmd()
     if not os.path.isdir(COMPOSE_WORK_DIR):
         return False, f"Compose directory does not exist: {COMPOSE_WORK_DIR}"
 
