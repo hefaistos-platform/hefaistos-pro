@@ -94,6 +94,8 @@ def _build_steps(compose_cmd: list[str], suffixes: list[list[str]]) -> list[list
 
 
 # Backward-compatible exports (default command at import time)
+# NOTE: These are import-time snapshots for compatibility/tests only.
+# Runtime execution resolves HEFAISTOS_COMPOSE_CMD per job in _run_job().
 _default_compose_cmd = _resolve_compose_cmd()
 _STANDARD_STEPS = _build_steps(_default_compose_cmd, _STANDARD_STEP_SUFFIXES)
 _FORCE_STEPS = _build_steps(_default_compose_cmd, _FORCE_STEP_SUFFIXES)
