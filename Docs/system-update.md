@@ -74,6 +74,8 @@ docker compose --profile batch run --rm migrate
 | `HEFAISTOS_UPDATE_STEP_TIMEOUT` | `600` | Per-step timeout in seconds |
 | `HEFAISTOS_UPDATE_JOB_TIMEOUT` | `1800` | Overall job timeout in seconds |
 | `HEFAISTOS_COMPOSE_DIR` | project root | Working directory for compose commands |
+| `HEFAISTOS_COMPOSE_CMD` | `docker compose` | Compose command tokens (for example `docker compose`, `docker-compose`, or `/usr/bin/docker compose`) |
+| `HEFAISTOS_VERSION` | `1.0` | Version string shown in the UI/API |
 
 ---
 
@@ -138,7 +140,8 @@ query {
 ## Runtime expectations
 
 - The backend Django process must have access to the Docker socket or
-  `docker` CLI on PATH.
+  the configured compose executable (`HEFAISTOS_COMPOSE_CMD`) either on PATH
+  or as an absolute path.
 - `HEFAISTOS_COMPOSE_DIR` must point to the directory containing
   `docker-compose.yml`.
 - The backend user/process must have permissions to run `docker compose`

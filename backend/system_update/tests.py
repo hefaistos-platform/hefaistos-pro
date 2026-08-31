@@ -10,6 +10,7 @@ Covers:
 
 import threading
 import time
+import tempfile
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import PermissionDenied
@@ -24,7 +25,9 @@ from system_update.runner import (
     UpdateRunner,
     _FORCE_STEPS,
     _STANDARD_STEPS,
+    _docker_compose_capability,
     _redact,
+    _resolve_compose_cmd,
 )
 from system_update.schema import Query, StartSystemUpdate, _require_superuser
 
@@ -141,10 +144,10 @@ class TestCommandSequences(TestCase):
         self.assertEqual(_STANDARD_STEPS[0], ["docker", "compose", "pull"])
 
     def test_force_starts_with_down(self):
-        self.assertEqual(_FORCE_STEPS[0], ["docker", "compose", "down", "--remove-orphans"])
+        self.assertEqual(_FORCE_STEPS[0][-2:], ["down", "--remove-orphans"])
 
     def test_force_includes_pull_second(self):
-        self.assertEqual(_FORCE_STEPS[1], ["docker", "compose", "pull"])
+        self.assertEqual(_FORCE_STEPS[1][-1], "pull")
 
     def test_standard_migrate_before_up(self):
         """Migrate step comes before the up step in standard mode."""
@@ -152,6 +155,10 @@ class TestCommandSequences(TestCase):
         migrate_idx = next(i for i, c in enumerate(cmds) if "migrate" in c)
         up_idx = next(i for i, c in enumerate(cmds) if "up" in c)
         self.assertLess(migrate_idx, up_idx)
+
+    def test_compose_command_can_be_overridden(self):
+        with patch.dict("os.environ", {"HEFAISTOS_COMPOSE_CMD": "/usr/bin/docker compose"}, clear=False):
+            self.assertEqual(_resolve_compose_cmd(), ["/usr/bin/docker", "compose"])
 
     def test_no_shell_true_in_sequences(self):
         """All command elements must be strings (no shell=True constructs)."""
@@ -280,3 +287,21 @@ class TestSecretRedaction(TestCase):
     def test_plain_line_unchanged(self):
         line = "docker compose pull"
         self.assertEqual(_redact(line), line)
+
+
+class TestCapabilityDetection(TestCase):
+    def test_compose_dir_missing_returns_unavailable(self):
+        with patch("system_update.runner.COMPOSE_WORK_DIR", "/nonexistent/hefaistos-compose-dir"):
+            capable, note = _docker_compose_capability()
+        self.assertFalse(capable)
+        self.assertIn("does not exist", note)
+
+    def test_compose_probe_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_result = MagicMock(returncode=0, stderr="", stdout="Docker Compose version v2")
+            with patch("system_update.runner.COMPOSE_WORK_DIR", tmpdir), patch(
+                "system_update.runner.subprocess.run", return_value=mock_result
+            ):
+                capable, note = _docker_compose_capability()
+        self.assertTrue(capable)
+        self.assertIn("Available via", note)

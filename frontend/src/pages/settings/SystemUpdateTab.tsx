@@ -51,6 +51,7 @@ const SYSTEM_UPDATE_INFO = gql`
     systemUpdateInfo {
       currentVersion
       composeDir
+      composeCommand
       capable
       capabilityNote
     }
@@ -95,6 +96,7 @@ const START_SYSTEM_UPDATE = gql`
 interface UpdateInfo {
   currentVersion: string;
   composeDir: string;
+  composeCommand: string;
   capable: boolean;
   capabilityNote: string;
 }
@@ -269,6 +271,10 @@ export const SystemUpdateTab: React.FC<SystemUpdateTabProps> = ({ isSuperuser })
             <Space>
               <Text strong>Compose directory:</Text>
               <Text code>{info.composeDir}</Text>
+            </Space>
+            <Space>
+              <Text strong>Compose command:</Text>
+              <Text code>{info.composeCommand}</Text>
             </Space>
             <Space>
               <Text strong>Update capability:</Text>
