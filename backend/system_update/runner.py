@@ -25,6 +25,7 @@ Public API used by schema.py:
 import logging
 import os
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -62,15 +63,25 @@ COMPOSE_WORK_DIR = os.environ.get(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
 )
 
+
+def _resolve_compose_cmd() -> list[str]:
+    """Resolve the compose command tokens from HEFAISTOS_COMPOSE_CMD."""
+    raw = (os.environ.get("HEFAISTOS_COMPOSE_CMD") or "docker compose").strip()
+    tokens = shlex.split(raw)
+    return tokens if tokens else ["docker", "compose"]
+
+
+COMPOSE_CMD = _resolve_compose_cmd()
+
 # ---------------------------------------------------------------------------
 # Command sequences (allowlist – no arbitrary user input reaches here)
 # ---------------------------------------------------------------------------
 
 _STANDARD_STEPS: list[list[str]] = [
-    ["docker", "compose", "pull"],
-    ["docker", "compose", "--profile", "batch", "run", "--rm", "migrate"],
+    [*COMPOSE_CMD, "pull"],
+    [*COMPOSE_CMD, "--profile", "batch", "run", "--rm", "migrate"],
     [
-        "docker", "compose",
+        *COMPOSE_CMD,
         "--profile", "workers",
         "--profile", "obs",
         "--profile", "devtools",
@@ -79,16 +90,16 @@ _STANDARD_STEPS: list[list[str]] = [
 ]
 
 _FORCE_STEPS: list[list[str]] = [
-    ["docker", "compose", "down", "--remove-orphans"],
-    ["docker", "compose", "pull"],
+    [*COMPOSE_CMD, "down", "--remove-orphans"],
+    [*COMPOSE_CMD, "pull"],
     [
-        "docker", "compose",
+        *COMPOSE_CMD,
         "--profile", "workers",
         "--profile", "obs",
         "--profile", "devtools",
         "up", "-d", "--build", "--remove-orphans",
     ],
-    ["docker", "compose", "--profile", "batch", "run", "--rm", "migrate"],
+    [*COMPOSE_CMD, "--profile", "batch", "run", "--rm", "migrate"],
 ]
 
 # ---------------------------------------------------------------------------
@@ -143,6 +154,7 @@ class UpdateJobRecord:
 class UpdateInfoResult:
     current_version: str
     compose_dir: str
+    compose_command: str
     capable: bool
     capability_note: str
 
@@ -185,11 +197,11 @@ class UpdateRunner:
     def get_info(self) -> UpdateInfoResult:
         from django.conf import settings
         version = getattr(settings, "HEFAISTOS_VERSION", "unknown")
-        capable = _docker_compose_available()
-        note = "docker compose available" if capable else "docker or docker-compose not found on PATH"
+        capable, note = _docker_compose_capability()
         return UpdateInfoResult(
             current_version=version,
             compose_dir=COMPOSE_WORK_DIR,
+            compose_command=" ".join(COMPOSE_CMD),
             capable=capable,
             capability_note=note,
         )
@@ -327,7 +339,7 @@ class UpdateRunner:
 
     def _health_check(self, record: UpdateJobRecord) -> None:
         """Minimal readiness verification: check compose can report service state."""
-        cmd = ["docker", "compose", "ps", "--format", "json"]
+        cmd = [*COMPOSE_CMD, "ps", "--format", "json"]
         try:
             result = subprocess.run(
                 cmd,
@@ -380,16 +392,30 @@ class UpdateRunner:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _docker_compose_available() -> bool:
+def _docker_compose_capability() -> tuple[bool, str]:
+    if not os.path.isdir(COMPOSE_WORK_DIR):
+        return False, f"Compose directory does not exist: {COMPOSE_WORK_DIR}"
+
+    cmd = [*COMPOSE_CMD, "version"]
     try:
         result = subprocess.run(
-            ["docker", "compose", "version"],
+            cmd,
             capture_output=True,
+            text=True,
+            cwd=COMPOSE_WORK_DIR,
             timeout=10,
         )
-        return result.returncode == 0
-    except Exception:
-        return False
+    except FileNotFoundError:
+        return False, f"Command not found: {COMPOSE_CMD[0]}"
+    except Exception as exc:
+        return False, f"Failed to probe compose command: {exc}"
+
+    if result.returncode == 0:
+        return True, f"Available via: {' '.join(COMPOSE_CMD)}"
+
+    detail = (result.stderr or result.stdout or "").strip().splitlines()
+    detail_msg = detail[0] if detail else f"exit code {result.returncode}"
+    return False, f"Compose command failed ({' '.join(COMPOSE_CMD)}): {detail_msg}"
 
 
 # Module-level singleton

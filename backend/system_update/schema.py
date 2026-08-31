@@ -71,6 +71,7 @@ def _require_superuser(info):
 class SystemUpdateInfoType(graphene.ObjectType):
     current_version = graphene.String(description="Current HEFAISTOS PRO version string.")
     compose_dir = graphene.String(description="Working directory used for Docker Compose commands.")
+    compose_command = graphene.String(description="Effective compose command used by the backend.")
     capable = graphene.Boolean(description="True if docker compose is available on the host.")
     capability_note = graphene.String(description="Human-readable note about update capability.")
 
@@ -121,6 +122,7 @@ class Query(graphene.ObjectType):
         return SystemUpdateInfoType(
             current_version=result.current_version,
             compose_dir=result.compose_dir,
+            compose_command=result.compose_command,
             capable=result.capable,
             capability_note=result.capability_note,
         )

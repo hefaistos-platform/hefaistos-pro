@@ -466,6 +466,6 @@ WEBAUTHN_ORIGIN = os.environ.get('WEBAUTHN_ORIGIN', FRONTEND_URL.rstrip('/'))
 CORETIDE_WEBHOOK_SECRET = get_secret('coretide_webhook_secret', 'CORETIDE_WEBHOOK_SECRET')
 
 # Application metadata
-HEFAISTOS_VERSION = "1.0"
+HEFAISTOS_VERSION = os.environ.get("HEFAISTOS_VERSION", "1.0")
 HEFAISTOS_COPYRIGHT = "(c) 2026 Jan Pohl - m3c4n1sm0 and multiple AI bots"
 HEFAISTOS_DESCRIPTION = "Detection Engineering Platform"
