@@ -290,7 +290,13 @@ class UpdateRunner:
                     self._active_job = None
 
     def _run_step(self, record: UpdateJobRecord, cmd: list[str], timeout: float) -> bool:
-        """Execute one subprocess step, streaming output into the job log."""
+        """Execute one subprocess step, capturing all output into the job log.
+
+        ``proc.communicate(timeout=...)`` is used so that the timeout applies
+        even when the subprocess produces no output (silent hang protection).
+        All output is captured first and then appended line-by-line so the
+        log buffer reflects the complete step result.
+        """
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -303,20 +309,16 @@ class UpdateRunner:
             record.append_log(f"[hefaistos] Command not found: {exc}")
             return False
 
-        deadline = time.monotonic() + timeout
         try:
-            for raw_line in proc.stdout:  # type: ignore[union-attr]
-                line = raw_line.decode("utf-8", errors="replace")
-                record.append_log(line)
-                if time.monotonic() > deadline:
-                    proc.kill()
-                    record.append_log(f"[hefaistos] Step timeout ({timeout}s) exceeded – process killed.")
-                    return False
-            proc.wait(timeout=max(1.0, deadline - time.monotonic()))
+            stdout_bytes, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.communicate()  # drain to avoid zombie
             record.append_log(f"[hefaistos] Step timeout ({timeout}s) exceeded – process killed.")
             return False
+
+        for line in stdout_bytes.decode("utf-8", errors="replace").splitlines():
+            record.append_log(line)
 
         if proc.returncode != 0:
             record.append_log(f"[hefaistos] Step exited with code {proc.returncode}")
@@ -397,8 +399,7 @@ _runner_lock = threading.Lock()
 
 def get_runner() -> UpdateRunner:
     global _runner_instance
-    if _runner_instance is None:
-        with _runner_lock:
-            if _runner_instance is None:
-                _runner_instance = UpdateRunner()
+    with _runner_lock:
+        if _runner_instance is None:
+            _runner_instance = UpdateRunner()
     return _runner_instance

@@ -62,7 +62,7 @@ docker compose --profile batch run --rm migrate
 | No `shell=True` | All subprocess calls use argv lists. |
 | Step timeout | Each step is bounded by `HEFAISTOS_UPDATE_STEP_TIMEOUT` (default 600 s). |
 | Job timeout | Overall job is bounded by `HEFAISTOS_UPDATE_JOB_TIMEOUT` (default 1800 s). |
-| Secret redaction | Log lines are scanned for `****** `token=`, etc. before storage. |
+| Secret redaction | Log lines are scanned for patterns like `****** `token=`, `secret=`, etc. Values are replaced with `[REDACTED]` before storage. |
 | Audit trail | Every update attempt (success and failure) is emitted via `mcs_logging.emit_security_event`. |
 
 ---

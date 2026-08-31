@@ -2023,8 +2023,12 @@ export const ConfigurationPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   // Shared AI/SMTP superuser controls were moved to /mgmt/superuser.
   // Keep Configuration focused on organization-level admin settings.
+  // NOTE: `isSuperuser` is intentionally kept as `false` here because the
+  // shared-SMTP and org-AI sub-components on this page are scoped to org
+  // admins only and must NOT expose superuser-level cross-org controls.
+  // For the System Update tab (which IS superuser-restricted) we use the
+  // separate `isSuperuserForUpdate` value derived from the access query.
   const isSuperuser = false;
-  // Real superuser check for system update tab (from access query)
   const isSuperuserForUpdate = Boolean(accessData?.me?.isSuperuser);
   const [selectedOrgAiOrgId, setSelectedOrgAiOrgId] = useState<string | undefined>(undefined);
   const [sharedAiProfileName, setSharedAiProfileName] = useState('');
