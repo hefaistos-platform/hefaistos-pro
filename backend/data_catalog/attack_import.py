@@ -13,6 +13,7 @@ ATTACK_COMPONENT_CACHE_TTL = 60 * 60 * 24  # 24h
 IMPORT_BATCH_SIZE = 500
 FIELD_BATCH_SIZE = 1000
 FIELD_DESCRIPTION = 'Imported from MITRE live data via Detection Strategy'
+AUTO_IMPORT_PREFIX = 'Auto-added from MITRE strategy:'
 
 
 def _emit_progress(on_progress: Callable[[dict[str, Any]], None] | None, **payload) -> None:
@@ -233,6 +234,7 @@ def import_attack_data_sources_for_organization(
                 'data_component': data_component,
                 'log_provider': log_provider,
                 'channel': channel,
+                'legacy_name': data_component,
             }
             continue
 
@@ -243,6 +245,8 @@ def import_attack_data_sources_for_organization(
             existing['log_provider'] = log_provider
         if not existing.get('channel') and channel:
             existing['channel'] = channel
+        if not existing.get('legacy_name') and data_component:
+            existing['legacy_name'] = data_component
 
     _emit_progress(
         on_progress,
@@ -271,14 +275,70 @@ def import_attack_data_sources_for_organization(
             'version': resolved_version,
         }
 
-    keys = set(candidate_map.keys())
+    canonical_keys = set(candidate_map.keys())
+    legacy_to_canonical: dict[str, str] = {}
+    for canonical_key, item in candidate_map.items():
+        legacy_key = _normalize_name(item.get('legacy_name', ''))
+        if not legacy_key or legacy_key == canonical_key:
+            continue
+        if legacy_key not in legacy_to_canonical:
+            legacy_to_canonical[legacy_key] = canonical_key
+
+    lookup_keys = canonical_keys | set(legacy_to_canonical.keys())
 
     existing_before = set(
         DataSource.objects.filter(organization=organization)
         .annotate(name_lc=Lower('name'))
-        .filter(name_lc__in=keys)
+        .filter(name_lc__in=canonical_keys)
         .values_list('name_lc', flat=True)
     )
+
+    legacy_sources_by_key = {
+        row[1]: row[0]
+        for row in (
+            DataSource.objects.filter(organization=organization)
+            .annotate(name_lc=Lower('name'))
+            .filter(name_lc__in=set(legacy_to_canonical.keys()))
+            .values_list('id', 'name_lc')
+        )
+    }
+
+    rename_updates: list[DataSource] = []
+    for legacy_key, canonical_key in legacy_to_canonical.items():
+        if canonical_key in existing_before:
+            continue
+
+        legacy_source_id = legacy_sources_by_key.get(legacy_key)
+        if not legacy_source_id:
+            continue
+
+        try:
+            legacy_source = DataSource.objects.get(id=legacy_source_id, organization=organization)
+        except DataSource.DoesNotExist:
+            continue
+
+        existing_description = _clean_text(legacy_source.description)
+        if existing_description and not existing_description.startswith(AUTO_IMPORT_PREFIX):
+            continue
+
+        item = candidate_map[canonical_key]
+        desired_description = (
+            f"{AUTO_IMPORT_PREFIX} {item['data_component']}"
+            f" | {item['log_provider']} | {item['channel']}"
+        )
+
+        legacy_source.name = item['name']
+        legacy_source.description = desired_description
+
+        guessed_platform = _guess_platform(item['name'], item['log_provider'], item['channel'])
+        if guessed_platform and not _clean_text(legacy_source.platform):
+            legacy_source.platform = guessed_platform
+
+        rename_updates.append(legacy_source)
+        existing_before.add(canonical_key)
+
+    if rename_updates:
+        DataSource.objects.bulk_update(rename_updates, ['name', 'platform', 'description'], batch_size=IMPORT_BATCH_SIZE)
 
     _emit_progress(
         on_progress,
@@ -288,10 +348,10 @@ def import_attack_data_sources_for_organization(
     )
 
     to_create_objects: list[DataSource] = []
-    for key in (keys - existing_before):
+    for key in (canonical_keys - existing_before):
         item = candidate_map[key]
         description = (
-            f"Auto-added from MITRE strategy: {item['data_component']}"
+            f"{AUTO_IMPORT_PREFIX} {item['data_component']}"
             f" | {item['log_provider']} | {item['channel']}"
         )
 
@@ -325,13 +385,13 @@ def import_attack_data_sources_for_organization(
     existing_after = set(
         DataSource.objects.filter(organization=organization)
         .annotate(name_lc=Lower('name'))
-        .filter(name_lc__in=keys)
+        .filter(name_lc__in=canonical_keys)
         .values_list('name_lc', flat=True)
     )
 
     created_count = len(existing_after - existing_before)
-    failed_count = len(keys - existing_after)
-    skipped_count = len(keys) - created_count - failed_count
+    failed_count = len(canonical_keys - existing_after)
+    skipped_count = len(canonical_keys) - created_count - failed_count
 
     _emit_progress(
         on_progress,
@@ -340,71 +400,100 @@ def import_attack_data_sources_for_organization(
         created_count=created_count,
         skipped_count=skipped_count,
         failed_count=failed_count,
-        total_candidates=len(keys),
+        total_candidates=len(canonical_keys),
     )
 
-    name_to_ds_id = {
-        row[1]: row[0]
-        for row in (
-            DataSource.objects.filter(organization=organization)
-            .annotate(name_lc=Lower('name'))
-            .filter(name_lc__in=existing_after)
-            .values_list('id', 'name_lc')
-        )
-    }
+    source_rows = list(
+        DataSource.objects.filter(organization=organization)
+        .annotate(name_lc=Lower('name'))
+        .filter(name_lc__in=lookup_keys)
+        .values_list('id', 'name_lc')
+    )
 
-    field_rows: list[DataSourceField] = []
-    for key in existing_after:
-        ds_id = name_to_ds_id.get(key)
-        if not ds_id:
+    source_to_item: dict[int, dict[str, str]] = {}
+    for source_id, name_lc in source_rows:
+        item_key = name_lc
+        if item_key not in candidate_map:
+            item_key = legacy_to_canonical.get(name_lc, '')
+        if not item_key:
             continue
+        item = candidate_map.get(item_key)
+        if item:
+            source_to_item[source_id] = item
 
-        item = candidate_map.get(key)
-        if not item:
-            continue
-
-        if item['channel']:
-            field_rows.append(
-                DataSourceField(
-                    data_source_id=ds_id,
-                    field_name='channel',
-                    data_type='string',
-                    description=FIELD_DESCRIPTION,
-                    example_value=_truncate(item['channel']),
-                )
+    if source_to_item:
+        existing_fields = {
+            (field.data_source_id, field.field_name): field
+            for field in DataSourceField.objects.filter(
+                data_source_id__in=list(source_to_item.keys()),
+                field_name__in=['channel', 'provider', 'data_component'],
             )
+        }
 
-        if item['log_provider']:
-            field_rows.append(
-                DataSourceField(
-                    data_source_id=ds_id,
-                    field_name='provider',
-                    data_type='string',
-                    description=FIELD_DESCRIPTION,
-                    example_value=_truncate(item['log_provider']),
+        field_rows_to_create: list[DataSourceField] = []
+        field_rows_to_update: list[DataSourceField] = []
+
+        for source_id, item in source_to_item.items():
+            desired_values = {
+                'channel': item.get('channel', ''),
+                'provider': item.get('log_provider', ''),
+                'data_component': item.get('data_component', ''),
+            }
+
+            for field_name, raw_value in desired_values.items():
+                clean_value = _truncate(raw_value)
+                if not clean_value:
+                    continue
+
+                existing_field = existing_fields.get((source_id, field_name))
+                if not existing_field:
+                    field_rows_to_create.append(
+                        DataSourceField(
+                            data_source_id=source_id,
+                            field_name=field_name,
+                            data_type='string',
+                            description=FIELD_DESCRIPTION,
+                            example_value=clean_value,
+                        )
+                    )
+                    continue
+
+                changed = False
+                if existing_field.data_type != 'string':
+                    existing_field.data_type = 'string'
+                    changed = True
+                if _clean_text(existing_field.description) != FIELD_DESCRIPTION:
+                    existing_field.description = FIELD_DESCRIPTION
+                    changed = True
+                if _clean_text(existing_field.example_value) != clean_value:
+                    existing_field.example_value = clean_value
+                    changed = True
+
+                if changed:
+                    field_rows_to_update.append(existing_field)
+
+        progress_percent = 78
+        if field_rows_to_create:
+            total_field_batches = max(1, (len(field_rows_to_create) + FIELD_BATCH_SIZE - 1) // FIELD_BATCH_SIZE)
+            for field_batch_index, batch in enumerate(_batched(field_rows_to_create, FIELD_BATCH_SIZE), start=1):
+                DataSourceField.objects.bulk_create(batch, batch_size=FIELD_BATCH_SIZE, ignore_conflicts=True)
+                progress_percent = 78 + int((field_batch_index / total_field_batches) * 10)
+                _emit_progress(
+                    on_progress,
+                    progress_percent=progress_percent,
+                    message='Importing metadata fields',
                 )
-            )
 
-        if item['data_component']:
-            field_rows.append(
-                DataSourceField(
-                    data_source_id=ds_id,
-                    field_name='data_component',
-                    data_type='string',
-                    description=FIELD_DESCRIPTION,
-                    example_value=_truncate(item['data_component']),
-                )
+        if field_rows_to_update:
+            DataSourceField.objects.bulk_update(
+                field_rows_to_update,
+                ['data_type', 'description', 'example_value'],
+                batch_size=FIELD_BATCH_SIZE,
             )
-
-    if field_rows:
-        total_field_batches = max(1, (len(field_rows) + FIELD_BATCH_SIZE - 1) // FIELD_BATCH_SIZE)
-        for field_batch_index, batch in enumerate(_batched(field_rows, FIELD_BATCH_SIZE), start=1):
-            DataSourceField.objects.bulk_create(batch, batch_size=FIELD_BATCH_SIZE, ignore_conflicts=True)
-            progress = 78 + int((field_batch_index / total_field_batches) * 20)
             _emit_progress(
                 on_progress,
-                progress_percent=progress,
-                message='Importing metadata fields',
+                progress_percent=max(progress_percent, 95),
+                message='Refreshing metadata fields',
             )
 
     _emit_progress(
@@ -414,13 +503,13 @@ def import_attack_data_sources_for_organization(
         created_count=created_count,
         skipped_count=skipped_count,
         failed_count=failed_count,
-        total_candidates=len(keys),
+        total_candidates=len(canonical_keys),
     )
 
     return {
         'created_count': created_count,
         'skipped_count': skipped_count,
         'failed_count': failed_count,
-        'total_candidates': len(keys),
+        'total_candidates': len(canonical_keys),
         'version': resolved_version,
     }

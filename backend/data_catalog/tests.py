@@ -4,7 +4,7 @@ from graphene_django.utils.testing import GraphQLTestCase
 from unittest.mock import patch
 from organizations.models import Organization
 from.models import DataSource
-from .models import AttackDataImportJob
+from .models import AttackDataImportJob, DataSourceField
 from identity.models import CustomUser
 
 class DataCatalogAPITests(GraphQLTestCase):
@@ -161,6 +161,88 @@ class DataCatalogAPITests(GraphQLTestCase):
 
         response = self.query(mutation)
         self.assertResponseHasErrors(response)
+
+    @patch('data_catalog.attack_import._load_rows_from_strategy_analytics')
+    def test_import_attack_data_sources_populates_required_log_source_fields(self, load_rows_mock):
+        self.client.force_login(self.user_a)
+
+        load_rows_mock.return_value = [
+            {
+                'data_component': 'Process Creation (DC0032)',
+                'log_provider': 'WinEventLog:Security',
+                'channel': 'EventCode=4688',
+            }
+        ]
+
+        mutation = '''
+            mutation ImportAttack {
+                importAttackDataSources {
+                    createdCount
+                    skippedCount
+                    failedCount
+                    totalCandidates
+                }
+            }
+        '''
+
+        response = self.query(mutation)
+        self.assertResponseNoErrors(response)
+
+        imported = DataSource.objects.get(
+            organization=self.org_a,
+            name='WinEventLog:Security - EventCode=4688',
+        )
+        self.assertEqual(imported.platform, 'Windows')
+
+        field_map = {
+            row.field_name: row
+            for row in DataSourceField.objects.filter(data_source=imported)
+        }
+        self.assertSetEqual(set(field_map.keys()), {'data_component', 'provider', 'channel'})
+        self.assertEqual(field_map['data_component'].example_value, 'Process Creation (DC0032)')
+        self.assertEqual(field_map['provider'].example_value, 'WinEventLog:Security')
+        self.assertEqual(field_map['channel'].example_value, 'EventCode=4688')
+
+    @patch('data_catalog.attack_import._load_rows_from_strategy_analytics')
+    def test_import_attack_data_sources_migrates_legacy_auto_import_names(self, load_rows_mock):
+        self.client.force_login(self.user_a)
+
+        legacy = DataSource.objects.create(
+            organization=self.org_a,
+            name='Process Creation (DC0032)',
+            description='Auto-added from MITRE strategy: stale data',
+            platform=None,
+        )
+
+        load_rows_mock.return_value = [
+            {
+                'data_component': 'Process Creation (DC0032)',
+                'log_provider': 'WinEventLog:Security',
+                'channel': 'EventCode=4688',
+            }
+        ]
+
+        mutation = '''
+            mutation ImportAttack {
+                importAttackDataSources {
+                    createdCount
+                    skippedCount
+                    failedCount
+                    totalCandidates
+                }
+            }
+        '''
+
+        response = self.query(mutation)
+        self.assertResponseNoErrors(response)
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.name, 'WinEventLog:Security - EventCode=4688')
+
+        field_names = set(
+            DataSourceField.objects.filter(data_source=legacy).values_list('field_name', flat=True)
+        )
+        self.assertSetEqual(field_names, {'data_component', 'provider', 'channel'})
 
     @patch("data_catalog.tasks.run_attack_data_import_job")
     def test_admin_can_start_async_attack_import_job(self, run_job_mock):
